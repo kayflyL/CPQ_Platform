@@ -18,6 +18,8 @@ import { buildPrintTitle, exportSpecPdf } from '@/utils/printExport'
 import { computePerformanceScores, type PerfRawInput, type PerfScoreConfig } from '@/utils/performanceScore'
 import ServerAnatomyMap from '@/components/selection-map/ServerAnatomyMap.vue'
 import { ServerAnatomyViewer } from '@/components/server-visualization'
+import ServerStage3D from '@/components/server-3d/ServerStage3D.vue'
+import { server3dApi } from '@/api/server3d'
 import { fromKpPart } from '@/composables/usePartAdapter'
 import { SERVER_ANATOMY, type AnatomyForm } from '@/constants/serverAnatomy'
 import type { PickerItem } from '@/types/picker'
@@ -91,6 +93,26 @@ const anatomyCounts = computed<Record<string, number>>(() => {
     io: nicQty.value,
   }
 })
+
+// ---- 3D配置台:机型绑定了3D模型(服务器管理-3D模型管理)时优先展示,未绑定回落2D图纸 ----
+// 数量随左栏 KP 卡实时变化(对应2D沙盒的显隐特性):GPU/CPU/内存/盘位直接驱动3D插拔。
+const model3d = ref<any>(null)
+/** 模型自带分区标注(layout_config.labels),覆盖内置文案 */
+const model3dLabels = computed<Record<string, { name?: string; desc?: string }> | undefined>(() => {
+  if (!model3d.value?.layout_config) return undefined
+  try {
+    const lc = JSON.parse(model3d.value.layout_config)
+    return lc?.labels && Object.keys(lc.labels).length ? lc.labels : undefined
+  } catch { return undefined }
+})
+async function load3dModel() {
+  if (!props.model.id) { model3d.value = null; return }
+  try { model3d.value = await server3dApi.getByModel(props.model.id) }
+  catch { model3d.value = null }
+}
+const counts3d = computed(() => ({
+  gpus: gpuQty.value, cpus: cpuQty.value, dimms: memoryQty.value, bays: drivesQty.value,
+}))
 
 async function loadDrawing() {
   if (!props.model.id) { drawing.value = null; return }
@@ -718,6 +740,7 @@ onMounted(() => {
   init()
   loadSpecTemplate()
   loadDrawing()
+  load3dModel()
   loadMajors()
   loadPerfConfig()
   isMobile.value = window.matchMedia('(max-width: 768px)').matches
@@ -728,6 +751,25 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (_mqListener) window.matchMedia('(max-width: 768px)').removeEventListener('change', _mqListener)
 })
+
+// 公开模式快照：把当前选型导出成线索登记表的 slots 片段（只含品类/名称/规格/数量，无价格）。
+// 公开向导完成页用它预填线索登记表——选了什么就登记什么，业务零重填。
+function getPublicSnapshot() {
+  const kp_rows = kpLines.value.map((l) => {
+    const kp = kpPart(l.pn)
+    const specText = Object.entries(kp?.specs || {}).slice(0, 3).map(([k, v]) => `${k}:${v}`).join(' ')
+    return {
+      category: 'Key Parts',
+      part_category: l.cat,
+      catalogue: kp?.name || l.pn,
+      description: [kp?.brand, specText].filter(Boolean).join(' · '),
+      qty: l.qty || 1,
+      note: '',
+    }
+  })
+  return { kp_rows }
+}
+defineExpose({ getPublicSnapshot })
 </script>
 
 <template>
@@ -791,15 +833,21 @@ onBeforeUnmount(() => {
           <div class="sc-map-head">
             <div class="sc-map-head-left">
               <span class="sc-map-title">服务器图纸</span>
-              <span class="sc-map-sub">{{ drawing?.svg_url ? `上传图纸 · ${currentViewLabel}` : `${anatomyForm} ${currentViewLabel} · 解剖示意图` }}</span>
+              <span class="sc-map-sub">{{ model3d ? `3D配置台 · ${model3d.name}` : drawing?.svg_url ? `上传图纸 · ${currentViewLabel}` : `${anatomyForm} ${currentViewLabel} · 解剖示意图` }}</span>
             </div>
-            <a-radio-group v-model:value="currentView" size="small" class="sc-view-tabs">
+            <a-radio-group v-if="!model3d" v-model:value="currentView" size="small" class="sc-view-tabs">
               <a-radio-button v-for="o in viewOptions" :key="o.value" :value="o.value">{{ o.label }}</a-radio-button>
             </a-radio-group>
           </div>
-          <a-spin :spinning="drawingLoading">
+          <a-spin :spinning="drawingLoading && !model3d">
+            <ServerStage3D
+              v-if="model3d"
+              :counts="counts3d"
+              :labels="model3dLabels"
+              height="420px"
+            />
             <ServerAnatomyViewer
-              v-if="drawing?.svg_url"
+              v-else-if="drawing?.svg_url"
               decor-mode="plain"
               :svg-url="drawing.svg_url"
               :view-box="drawing.viewBox"
@@ -891,15 +939,21 @@ onBeforeUnmount(() => {
           <div class="sc-map-head">
             <div class="sc-map-head-left">
               <span class="sc-map-title">服务器图纸</span>
-              <span class="sc-map-sub">{{ drawing?.svg_url ? `上传图纸 · ${currentViewLabel}` : `${anatomyForm} ${currentViewLabel} · 解剖示意图` }}</span>
+              <span class="sc-map-sub">{{ model3d ? `3D配置台 · ${model3d.name}` : drawing?.svg_url ? `上传图纸 · ${currentViewLabel}` : `${anatomyForm} ${currentViewLabel} · 解剖示意图` }}</span>
             </div>
-            <a-radio-group v-model:value="currentView" size="small" class="sc-view-tabs">
+            <a-radio-group v-if="!model3d" v-model:value="currentView" size="small" class="sc-view-tabs">
               <a-radio-button v-for="o in viewOptions" :key="o.value" :value="o.value">{{ o.label }}</a-radio-button>
             </a-radio-group>
           </div>
-          <a-spin :spinning="drawingLoading">
+          <a-spin :spinning="drawingLoading && !model3d">
+            <ServerStage3D
+              v-if="model3d"
+              :counts="counts3d"
+              :labels="model3dLabels"
+              height="420px"
+            />
             <ServerAnatomyViewer
-              v-if="drawing?.svg_url"
+              v-else-if="drawing?.svg_url"
               decor-mode="plain"
               :svg-url="drawing.svg_url"
               :view-box="drawing.viewBox"

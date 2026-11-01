@@ -62,6 +62,16 @@
     <PortalDispatchPanel v-else-if="view === 'dispatch'" />
     <CreateOpportunityModal v-model:open="createOpen" :from="fromTag" @created="loadCards" />
 
+    <!-- 状态变更弹窗：内联下拉只选目标，实际变更必填一句话说明（丢标必选原因），与详情页同走 /result-change -->
+    <ResultChangeModal
+      v-model:open="resultModalOpen"
+      :opportunity-id="pendingRecord?.opportunity_id || ''"
+      :current="pendingRecord?.result || 'pending'"
+      :target="pendingResult"
+      :reasons="lossReasons"
+      @changed="onResultChanged"
+    />
+
     <a-modal
       v-model:open="renameOpen"
       title="重命名商机"
@@ -105,7 +115,8 @@ import { portalApi, type PortalOppCard } from '@/api/portal'
 import OpportunityTable from '@/components/opportunity/OpportunityTable.vue'
 import CreateOpportunityModal from '@/components/opportunity/CreateOpportunityModal.vue'
 import PortalDispatchPanel from './PortalDispatchPanel.vue'
-import { resultLabel } from '@/constants/opportunityResult'
+import ResultChangeModal from '@/components/opportunity/ResultChangeModal.vue'
+import { systemConfigApi } from '@/api/systemConfig'
 import { useAuthStore } from '@/store/auth'
 
 type ViewKey = 'business' | 'te' | 'cost' | 'quote' | 'dispatch'
@@ -250,18 +261,27 @@ const stats = computed(() => {
   return []
 })
 
-// 行内改商机状态（业务/报价员）：乐观更新 → 存库，失败回滚
-async function changeResult(record: any, val: string) {
-  if (val === record.result) return
-  const prev = record.result
-  record.result = val
+// 行内改商机状态：下拉只选目标，实际变更走 ResultChangeModal（必填一句话，丢标必选原因）→ /result-change
+interface LossReason { key: string; label: string; enabled: boolean }
+const resultModalOpen = ref(false)
+const pendingRecord = ref<any>(null)
+const pendingResult = ref('')
+const lossReasons = ref<LossReason[]>([])
+async function loadLossReasons() {
   try {
-    await axios.put(`/api/opportunities/${record.opportunity_id}/meta`, { result: val })
-    message.success(`状态已改为「${resultLabel(val)}」`)
-  } catch {
-    record.result = prev
-    message.error('状态更新失败')
-  }
+    const list = await systemConfigApi.getValue<LossReason[]>('opportunity.loss_reasons')
+    if (Array.isArray(list)) lossReasons.value = list
+  } catch { /* 字典加载失败不阻塞页面，标签回退显示 key */ }
+}
+function changeResult(record: any, val: string) {
+  if (val === record.result) return
+  pendingRecord.value = record
+  pendingResult.value = val
+  resultModalOpen.value = true
+}
+function onResultChanged(updated: Record<string, any>) {
+  if (pendingRecord.value) pendingRecord.value.result = updated.result
+  message.success('商机状态已变更')
 }
 
 // 行菜单（我的商机）：打开 / 重命名 / 移至回收站
@@ -403,6 +423,7 @@ function onResize() {
 }
 
 onMounted(() => {
+  loadLossReasons()
   if (guardView()) {
     pageSize.value = computeAdaptivePageSize()
     load()

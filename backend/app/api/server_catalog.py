@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import FileResponse
 from typing import Optional
-from app.api.deps import require_admin, get_current_user, require_perms
+from app.api.deps import require_admin, get_current_user, get_optional_user, require_perms
 from app.repository.server_catalog_repo import ServerCatalogRepository
 from app.repository.system_config_repo import SystemConfigRepository
 from app.utils.svg_sanitizer import sanitize_svg
@@ -87,8 +87,9 @@ def list_models(type_id: Optional[int] = None, published_only: bool = False):
     return {"models": ServerCatalogRepository().list_models(type_id, published_only=published_only)}
 
 
-@router.get("/models/{model_id}", dependencies=[Depends(get_current_user)])
+@router.get("/models/{model_id}", dependencies=[Depends(get_optional_user)])
 def get_model(model_id: int):
+    """机型全量详情。匿名可达（公开配置向导复用）；技术数据，无价格字段。"""
     m = ServerCatalogRepository().get_model(model_id)
     if not m:
         raise HTTPException(404, "机型不存在")
@@ -377,7 +378,7 @@ def set_portal_banner(data: dict, admin: dict = Depends(require_admin)):
 _PERF_SCORE_KEY = "performance_score_config"
 
 
-@router.get("/performance-score-config", dependencies=[Depends(get_current_user)])
+@router.get("/performance-score-config", dependencies=[Depends(get_optional_user)])
 def get_performance_score_config():
     """读性能六维打分锚点表；未配置返回空对象（前端回落内置默认锚点）。"""
     repo = SystemConfigRepository()
@@ -664,7 +665,7 @@ async def upload_model_drawing(model_id: int, view: str = Query("top"),
             "history": views[view].get("history") or [], "removed_files": removed_files}
 
 
-@router.get("/models/{model_id}/drawing", dependencies=[Depends(get_current_user)])
+@router.get("/models/{model_id}/drawing", dependencies=[Depends(get_optional_user)])
 def get_model_drawing(model_id: int, view: str = Query("top")):
     """读取机型某视图的图纸配置；未配置返回 null。"""
     if view not in _DRAWING_VIEWS:

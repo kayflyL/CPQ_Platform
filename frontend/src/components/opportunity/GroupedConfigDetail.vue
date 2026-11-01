@@ -44,7 +44,8 @@ watch(
       </div>
       <p v-if="cfg.note" class="gcd-note">{{ cfg.note }}</p>
 
-      <table class="gcd-table">
+      <div class="gcd-scroll">
+        <table class="gcd-table">
         <thead>
           <tr>
             <th class="gcd-col-group">分组</th>
@@ -64,6 +65,7 @@ watch(
           </tr>
         </tbody>
       </table>
+      </div>
 
       <div class="gcd-total glass">
         <span v-for="t in cfg.totals" :key="t.label">
@@ -112,4 +114,11 @@ watch(
 }
 .gcd-total b { color: var(--cpq-text-primary); font-variant-numeric: tabular-nums; margin-left: 4px; }
 .gcd-accent { color: var(--cpq-accent-primary) !important; }
+
+/* 手机端：表格窄屏横向滑动（明细网格手机口径），摘要条可换行 */
+@media (max-width: 768px) {
+  .gcd-summary { flex-wrap: wrap; gap: 10px 16px; }
+  .gcd-scroll { overflow-x: auto; }
+  .gcd-table { min-width: 620px; }
+}
 </style>

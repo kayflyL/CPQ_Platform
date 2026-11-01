@@ -13,6 +13,7 @@ export interface RequirementSlots {
   chassis_form?: string
   purchase_qty?: number
   warranty_years?: string
+  expected_delivery?: string  // 期望交期（公开线索表与内部登记表同字段，requirement_sheet_form 驱动）
   config_relation?: string   // compose=组合拆分 / alternative=方案备选对比
   primary_config?: string    // 方案备选下的主推配置名（默认第一个配置）
   cpu?: { model?: string; brand?: string; qty?: number; cores?: number; tdp_w?: number }
@@ -35,6 +36,7 @@ export interface RequirementSlots {
     server_type?: string
     chassis_form?: string
     warranty_years?: string
+    expected_delivery?: string
     description?: string
     qty?: number
     kp_rows?: Array<{

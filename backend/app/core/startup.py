@@ -17,7 +17,8 @@ from app.models.llm_trace import LLMTrace  # LLM 调用审计 trace（P3 指标�
 from app.models.compatibility_rule import CompatibilityRule  # 兼容性规则引擎（注册 metadata 供 create_all 建表）
 from app.models.office_event import OfficeEvent  # AI 办公室事件审计（注册 metadata 供 create_all 建表）
 from app.models.office_governance import OfficeGovernanceItem  # AI 办公室治理审批（注册 metadata 供 create_all 建表）
-from app.models.artifact_share import ArtifactShareToken  # 产出物分享令牌（注册 metadata 供 create_all 建表；对应 migrations/create_artifact_share_tokens.sql）
+from app.models.artifact_share import ArtifactShareToken
+from app.models.server_3d_model import Server3dModel  # noqa: F401 服务器3D模型登记(注册metadata供create_all建表;对应 migrations/20261101_create_server_3d_models.sql)  # 产出物分享令牌（注册 metadata 供 create_all 建表；对应 migrations/create_artifact_share_tokens.sql）
 from app.models.flow import (  # 协作流程 BOM/成本卡片（注册 metadata 供 create_all 建表）
     OpportunityFlow,
     OpportunityFlowNode,
@@ -641,6 +642,9 @@ _DEFAULT_PERMISSIONS = [
     # 商机线索域：菜单本体 + 两张子页（商机详情 / 报价工作台）
     {"key": "page.opportunities_all", "name": "商机线索菜单（数据范围 = 全部销售的商机）", "group": "page", "module": "商机线索"},
     {"key": "page.opportunities", "name": "商机子页面：商机详情 / 报价工作台 / AI 线索 / 回收站 / 门户任务页", "group": "page", "module": "商机线索"},
+    # 线索池：公开渠道汇聚线索的人工筛选与转化分配
+    {"key": "page.leads", "name": "线索池（公开线索汇聚）", "group": "page", "module": "线索池"},
+    {"key": "action.lead.manage", "name": "线索处理（确认 / 转商机分配 / 驳回）", "group": "action", "module": "线索池"},
     {"key": "field.opportunity.quote_price", "name": "报价金额可见（商机详情/列表的报价单价格）", "group": "field", "module": "商机线索 · 商机详情"},
     {"key": "field.flow.bom", "name": "存档区 · 方案附件可见", "group": "field", "module": "商机线索 · 商机详情"},
     {"key": "field.flow.cost", "name": "存档区 · 成本附件可见", "group": "field", "module": "商机线索 · 商机详情"},
@@ -747,6 +751,31 @@ def ensure_loss_reason_dict():
             repo.set("opportunity.loss_reasons", [dict(item) for item in _DEFAULT_LOSS_REASONS],
                      type="json", description="商机丢标/过期原因字典")
             print("✅ Loss reason dict seeded (opportunity.loss_reasons)")
+    finally:
+        repo.close()
+
+
+# 线索驳回原因字典种子（线索池专人驳回用；仿丢标字典，仅缺 key 时写入）
+_DEFAULT_LEAD_REJECT_REASONS = [
+    {"key": "not_target_customer", "label": "非目标客户", "enabled": True},
+    {"key": "spam", "label": "垃圾广告", "enabled": True},
+    {"key": "duplicate", "label": "重复线索", "enabled": True},
+    {"key": "no_real_demand", "label": "无真实需求", "enabled": True},
+    {"key": "info_false", "label": "信息不实", "enabled": True},
+    {"key": "out_of_scope", "label": "超经营范围", "enabled": True},
+]
+
+
+def ensure_lead_reject_dict():
+    """线索驳回原因字典种子（幂等，仅缺 key 时写入，之后由权限管理员维护）。"""
+    from app.repository.system_config_repo import SystemConfigRepository
+    repo = SystemConfigRepository()
+    try:
+        current = repo.get_value("lead.reject_reasons", None)
+        if current is None:
+            repo.set("lead.reject_reasons", [dict(item) for item in _DEFAULT_LEAD_REJECT_REASONS],
+                     type="json", description="线索池驳回原因字典")
+            print("✅ Lead reject dict seeded (lead.reject_reasons)")
     finally:
         repo.close()
 
@@ -1562,6 +1591,7 @@ def init_rules_db():
         print(f"⚠️ Permission catalog init failed: {e}")
     try:
         ensure_loss_reason_dict()
+        ensure_lead_reject_dict()
     except Exception as e:
         print(f"⚠️ Loss reason dict init failed: {e}")
     try:
@@ -1589,4 +1619,3 @@ def init_rules_db():
             print(f"🧹 AI Office retention: {event_removed} runtime events, {gov_removed} resolved governance items")
     except Exception:
         pass
-

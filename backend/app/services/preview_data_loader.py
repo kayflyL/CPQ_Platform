@@ -60,10 +60,17 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
         # 这样新增字段自动包含，不需要手动同步
         data = dict(opportunity)
 
+        # 复合别名：业务名-商机创建日期（模板头部单格绑定用；紧凑日期与导出文件名同款）
+        _created = str(opportunity.get("created_at") or "")
+        _created_compact = _created[:10].replace("-", "") if _created else ""
+        _biz_parts = [opportunity.get("sales_person") or "未分配", _created_compact]
+        biz_created_date = "-".join(p for p in _biz_parts if p)
+
         # 补充系统字段和占位字段
         data.update({
             "l6_spec": "",
             "business_person": opportunity.get("sales_person", ""),  # 别名
+            "biz_created_date": biz_created_date,
             "export_date": datetime.now().strftime("%Y-%m-%d"),
             "export_time": datetime.now().strftime("%H:%M"),
             "l6_count": 0,

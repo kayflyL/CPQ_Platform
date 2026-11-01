@@ -42,10 +42,13 @@
         </a-dropdown>
       </nav>
       <div class="topbar-actions">
-        <span class="action-pill-wrap">
-          <NotificationBell />
-        </span>
-        <OnlinePill />
+        <template v-if="auth.isAuthenticated">
+          <span class="action-pill-wrap">
+            <NotificationBell />
+          </span>
+        </template>
+        <a-button v-else type="primary" size="small" class="login-pill" @click="go('/login')">登录</a-button>
+        <OnlinePill v-if="auth.isAuthenticated" />
         <a-dropdown v-if="auth.user" placement="bottomRight">
           <button type="button" class="action-pill user-pill">
             <UserOutlined />
@@ -175,8 +178,9 @@
       <div v-if="isMobile" class="scroll-clearance-bottom" aria-hidden="true"></div>
     </main>
 
-    <!-- 全局浮动「方案助手」入口(右下角,所有页面常驻)；办公室访问策略清零该账号可聊 AI 角色时隐藏 -->
-    <template v-if="auth.chatRolesAllowed">
+    <!-- 全局浮动「方案助手」入口(右下角,所有页面常驻)；办公室访问策略清零该账号可聊 AI 角色时隐藏。
+         公开路由下匿名访客不挂载（assistant 配置接口 401 会触发跳 /login）。 -->
+    <template v-if="auth.chatRolesAllowed && auth.isAuthenticated">
       <AssistantFloatingButton v-model:open="assistantOpen" :model-key="petModel.activePetModel" />
       <AssistantPanel v-model:open="assistantOpen" />
     </template>
@@ -215,7 +219,13 @@ const petModel = usePetModelStore()
 type NavItem = { key: string; label: string; perm?: string }
 
 const topItems = computed<NavItem[]>(() => {
-  const items: NavItem[] = [
+  // 公开路由（目录/详情/配置向导/提交需求）下导航合并公开项：
+  // 匿名访客只看公开两项；登录用户公开 + 内部都可见（点内部照常回系统）。
+  const publicItems: NavItem[] = [
+    { key: '/catalog', label: '产品目录' },
+    { key: '/lead', label: '提交需求' },
+  ]
+  const internalItems: NavItem[] = [
     { key: '/galaxy', label: '首页' },
     { key: '/portal', label: '工作台' },
     { key: '/opportunities', label: '商机线索', perm: 'page.opportunities_all' },
@@ -223,7 +233,10 @@ const topItems = computed<NavItem[]>(() => {
     { key: '/parts', label: '配件', perm: 'page.parts' },
     { key: '/strategies', label: '解决方案', perm: 'page.strategies' },
   ]
-  return items.filter((i) => !i.perm || auth.can(i.perm))
+  if (route.path.startsWith('/catalog') || route.path === '/lead') {
+    return auth.isAuthenticated ? [...publicItems, ...internalItems.filter((i) => !i.perm || auth.can(i.perm))] : publicItems
+  }
+  return internalItems.filter((i) => !i.perm || auth.can(i.perm))
 })
 
 const settingsItems = computed<NavItem[]>(() => {
@@ -509,6 +522,8 @@ onBeforeUnmount(() => {
   gap: 6px;
   flex-shrink: 0;
 }
+
+.login-pill { margin-right: 6px; }
 
 .action-pill {
   display: inline-flex;

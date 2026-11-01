@@ -172,6 +172,16 @@
 
     <CreateOpportunityModal v-model:open="showCreateModal" />
 
+    <!-- 状态变更弹窗：内联下拉只选目标，实际变更必填一句话说明（丢标必选原因），与详情页同走 /result-change -->
+    <ResultChangeModal
+      v-model:open="resultModalOpen"
+      :opportunity-id="pendingRecord?.opportunity_id || ''"
+      :current="pendingRecord?.result || 'pending'"
+      :target="pendingResult"
+      :reasons="lossReasons"
+      @changed="onResultChanged"
+    />
+
     <!-- 手机端商机列表抽屉：右侧滑出、卡式行、粘性筛选、分页吸底（桌面无此入口） -->
     <a-drawer
       v-model:open="listDrawerOpen"
@@ -261,6 +271,8 @@ import ExcelJS from 'exceljs'
 import CreateOpportunityModal from '@/components/opportunity/CreateOpportunityModal.vue'
 import OpportunityTable from '@/components/opportunity/OpportunityTable.vue'
 import OpportunityPartFilter, { type PartFilterRow } from '@/components/opportunity/OpportunityPartFilter.vue'
+import ResultChangeModal from '@/components/opportunity/ResultChangeModal.vue'
+import { systemConfigApi } from '@/api/systemConfig'
 import { resultLabel } from '@/constants/opportunityResult'
 import { downloadBlob } from '@/utils/download'
 import dayjs from 'dayjs'
@@ -534,25 +546,34 @@ function onViewportResize() {
   }, 200)
 }
 
-// 列表内联改业务结果：乐观更新标签 → 存库 → 离筛选行本地移除 + 刷新图表（不刷表避免行跳动）
-async function changeResult(record: any, val: string) {
-  if (val === record.result) return
-  const idx = tableData.value.findIndex((r: any) => r.opportunity_id === record.opportunity_id)
-  if (idx < 0) return
-  const prev = tableData.value[idx].result
-  tableData.value[idx] = { ...tableData.value[idx], result: val }
+// 列表内联改业务结果：下拉只选目标，实际变更走 ResultChangeModal（必填一句话，丢标必选原因）→ /result-change
+interface LossReason { key: string; label: string; enabled: boolean }
+const resultModalOpen = ref(false)
+const pendingRecord = ref<any>(null)
+const pendingResult = ref('')
+const lossReasons = ref<LossReason[]>([])
+async function loadLossReasons() {
   try {
-    await axios.put(`/api/opportunities/${record.opportunity_id}/meta`, { result: val })
-    message.success(`状态已改为「${resultLabel(val)}」`)
-    if (filters.value.status !== 'all' && filters.value.status !== val) {
-      tableData.value = tableData.value.filter((r: any) => r.opportunity_id !== record.opportunity_id)
-      tableTotal.value = Math.max(0, tableTotal.value - 1)
-    }
-    loadSummary()
-  } catch {
-    tableData.value[idx] = { ...tableData.value[idx], result: prev }
-    message.error('状态更新失败')
+    const list = await systemConfigApi.getValue<LossReason[]>('opportunity.loss_reasons')
+    if (Array.isArray(list)) lossReasons.value = list
+  } catch { /* 字典加载失败不阻塞页面，标签回退显示 key */ }
+}
+function changeResult(record: any, val: string) {
+  if (val === record.result) return
+  pendingRecord.value = record
+  pendingResult.value = val
+  resultModalOpen.value = true
+}
+function onResultChanged(updated: Record<string, any>) {
+  const id = pendingRecord.value?.opportunity_id
+  const idx = tableData.value.findIndex((r: any) => r.opportunity_id === id)
+  if (idx >= 0) tableData.value[idx] = { ...tableData.value[idx], ...updated }
+  message.success('商机状态已变更')
+  if (filters.value.status !== 'all' && filters.value.status !== updated.result) {
+    tableData.value = tableData.value.filter((r: any) => r.opportunity_id !== id)
+    tableTotal.value = Math.max(0, tableTotal.value - 1)
   }
+  loadSummary()
 }
 function goToDetail(id: string) { router.push(`/opportunities/${id}`) }
 function goToRecycleBin() { router.push('/recycle-bin') }
@@ -830,6 +851,7 @@ function setPeriod(p: string) { customRange.value = null; period.value = p; peri
 
 onMounted(async () => {
   seriesStore.ensureSeries()
+  loadLossReasons()
   if (canViewAll.value) {
     try {
       const res = await axios.get('/api/opportunities/sales-options')

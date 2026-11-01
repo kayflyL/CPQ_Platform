@@ -5,9 +5,17 @@
 import { ref, computed, nextTick, onMounted, onActivated, onDeactivated, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { catalogApi, type ServerType, type ServerModel, type PortalBanner } from '@/api/serverConfig'
+import { publicCatalogApi } from '@/api/publicIntake'
 import ServerModelCard from '@/components/common/ServerModelCard.vue'
 
+const props = defineProps<{ publicMode?: boolean }>()
 const router = useRouter()
+
+// 公开模式前缀：路由与数据源都换公开侧（/catalog + 公开白名单 API）
+const R = computed(() => (props.publicMode ? '/catalog' : '/servers'))
+const _typesApi = () => (props.publicMode ? publicCatalogApi.listTypes() : catalogApi.listTypes())
+const _modelsApi = (publishedOnly: boolean) =>
+  (props.publicMode ? publicCatalogApi.listModels() : catalogApi.listModels(undefined, { publishedOnly }))
 const types = ref<ServerType[]>([])
 const models = ref<ServerModel[]>([])
 const loading = ref(false)
@@ -60,9 +68,9 @@ async function load() {
   loading.value = true
   try {
     const [typesRes, modelsRes, bannerRes] = await Promise.all([
-      catalogApi.listTypes(),
-      catalogApi.listModels(undefined, { publishedOnly: true }),
-      catalogApi.getPortalBanner().catch(() => ({})),
+      _typesApi(),
+      _modelsApi(true),
+      props.publicMode ? publicCatalogApi.getBanner().catch(() => ({})) : catalogApi.getPortalBanner().catch(() => ({})),
     ])
     types.value = typesRes.types
     models.value = modelsRes.models
@@ -73,10 +81,10 @@ async function load() {
 }
 
 function goToModels(type: ServerType) {
-  router.push(`/servers/types/${type.id}`)
+  router.push(`${R.value}/types/${type.id}`)
 }
 function goToDetail(m: ServerModel) {
-  router.push(`/servers/models/${m.id}`)
+  router.push(`${R.value}/models/${m.id}`)
 }
 
 // 首屏深色场景垫在透明顶栏下：声明 hero-dark，顶栏切浅色文字保浅色主题可读
@@ -200,6 +208,15 @@ onBeforeUnmount(() => markHeroDark(false))
           />
         </div>
       </template>
+
+      <!-- 公开模式兜底 CTA：没找到合适的直接留资（跳公开登记页） -->
+      <div v-if="publicMode" class="pub-cta-bar">
+        <div>
+          <h3>没找到合适的？</h3>
+          <p>说说你的场景和数量，我们来推荐配置 —— 1 个工作日内回复</p>
+        </div>
+        <button class="pub-cta-btn" type="button" @click="router.push('/lead')">提交需求 →</button>
+      </div>
     </div>
   </div>
 </template>
@@ -575,6 +592,21 @@ onBeforeUnmount(() => markHeroDark(false))
 .sc-sec-title { font-size: 17px; font-weight: 600; color: #f2f8ff; }
 .sc-sec-count { font-size: var(--cpq-font-size-sm); color: rgba(238, 243, 250, 0.52); }
 .sc-models { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+
+/* 公开模式兜底 CTA 条 */
+.pub-cta-bar {
+  margin: 44px auto 0; padding: 26px 32px;
+  display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  border: 1px solid rgba(255, 255, 255, 0.2); border-radius: var(--cpq-radius-lg);
+  background: linear-gradient(135deg, var(--cpq-overlay-a10), var(--cpq-overlay-a4));
+}
+.pub-cta-bar h3 { font-size: 17px; font-weight: 600; color: #f2f8ff; margin: 0; }
+.pub-cta-bar p { font-size: 13px; color: rgba(238, 243, 250, 0.72); margin: 5px 0 0; }
+.pub-cta-btn {
+  padding: 11px 26px; font-size: 14.5px; font-weight: 600; cursor: pointer; flex-shrink: 0;
+  background: var(--cpq-accent-primary); color: #fff; border: none; border-radius: var(--cpq-radius-md);
+}
+.pub-cta-btn:hover { background: var(--cpq-accent-primary-light); }
 
 @media (max-width: 640px) {
   .scene { min-height: calc(340px + var(--cpq-header-clearance, 0px)); }

@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>公开目录与线索提交 · 原型</title>
+<style>
+/* ============================================================
+   原型① 公开目录与线索提交（对外面 · 固定暗色）
+   视觉基准：线上服务器链路（ModelCatalog / ModelDetailPage / ServerModelCard dark）
+   参考对象：server-configurator.com 的 request-a-quote（配置快照在上 + 登记表在下）
+   规格要点：
+   · 线索登记表字段权威 = 商机详情页线索登记节点（requirement_sheet_form）：
+     需求原文 + 机型型号/平台类型/服务器类型/机箱形态/数量/维保年限（外部版为子集，不含 KP 部件清单）
+   · 入口一：配置向导完成页 —— 原「打印规格书」改造为进入本页（配置快照 + 登记表）
+   · 入口二：/lead 独立免登录页 —— 复用同一张线索登记表
+   · 整站无价格 · 无登录入口 · 反滥用三件套（蜜罐/限流/手机号并入）
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --accent: #1677FF;
+  --accent-light: #4096ff;
+  --text: #eef3fa;
+  --text-2: rgba(238, 243, 250, 0.72);
+  --muted: rgba(238, 243, 250, 0.52);
+  --line-soft: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.2);
+  --page-bg: linear-gradient(to bottom, #02050f 0%, #071226 45%, #030814 100%);
+  --sun: #5BB8FF; --sun-bright: #D6EBFF; --glow: rgba(91, 184, 255, 0.55);
+}
+html { scroll-behavior: smooth; }
+body { font-family: var(--font); background: #030814; color: var(--text); }
+
+/* ---------- 原型工具条（非产品 UI） ---------- */
+.proto-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 999;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 16px;
+  background: rgba(6, 10, 22, 0.92); backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13px;
+}
+.proto-bar .pb-title { font-weight: 700; margin-right: 8px; color: #f2f8ff; }
+.proto-bar .pb-title small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+.pb-btn {
+  padding: 5px 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line-soft); background: rgba(255,255,255,0.04);
+  color: var(--text-2); font-size: 12.5px; font-family: inherit; transition: all .2s;
+}
+.pb-btn:hover { border-color: var(--line-strong); color: #fff; }
+.pb-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.proto-bar .pb-hint { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+
+.view { display: none; padding-top: 54px; min-height: 100vh; }
+.view.on { display: block; }
+
+/* ---------- 公开版顶栏 ---------- */
+.pub-header {
+  position: sticky; top: 54px; z-index: 50;
+  display: flex; align-items: center; gap: 24px;
+  padding: 12px 28px;
+  background: rgba(3, 8, 20, 0.72); backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--line-soft);
+}
+.pub-logo { display: flex; align-items: baseline; gap: 10px; }
+.pub-logo b { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: #f7fbff; }
+.pub-logo span { font-size: 11px; color: var(--muted); letter-spacing: 0.18em; font-family: var(--mono); }
+.pub-nav { margin-left: auto; display: flex; align-items: center; gap: 18px; }
+.pub-nav a { color: var(--text-2); text-decoration: none; font-size: 14px; }
+.pub-nav a:hover, .pub-nav a.cur { color: #fff; }
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 22px; border: none; border-radius: 6px; cursor: pointer;
+  background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; font-family: inherit;
+  transition: background .2s;
+}
+.btn-primary:hover { background: var(--accent-light); }
+
+/* ---------- 旭日舞台 banner（简化复刻） ---------- */
+.scene {
+  position: relative; height: 420px; overflow: hidden; color: #fff;
+  background: linear-gradient(to bottom, #020610 0%, #050f1f 24%, #0a1e3d 48%, #123763 68%, #0a2244 80%, rgba(4, 16, 31, 0.55) 90%, transparent 100%);
+}
+.scene-watermark {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: clamp(96px, 15vw, 200px); font-weight: 900; letter-spacing: -0.03em;
+  color: #fff; opacity: 0.06; white-space: nowrap; pointer-events: none; user-select: none;
+}
+.scene-sky-glow {
+  position: absolute; left: 0; right: 0; bottom: 30%; height: 55%;
+  background: radial-gradient(ellipse 60% 100% at 50% 100%, var(--glow) 0%, transparent 62%);
+}
+.scene-sun {
+  position: absolute; left: 50%; bottom: 30%; width: 520px; height: 200px;
+  transform: translate(-50%, 50%); border-radius: 50%;
+  background: radial-gradient(ellipse at center, var(--sun-bright) 0%, var(--sun) 36%, transparent 70%);
+  opacity: 0.85; filter: blur(12px);
+}
+.scene-earth {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 30%;
+  background: linear-gradient(to bottom, transparent 0%, rgba(2, 6, 16, 0.88) 35%, rgba(1, 4, 9, 0) 100%);
+}
+.scene-horizon {
+  position: absolute; left: -8%; right: -8%; bottom: 30%; height: 0;
+  border-top: 2px solid transparent;
+  background: linear-gradient(to right, transparent 0%, var(--sun) 22%, var(--sun-bright) 50%, var(--sun) 78%, transparent 100%);
+  box-shadow: 0 0 24px var(--sun), 0 0 50px var(--sun), 0 -6px 70px var(--glow), 0 6px 70px var(--glow);
+}
+.scene-title {
+  position: absolute; left: 0; right: 0; top: 16%; text-align: center; padding: 0 24px; z-index: 8;
+  font-size: clamp(26px, 3.2vw, 30px); font-weight: 600; letter-spacing: 0.05em;
+  background: linear-gradient(180deg, #ffffff 30%, rgba(255, 255, 255, 0.55));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 2px 14px rgba(0, 0, 0, 0.4));
+}
+.scene-capsule {
+  position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 8;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 0 24px;
+}
+.cap-btn {
+  padding: 7px 18px; font-size: 13px; color: rgba(255,255,255,0.78);
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 999px; cursor: pointer; backdrop-filter: blur(8px); transition: all .25s; white-space: nowrap;
+}
+.cap-btn i { font-style: normal; font-size: 12px; opacity: 0.6; }
+.cap-btn:hover { background: rgba(255,255,255,0.16); color: #fff; border-color: rgba(255,255,255,0.5); box-shadow: 0 0 14px rgba(255,255,255,0.22); }
+.cap-btn.cur { background: rgba(255,255,255,0.18); color: #fff; }
+
+/* ---------- 内容区 ---------- */
+.page-inner { max-width: 1180px; margin: 0 auto; padding: 36px 24px 0; }
+.sc-sec-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 16px; }
+.sc-sec-title { font-size: 17px; font-weight: 600; color: #f2f8ff; }
+.sc-sec-count { font-size: 12px; color: var(--muted); }
+.sc-models { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+
+.model-card {
+  position: relative; display: flex; flex-direction: column; gap: 8px; padding: 16px;
+  border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+  background: rgba(255,255,255,0.02); cursor: pointer; transition: all .2s cubic-bezier(.16,1,.3,1);
+}
+.model-card:hover { border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.04); box-shadow: 0 14px 40px rgba(0,0,0,0.45); }
+.lc-chip {
+  position: absolute; top: 12px; right: 12px;
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid transparent;
+}
+.lc-active { color: #1f9d6b; background: rgba(125,215,170,.18); border-color: rgba(125,215,170,.45); }
+.lc-new    { color: #2f7de1; background: rgba(150,195,250,.18); border-color: rgba(150,195,250,.45); }
+.lc-eol    { color: #c8861a; background: rgba(245,200,110,.18); border-color: rgba(245,200,110,.45); }
+.m-thumb {
+  height: 92px; border-radius: 6px; overflow: hidden;
+  background: #0a0d13; border: 1px solid rgba(255,255,255,0.1);
+  display: flex; align-items: center; justify-content: center;
+}
+.chassis { width: 120px; height: 56px; border-radius: 3px; background: linear-gradient(to bottom, #1a2230, #10151f); border: 1px solid rgba(255,255,255,0.14); padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
+.chassis .bay-row { display: flex; gap: 3px; }
+.chassis .bay { flex: 1; height: 7px; border-radius: 1px; background: rgba(91,184,255,0.16); border: 1px solid rgba(91,184,255,0.22); }
+.chassis .bay.hot { background: rgba(91,184,255,0.4); }
+.chassis .psu { height: 9px; margin-top: auto; border-radius: 1px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); }
+.m-name { font-size: 15px; font-weight: 600; color: #f2f8ff; }
+.m-type { font-size: 12px; color: var(--text-2); }
+.m-tagline { font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.m-specs { display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.1); }
+.m-specs span { display: flex; flex-direction: column; font-size: 13px; font-weight: 600; color: #e8f3ff; }
+.m-specs i { font-size: 11px; font-weight: 400; font-style: normal; color: var(--muted); }
+
+/* 货架底部公开 CTA 条 */
+.pub-cta-bar {
+  margin: 44px auto 0; max-width: 1180px; padding: 26px 32px;
+  display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: linear-gradient(135deg, rgba(22,119,255,0.10), rgba(22,119,255,0.03));
+}
+.pub-cta-bar h3 { font-size: 17px; font-weight: 600; color: #f2f8ff; }
+.pub-cta-bar p { font-size: 13px; color: var(--text-2); margin-top: 5px; }
+.pub-cta-bar .btn-primary { flex-shrink: 0; padding: 11px 26px; font-size: 14.5px; }
+.pub-footer { margin-top: 56px; padding: 26px 24px 40px; text-align: center; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line-soft); }
+
+/* ---------- 机型详情页（公开版） ---------- */
+.hero-scene {
+  position: relative; height: 560px; overflow: hidden; color: #fff;
+  background: linear-gradient(to bottom, #030814 0%, #0a1830 28%, #143a6b 58%, #0e2a52 70%, #06101f 100%);
+}
+.hero-scene .scene-earth { background: linear-gradient(to bottom, transparent 0%, rgba(3,8,20,0.85) 35%, #020610 100%); }
+.scene-product { position: absolute; left: 50%; bottom: 30%; transform: translateX(-50%); z-index: 7; }
+.scene-product .chassis { width: 420px; height: 150px; padding: 18px 24px; gap: 10px; border-width: 1.5px; box-shadow: 0 4px 18px rgba(0,0,0,0.5); }
+.chassis .bay { height: 7px; }
+.chassis .psu { height: 9px; }
+.scene-product .chassis .bay { height: 16px; }
+.scene-product .chassis .psu { height: 20px; }
+.scene-reflection {
+  position: absolute; left: 50%; top: 70%; transform: translateX(-50%); margin-top: -16px;
+  width: 420px; opacity: 0.6; z-index: 5;
+  -webkit-mask: linear-gradient(to bottom, rgba(0,0,0,0.95) 0%, transparent 58%);
+  mask: linear-gradient(to bottom, rgba(0,0,0,0.95) 0%, transparent 58%);
+}
+.scene-reflection .chassis { transform: scaleY(-1); filter: blur(2px); width: 420px; height: 150px; padding: 18px 24px; gap: 10px; }
+.scene-reflection .chassis .bay { height: 16px; }
+.scene-reflection .chassis .psu { height: 20px; }
+.scene-back {
+  position: absolute; top: 20px; left: 28px; z-index: 8;
+  color: rgba(255,255,255,0.78); font-size: 14px; cursor: pointer;
+  background: none; border: none; font-family: inherit;
+}
+.scene-back:hover { color: #fff; }
+.hero-scene .lc-chip { position: absolute; top: 22px; right: 28px; z-index: 8; font-size: 12px; padding: 3px 10px; }
+
+.d-page { background: var(--page-bg); padding-bottom: 80px; }
+.d-inner { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+.hero-meta {
+  display: flex; justify-content: space-between; align-items: center; gap: 28px; flex-wrap: wrap;
+  padding: 24px 30px; margin: 28px auto 0; position: relative; z-index: 9;
+  border-radius: 8px; border: 1px solid var(--line-strong);
+  background: rgba(9,10,13,0.8); backdrop-filter: blur(16px);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.hero-meta::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(to right, transparent 4%, var(--sun) 38%, var(--sun-bright) 50%, var(--sun) 62%, transparent 96%);
+}
+.meta-name { font-family: var(--mono); font-size: 27px; font-weight: 700; color: #f7fbff; letter-spacing: -0.01em; }
+.meta-tagline { font-size: 15px; color: var(--sun-bright); font-weight: 600; margin-top: 7px; }
+.meta-specs { display: flex; margin-top: 12px; }
+.meta-specs span { display: flex; flex-direction: column; gap: 2px; padding: 0 22px; border-left: 1px solid var(--line-soft); }
+.meta-specs span:first-child { padding-left: 0; border-left: none; }
+.meta-specs i { font-size: 10.5px; font-style: normal; color: var(--muted); font-family: var(--mono); letter-spacing: 0.12em; }
+.meta-specs b { font-family: var(--mono); font-size: 15px; font-weight: 600; color: #e8f3ff; }
+.hero-actions { display: flex; gap: 10px; }
+.btn-cta { padding: 12px 28px; font-size: 15px; }
+.doc-btn {
+  padding: 12px 22px; font-size: 14.5px; cursor: pointer;
+  background: transparent; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); font-family: inherit;
+}
+.doc-btn:hover { border-color: var(--sun); color: var(--sun-bright); }
+.sec { padding: 72px 0 8px; }
+.sec-head { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+.sec-kicker { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.22em; color: var(--sun); text-transform: uppercase; margin-bottom: 4px; }
+.sec-title { font-size: 24px; font-weight: 700; letter-spacing: 0.01em; line-height: 1.15; color: #f2f8ff; }
+.sec-sub { font-size: 12.5px; color: var(--muted); margin-left: auto; padding-bottom: 3px; }
+.overview-text { font-size: 15px; line-height: 1.9; color: var(--text-2); }
+.hl-grid { border-top: 1px solid var(--line-soft); }
+.hl-card { display: grid; grid-template-columns: minmax(160px, 230px) 1fr; gap: 0 20px; align-items: baseline; padding: 16px 6px; border-bottom: 1px solid var(--line-soft); }
+.hl-card b { font-size: 15px; font-weight: 700; color: #f2f8ff; }
+.hl-card span { font-size: 13px; color: var(--text-2); line-height: 1.7; }
+.cfg-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.cfg-card { padding: 16px 20px; border: 1px solid var(--line-soft); border-radius: 6px; background: rgba(255,255,255,0.02); }
+.cfg-name { font-size: 14px; font-weight: 700; display: flex; gap: 8px; align-items: center; color: #f2f8ff; }
+.cfg-primary { font-size: 10px; color: #1c0f07; background: var(--sun); padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.cfg-spec { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 5px; }
+.cfg-cta-line { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); font-size: 12.5px; color: #8cbdff; font-weight: 600; cursor: pointer; }
+.cfg-cta-line:hover { text-decoration: underline; }
+.specs { border-radius: 6px; border: 1px solid var(--line-soft); background: rgba(255,255,255,0.02); overflow: hidden; }
+.specs summary { list-style: none; cursor: pointer; padding: 16px 24px; font-size: 15px; font-weight: 700; color: #f2f8ff; display: flex; align-items: center; gap: 10px; user-select: none; }
+.specs summary::-webkit-details-marker { display: none; }
+.specs summary .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+.specs summary .chev { margin-left: auto; color: var(--muted); font-size: 13px; }
+.spec-row { display: flex; border-top: 1px solid var(--line-soft); }
+.spec-k { flex: 0 0 200px; padding: 11px 16px 11px 24px; font-size: 12.5px; color: var(--muted); }
+.spec-v { flex: 1; padding: 11px 24px 11px 16px; font-size: 13.5px; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ---------- ★ 配置完成 · 获取报价页（入口一，参考 server-configurator） ---------- */
+.q-page { background: var(--page-bg); padding-bottom: 90px; }
+.q-inner { max-width: 880px; margin: 0 auto; padding: 0 24px; }
+.q-backbar { display: flex; align-items: center; justify-content: space-between; padding: 22px 0 6px; }
+.q-backbar .scene-back { position: static; font-size: 14px; }
+.q-steplabel { font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; color: var(--muted); text-transform: uppercase; }
+/* 配置快照卡（上）：kv 清单，label 左 value 右 */
+.snap-card {
+  margin-top: 12px; border: 1px solid var(--line-strong); border-radius: 10px;
+  background: rgba(9,10,13,0.8); backdrop-filter: blur(16px);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05);
+  overflow: hidden;
+}
+.snap-card::before {
+  content: ''; display: block; height: 1px;
+  background: linear-gradient(to right, transparent 4%, var(--sun) 38%, var(--sun-bright) 50%, var(--sun) 62%, transparent 96%);
+}
+.snap-head { display: flex; align-items: baseline; justify-content: space-between; padding: 18px 26px 4px; }
+.snap-head h2 { font-family: var(--mono); font-size: 20px; font-weight: 700; color: #f7fbff; }
+.snap-head span { font-size: 12px; color: var(--muted); }
+.snap-rows { padding: 8px 26px 20px; }
+.snap-row { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.snap-row:last-child { border-bottom: none; }
+.snap-row .k { font-size: 13px; color: var(--muted); flex-shrink: 0; }
+.snap-row .v { font-size: 13.5px; font-weight: 600; color: #e8f3ff; text-align: right; font-variant-numeric: tabular-nums; }
+.snap-actions { display: flex; gap: 10px; padding: 0 26px 22px; flex-wrap: wrap; }
+.ghost-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 18px; font-size: 13.5px; cursor: pointer; font-family: inherit;
+  color: var(--text); background: transparent; border: 1px solid var(--line-strong); border-radius: 6px;
+  transition: all .2s;
+}
+.ghost-btn:hover { border-color: var(--sun); color: var(--sun-bright); }
+/* 线索登记卡（下） */
+.lead-card2 {
+  margin-top: 22px; border: 1px solid var(--line-strong); border-radius: 10px;
+  background: linear-gradient(180deg, rgba(13,22,44,0.92), rgba(7,16,32,0.92));
+  box-shadow: 0 24px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.lead-card2 .lc-head { padding: 22px 28px 0; }
+.lead-card2 .lc-head h3 { font-size: 18px; font-weight: 700; color: #f7fbff; }
+.lead-card2 .lc-head .biz-note { margin-top: 8px; font-size: 12.5px; color: var(--text-2); }
+.lead-card2 .lc-head .biz-note b { color: var(--sun-bright); }
+.lead-card2 .lc-body { padding: 18px 28px 28px; display: flex; flex-direction: column; gap: 14px; }
+.sec-label {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; color: var(--sun);
+  text-transform: uppercase; margin: 6px 0 -4px;
+}
+.f-label { font-size: 13px; font-weight: 600; color: var(--text-2); display: block; margin-bottom: 6px; }
+.f-label em { color: #FF6B6B; font-style: normal; margin-left: 2px; }
+.f-label .auto-tag {
+  font-size: 10.5px; font-weight: 600; font-style: normal; margin-left: 8px; padding: 1px 8px;
+  color: #8cbdff; background: rgba(22,119,255,0.10); border: 1px solid rgba(22,119,255,0.28); border-radius: 999px;
+}
+.f-input, .f-textarea, .f-select {
+  width: 100%; padding: 10px 12px; font-size: 14px; font-family: inherit;
+  color: var(--text); background: rgba(255,255,255,0.05);
+  border: 1px solid var(--line-soft); border-radius: 6px; outline: none; transition: border-color .2s;
+}
+.f-input:focus, .f-textarea:focus, .f-select:focus { border-color: var(--accent); background: rgba(22,119,255,0.06); }
+.f-input::placeholder, .f-textarea::placeholder { color: rgba(238,243,250,0.35); }
+.f-input.filled { color: #dbe9ff; }
+.f-textarea { min-height: 88px; resize: vertical; line-height: 1.6; }
+.f-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.f-grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.f-select-wrap { position: relative; }
+.f-select { appearance: none; -webkit-appearance: none; cursor: pointer; }
+.f-select-wrap::after { content: '▾'; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.unit-wrap { display: flex; align-items: center; gap: 8px; }
+.unit-wrap .f-input { flex: 1; }
+.unit-wrap .u { flex-shrink: 0; font-size: 13px; color: var(--text-2); }
+.hp-field { position: absolute; left: -9999px; top: -9999px; opacity: 0; height: 0; overflow: hidden; }
+.privacy-line { font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+.btn-submit { width: 100%; justify-content: center; padding: 13px; font-size: 15.5px; border-radius: 8px; }
+/* 提交成功态 */
+.success-pane { padding: 44px 32px 36px; text-align: center; display: none; }
+.success-pane.on { display: block; }
+.success-ico {
+  width: 56px; height: 56px; margin: 0 auto 18px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 26px;
+  color: #52C9A0; background: rgba(82,201,160,0.12); border: 1px solid rgba(82,201,160,0.4);
+}
+.success-pane h4 { font-size: 17px; font-weight: 700; color: #f7fbff; }
+.success-pane p { font-size: 13px; color: var(--text-2); margin-top: 8px; line-height: 1.7; }
+.success-pane .lead-no { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 12px; }
+
+/* ---------- 公开版配置向导 ---------- */
+.wz-page { background: var(--page-bg); padding-bottom: 130px; min-height: calc(100vh - 54px); }
+.wz-inner { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+.wz-steps { display: flex; align-items: center; gap: 10px; padding-top: 20px; }
+.wz-step { display: flex; align-items:center; gap: 8px; font-size: 13px; color: var(--muted); }
+.wz-step .n {
+  width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 12px; border: 1px solid var(--line-strong); flex-shrink: 0;
+}
+.wz-step.cur { color: #f2f8ff; font-weight: 600; }
+.wz-step.cur .n { background: var(--accent); border-color: var(--accent); color: #fff; }
+.wz-step.done .n { background: rgba(22,119,255,0.15); border-color: rgba(22,119,255,0.4); color: #8cbdff; }
+.wz-line { flex: 0 0 40px; height: 1px; background: var(--line-soft); }
+.wz-cat h3 { font-size: 15px; font-weight: 700; color: #f2f8ff; margin: 26px 0 10px; }
+.wz-opt-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.wz-opt { position: relative; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 8px; background: rgba(255,255,255,0.02); cursor: pointer; transition: all .15s; }
+.wz-opt:hover { border-color: var(--line-strong); }
+.wz-opt.sel { border-color: var(--accent); background: rgba(22,119,255,0.08); }
+.wz-opt b { display: block; font-size: 13.5px; color: #e8f3ff; font-weight: 600; padding-right: 44px; }
+.wz-opt span { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
+.wz-opt .sel-mark {
+  display: none; position: absolute; top: 12px; right: 12px;
+  font-size: 11px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 999px; padding: 1px 8px;
+}
+.wz-opt.sel .sel-mark { display: inline-block; }
+.wz-bar {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  background: rgba(4,10,22,0.92); backdrop-filter: blur(16px);
+  border-top: 1px solid var(--line-soft);
+}
+.wz-bar-inner { max-width: 1080px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+.wz-sum { font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
+.wz-sum b { color: #e8f3ff; }
+.wz-bar .btn-primary { margin-left: auto; flex-shrink: 0; }
+
+/* ---------- 线索登记表（完全复用商机详情页线索登记节点结构） ---------- */
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; }
+.seg button { padding: 5px 14px; font-size: 12.5px; font-family: inherit; background: transparent; border: none; color: var(--muted); cursor: pointer; transition: all .15s; }
+.seg button.on { background: var(--accent); color: #fff; font-weight: 600; }
+.cfg-tabbar { display: flex; gap: 8px; margin-top: 12px; }
+.cfg-tab { display: inline-flex; align-items: center; padding: 5px 14px; border-radius: 999px; font-size: 12.5px; color: var(--text-2); background: rgba(255,255,255,0.05); border: 1px solid var(--line-soft); cursor: pointer; font-family: inherit; }
+.cfg-tab.on { border-color: var(--accent); color: #8cbdff; background: rgba(22,119,255,0.10); }
+.cfg-tab.add { opacity: 0.7; border-style: dashed; }
+.kp-wrap { border: 1px solid var(--line-soft); border-radius: 8px; overflow: hidden; overflow-x: auto; }
+.kp-table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 560px; }
+.kp-table th { text-align: left; padding: 8px 10px; font-size: 11px; color: var(--muted); background: rgba(255,255,255,0.04); border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+.kp-table td { padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--text); font-variant-numeric: tabular-nums; }
+.kp-table tr:last-child td { border-bottom: none; }
+.kp-table td.kp-cat { color: #8cbdff; font-weight: 600; white-space: nowrap; }
+.kp-table td.kp-note { color: var(--muted); font-size: 11.5px; }
+.kp-auto-hint { margin-top: 8px; font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+.ghost-btn.small { padding: 6px 14px; font-size: 12.5px; }
+details.kp-fold summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-2); list-style: none; display: flex; align-items: center; gap: 8px; padding: 4px 0; user-select: none; }
+details.kp-fold summary::-webkit-details-marker { display: none; }
+details.kp-fold summary .chev { color: var(--muted); font-size: 11px; transition: transform .15s; display: inline-block; }
+details.kp-fold[open] summary .chev { transform: rotate(90deg); }
+.modal-foot { padding: 0 24px 24px; }
+
+.att-block { }
+.att-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.att-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px; font-size: 12.5px;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--line-soft); border-radius: 6px;
+}
+.att-chip b { color: #e8f3ff; font-weight: 600; }
+.att-chip .sz { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.att-chip button { background: none; border: none; color: var(--muted); cursor: pointer; padding: 0; font-size: 12px; }
+.att-chip button:hover { color: #FF6B6B; }
+.att-upload { margin-top: 8px; font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* ---------- /lead 独立提交页 ---------- */
+.leadpage { min-height: calc(100vh - 54px); display: flex; flex-direction: column; background: var(--page-bg); }
+.leadpage-hero { text-align: center; padding: 56px 24px 8px; }
+.leadpage-hero h1 { font-size: 26px; font-weight: 700; color: #f7fbff; }
+.leadpage-hero p { font-size: 14px; color: var(--text-2); margin-top: 10px; }
+.lead-card {
+  width: min(92vw, 620px); margin: 26px auto 60px;
+  border-radius: 10px; border: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, rgba(13,22,44,0.92), rgba(7,16,32,0.92));
+  box-shadow: 0 24px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.lead-card .lc-body { padding: 22px 30px 30px; display: flex; flex-direction: column; gap: 14px; }
+
+/* ---------- 移动端形态（375px 手机框） ---------- */
+.mobile-wrap { display: flex; gap: 48px; justify-content: center; flex-wrap: wrap; padding: 48px 24px 80px; }
+.phone {
+  width: 375px; height: 720px; border-radius: 36px; overflow: hidden; position: relative;
+  border: 8px solid #1a2230; background: var(--page-bg); box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+  flex-shrink: 0;
+}
+.phone .ph-status { height: 34px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--muted); font-family: var(--mono); background: rgba(3,8,20,0.9); }
+.phone .ph-body { height: calc(100% - 34px); overflow-y: auto; }
+.ph-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: rgba(3,8,20,0.9); border-bottom: 1px solid var(--line-soft); position: sticky; top: 0; z-index: 5; }
+.ph-head b { font-size: 15px; }
+.ph-head .btn-primary { margin-left: auto; padding: 7px 14px; font-size: 12.5px; }
+.ph-mini-scene { height: 150px; position: relative; overflow: hidden; background: linear-gradient(to bottom, #020610 0%, #0a1e3d 48%, #123763 68%, #0a2244 80%, transparent 100%); }
+.ph-mini-scene .scene-sun { width: 260px; height: 100px; }
+.ph-mini-scene h1 { position: absolute; top: 26px; width: 100%; text-align: center; font-size: 19px; font-weight: 600; }
+.ph-caps { display: flex; gap: 6px; padding: 10px 12px; overflow-x: auto; }
+.ph-caps .cap-btn { padding: 6px 12px; font-size: 11.5px; flex-shrink: 0; }
+.ph-models { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; padding: 4px 12px 24px; }
+.ph-models .model-card { padding: 10px; gap: 6px; }
+.ph-models .m-thumb { height: 56px; }
+.ph-models .chassis { width: 80px; height: 38px; padding: 4px 5px; gap: 3px; }
+.ph-models .m-name { font-size: 13px; }
+.ph-models .m-tagline, .ph-models .m-type { display: none; }
+.ph-models .m-specs { gap: 8px; padding: 6px 0; }
+.ph-models .m-specs span { font-size: 11.5px; }
+.ph-snap { margin: 14px 14px 0; border: 1px solid var(--line-strong); border-radius: 10px; background: rgba(9,10,13,0.85); }
+.ph-snap h3 { font-size: 15px; padding: 14px 16px 2px; }
+.ph-snap .snap-row { padding: 7px 16px; }
+.ph-snap .snap-row .k { font-size: 12px; }
+.ph-snap .snap-row .v { font-size: 12px; }
+.ph-form { padding: 18px 16px 30px; display: flex; flex-direction: column; gap: 13px; }
+.ph-form h2 { font-size: 17px; color: #f7fbff; }
+.ph-cta-full { position: sticky; bottom: 0; padding: 12px 16px; background: linear-gradient(to top, #030814 60%, transparent); }
+.ph-cta-full .btn-primary { width: 100%; justify-content: center; }
+.phone-caption { text-align: center; margin-top: 14px; font-size: 12.5px; color: var(--muted); }
+.phone-col { display: flex; flex-direction: column; }
+
+/* ---------- 标注层 ---------- */
+.anno-mark {
+  display: none; position: absolute; z-index: 90;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #F4D28A; color: #4a3a10; font-size: 12px; font-weight: 700;
+  align-items: center; justify-content: center; cursor: help;
+  box-shadow: 0 0 0 3px rgba(244,210,138,0.25);
+  font-family: var(--font);
+}
+body.annotated .anno-mark { display: flex; }
+body.annotated .anno-target { outline: 2px dashed rgba(244,210,138,0.55); outline-offset: 3px; }
+.anno-legend {
+  display: none; position: fixed; right: 16px; top: 104px; z-index: 998; width: 330px;
+  max-height: calc(100vh - 130px); overflow: auto;
+  background: rgba(6,10,22,0.96); border: 1px solid var(--line-strong); border-radius: 10px;
+  padding: 16px 18px; font-size: 12.5px; line-height: 1.7; color: var(--text-2);
+}
+body.annotated .anno-legend { display: block; }
+.anno-legend h4 { font-size: 13px; color: #f2f8ff; margin-bottom: 10px; }
+.anno-legend li { margin-bottom: 9px; list-style: none; display: flex; gap: 8px; }
+.anno-legend .no {
+  flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; margin-top: 2px;
+  background: #F4D28A; color: #4a3a10; font-size: 11px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.anno-legend b { color: #f2f8ff; }
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <span class="pb-title">原型① 公开目录与线索提交 <small>对外面 · 固定暗色 · 规格评审用</small></span>
+  <button class="pb-btn on" data-view="catalog">目录页</button>
+  <button class="pb-btn" data-view="detail">机型详情</button>
+  <button class="pb-btn" data-view="wizard">配置向导（公开版）</button>
+  <button class="pb-btn" data-view="config">★ 配置完成·获取报价</button>
+  <button class="pb-btn" data-view="lead">独立提交页 /lead</button>
+  <button class="pb-btn" data-view="mobile">移动端形态</button>
+  <button class="pb-btn" id="annoToggle">标注：关</button>
+  <span class="pb-hint">★=本次新增核心界面 · 主链路：详情 → 配置向导 → 完成页登记</span>
+</div>
+
+<!-- ═══════════ 视图 1：公开目录页 ═══════════ -->
+<div id="view-catalog" class="view on">
+  <header class="pub-header">
+    <div class="pub-logo"><b>霄擎算力</b><span>XIAOQING COMPUTING</span></div>
+    <nav class="pub-nav">
+      <a class="cur" href="javascript:void(0)">产品目录</a>
+      <button class="btn-primary" onclick="switchView('lead')">提交需求</button>
+    </nav>
+  </header>
+
+  <section class="scene">
+    <div class="scene-watermark">SERVERS</div>
+    <div class="scene-sky-glow"></div>
+    <div class="scene-sun"></div>
+    <div class="scene-earth"></div>
+    <div class="scene-horizon"></div>
+    <h1 class="scene-title">配置一台服务器</h1>
+    <nav class="scene-capsule">
+      <button class="cap-btn cur">全部<i> · 6</i></button>
+      <button class="cap-btn">通用计算<i> · 2</i></button>
+      <button class="cap-btn">AI 训练<i> · 1</i></button>
+      <button class="cap-btn">推理一体<i> · 1</i></button>
+      <button class="cap-btn">存储<i> · 1</i></button>
+      <button class="cap-btn">边缘<i> · 1</i></button>
+    </nav>
+  </section>
+
+  <div class="page-inner">
+    <div class="sc-sec-head">
+      <h2 class="sc-sec-title">全部机型</h2>
+      <span class="sc-sec-count">6 款机型</span>
+    </div>
+    <div class="sc-models">
+      <div class="model-card open-detail">
+        <span class="lc-chip lc-active">在售</span>
+        <div class="m-thumb"><div class="chassis"><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="psu"></div></div></div>
+        <div class="m-name">沧海 X-2U</div>
+        <div class="m-type">通用计算</div>
+        <div class="m-tagline">均衡之选，通用算力主力机型</div>
+        <div class="m-specs"><span><i>形态</i>2U</span><span><i>盘位</i>12</span><span><i>芯片</i>Intel</span></div>
+      </div>
+      <div class="model-card open-detail">
+        <span class="lc-chip lc-active">在售</span>
+        <div class="m-thumb"><div class="chassis"><div class="bay-row"><span class="bay hot"></span><span class="bay hot"></span><span class="bay hot"></span><span class="bay hot"></span></div><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="psu"></div></div></div>
+        <div class="m-name">擎天 T-4U</div>
+        <div class="m-type">AI 训练</div>
+        <div class="m-tagline">大模型训练场，八卡并行无碍</div>
+        <div class="m-specs"><span><i>形态</i>4U</span><span><i>盘位</i>8</span><span><i>芯片</i>AMD</span></div>
+      </div>
+      <div class="model-card open-detail">
+        <span class="lc-chip lc-new">新品</span>
+        <div class="m-thumb"><div class="chassis"><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="psu"></div></div></div>
+        <div class="m-name">极光 E-1U</div>
+        <div class="m-type">边缘</div>
+        <div class="m-tagline">边缘推理节点，静音小钢炮</div>
+        <div class="m-specs"><span><i>形态</i>1U</span><span><i>盘位</i>4</span><span><i>芯片</i>兆芯</span></div>
+      </div>
+      <div class="model-card open-detail">
+        <span class="lc-chip lc-active">在售</span>
+        <div class="m-thumb"><div class="chassis"><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="psu"></div></div></div>
+        <div class="m-name">星云 S-5U</div>
+        <div class="m-type">存储</div>
+        <div class="m-tagline">大容量冷数据归档仓</div>
+        <div class="m-specs"><span><i>形态</i>5U</span><span><i>盘位</i>48</span><span><i>芯片</i>Intel</span></div>
+      </div>
+      <div class="model-card open-detail">
+        <span class="lc-chip lc-active">在售</span>
+        <div class="m-thumb"><div class="chassis"><div class="bay-row"><span class="bay hot"></span><span class="bay hot"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="psu"></div></div></div>
+        <div class="m-name">天枢 A-2U</div>
+        <div class="m-type">推理一体</div>
+        <div class="m-tagline">开箱即用的大模型推理一体机</div>
+        <div class="m-specs"><span><i>形态</i>2U</span><span><i>盘位</i>8</span><span><i>芯片</i>AMD</span></div>
+      </div>
+      <div class="model-card open-detail">
+        <span class="lc-chip lc-eol">即将停产</span>
+        <div class="m-thumb"><div class="chassis"><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="bay-row"><span class="bay hot"></span><span class="bay hot"></span><span class="bay hot"></span><span class="bay hot"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="psu"></div></div></div>
+        <div class="m-name">玄穹 H-8U</div>
+        <div class="m-type">通用计算</div>
+        <div class="m-tagline">科学计算旗舰平台</div>
+        <div class="m-specs"><span><i>形态</i>8U</span><span><i>盘位</i>24</span><span><i>芯片</i>AMD</span></div>
+      </div>
+    </div>
+
+    <div class="pub-cta-bar">
+      <div>
+        <h3>没找到合适的？</h3>
+        <p>说说你的场景和数量，我们来推荐配置 —— 1 个工作日内回复</p>
+      </div>
+      <button class="btn-primary" onclick="switchView('lead')">提交需求 →</button>
+    </div>
+  </div>
+
+  <footer class="pub-footer">霄擎算力 · 服务器产品目录（公开版） · 咨询请联系：400-XXX-XXXX</footer>
+</div>
+
+<!-- ═══════════ 视图 2：机型详情页（公开版） ═══════════ -->
+<div id="view-detail" class="view">
+  <div class="d-page">
+    <section class="hero-scene">
+      <div class="scene-watermark" style="font-size:clamp(150px,26vw,340px)">AMD</div>
+      <div class="scene-sky-glow"></div>
+      <div class="scene-sun"></div>
+      <div class="scene-earth"></div>
+      <div class="scene-reflection"><div class="chassis"><div class="bay-row"><span class="bay hot"></span><span class="bay hot"></span><span class="bay hot"></span><span class="bay hot"></span></div><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="psu"></div></div></div>
+      <div class="scene-horizon"></div>
+      <div class="scene-product"><div class="chassis"><div class="bay-row"><span class="bay hot"></span><span class="bay hot"></span><span class="bay hot"></span><span class="bay hot"></span></div><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="psu"></div></div></div>
+      <button class="scene-back" onclick="switchView('catalog')">← 返回</button>
+      <span class="lc-chip lc-active">在售</span>
+    </section>
+
+    <div class="d-inner">
+      <section class="hero-meta">
+        <div class="meta-head">
+          <h1 class="meta-name">擎天 T-4U</h1>
+          <div class="meta-tagline">大模型训练场，八卡并行无碍</div>
+          <div class="meta-specs">
+            <span><i>形态</i><b>4U</b></span>
+            <span><i>盘位</i><b>8</b></span>
+            <span><i>芯片</i><b>AMD</b></span>
+          </div>
+        </div>
+        <div class="hero-actions anno-target" style="position:relative">
+          <span class="anno-mark" style="top:-10px; left:-10px">6</span>
+          <button class="btn-primary btn-cta" onclick="switchView('wizard')">配置这台服务器 →</button>
+          <button class="doc-btn">产品资料 ▾</button>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head"><div><div class="sec-kicker">Overview</div><div class="sec-title">产品概述</div></div></div>
+        <p class="overview-text">擎天 T-4U 面向大模型训练与高性能计算场景，4U 机箱支持双路旗舰 CPU 与八张全高全长加速卡，配合冗余电源与分层风道设计，长时间满载依然冷静可靠。整机出厂前完成兼容性与压力联合调优，到场即可进入训练任务。</p>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head"><div><div class="sec-kicker">Highlights</div><div class="sec-title">为什么选它</div></div></div>
+        <div class="hl-grid">
+          <div class="hl-card"><b>八卡并行</b><span>PCIe 5.0 全互联拓扑，支持八张全高全长加速卡同插同压，训练吞吐线性扩展。</span></div>
+          <div class="hl-card"><b>分层风道</b><span>CPU 与加速卡独立风道，四组热插拔风扇分区调速，满载噪音与温度双优。</span></div>
+          <div class="hl-card"><b>到场即用</b><span>出厂完成整机组装、压力老化与驱动栈预装，上架通电即可跑起训练任务。</span></div>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head">
+          <div><div class="sec-kicker">Configurations</div><div class="sec-title">可选配置</div></div>
+          <div class="sec-sub">共 2 个</div>
+        </div>
+        <div class="cfg-cards">
+          <div class="cfg-card">
+            <div class="cfg-name">标准训练配置 <span class="cfg-primary">主配置 · 推荐</span></div>
+            <div class="cfg-spec">4U · 8盘 · AMD</div>
+            <div class="cfg-cta-line" onclick="switchView('wizard')">用这款配置这台服务器 →</div>
+          </div>
+          <div class="cfg-card">
+            <div class="cfg-name">高密存储增强配置</div>
+            <div class="cfg-spec">4U · 8盘 · AMD</div>
+            <div class="cfg-cta-line" onclick="switchView('wizard')">用这款配置这台服务器 →</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" style="padding-bottom:60px">
+        <details class="specs">
+          <summary>完整技术规格 <span class="hint">参数都在这里，默认收起 · 需要的人自己展开</span><span class="chev">▼</span></summary>
+          <div class="spec-row"><span class="spec-k">机箱形态</span><span class="spec-v">4U 机架式</span></div>
+          <div class="spec-row"><span class="spec-k">扩展卡位</span><span class="spec-v">8 × 全高全长 PCIe 5.0</span></div>
+          <div class="spec-row"><span class="spec-k">内存</span><span class="spec-v">24 × DIMM，最高 3TB</span></div>
+          <div class="spec-row"><span class="spec-k">电源</span><span class="spec-v">4 × 2000W 钛金冗余</span></div>
+        </details>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ 视图 2.5：公开版配置向导（主链路：详情 → 向导 → 完成页） ═══════════ -->
+<div id="view-wizard" class="view">
+  <div class="wz-page">
+    <div class="wz-inner">
+      <button class="scene-back" style="position:static;display:inline-block;padding:18px 0 0" onclick="switchView('detail')">← 返回机型详情</button>
+      <div class="wz-steps">
+        <span class="wz-step done"><span class="n">1</span>选机型</span>
+        <span class="wz-line"></span>
+        <span class="wz-step cur"><span class="n">2</span>调整部件</span>
+        <span class="wz-line"></span>
+        <span class="wz-step"><span class="n">3</span>完成获取报价</span>
+      </div>
+      <h1 style="font-family:var(--mono);font-size:22px;font-weight:700;color:#f7fbff;margin-top:10px">擎天 T-4U <span style="font-family:var(--font);font-size:13px;color:var(--muted);font-weight:400">· 公开版配置器 · 兼容性约束已内置 · 选项不含任何价格</span></h1>
+
+      <div class="wz-cat">
+        <h3>处理器</h3>
+        <div class="wz-opt-row">
+          <div class="wz-opt sel" onclick="selOpt(this)"><span class="sel-mark">已选</span><b>2 × Intel Xeon 6542Y</b><span>16C 2.9GHz · 250W</span></div>
+          <div class="wz-opt" onclick="selOpt(this)"><span class="sel-mark">已选</span><b>2 × Intel Xeon 6544Y</b><span>16C 3.6GHz · 270W</span></div>
+        </div>
+      </div>
+      <div class="wz-cat">
+        <h3>内存</h3>
+        <div class="wz-opt-row">
+          <div class="wz-opt" onclick="selOpt(this)"><span class="sel-mark">已选</span><b>256GB</b><span>8 × 32GB DDR5-5600</span></div>
+          <div class="wz-opt sel" onclick="selOpt(this)"><span class="sel-mark">已选</span><b>512GB</b><span>16 × 32GB DDR5-5600</span></div>
+          <div class="wz-opt" onclick="selOpt(this)"><span class="sel-mark">已选</span><b>1TB</b><span>16 × 64GB DDR5-5600</span></div>
+        </div>
+      </div>
+      <div class="wz-cat">
+        <h3>系统盘</h3>
+        <div class="wz-opt-row">
+          <div class="wz-opt sel" onclick="selOpt(this)"><span class="sel-mark">已选</span><b>2 × 960GB NVMe M.2</b><span>RAID1</span></div>
+          <div class="wz-opt" onclick="selOpt(this)"><span class="sel-mark">已选</span><b>2 × 1.92TB NVMe M.2</b><span>RAID1</span></div>
+        </div>
+      </div>
+      <div class="wz-cat">
+        <h3>数据盘</h3>
+        <div class="wz-opt-row">
+          <div class="wz-opt" onclick="selOpt(this)"><span class="sel-mark">已选</span><b>4 × 3.84TB NVMe U.2</b><span>15.4TB 原始容量</span></div>
+          <div class="wz-opt sel" onclick="selOpt(this)"><span class="sel-mark">已选</span><b>8 × 3.84TB NVMe U.2</b><span>30.7TB 原始容量</span></div>
+        </div>
+      </div>
+      <div class="wz-cat">
+        <h3>加速卡</h3>
+        <div class="wz-opt-row">
+          <div class="wz-opt" onclick="selOpt(this)"><span class="sel-mark">已选</span><b>4 × L20 48GB</b><span>半载 · 490W 以下功耗预算</span></div>
+          <div class="wz-opt sel" onclick="selOpt(this)"><span class="sel-mark">已选</span><b>8 × L20 48GB</b><span>满载 · PCIe 5.0</span></div>
+        </div>
+      </div>
+      <div class="wz-cat">
+        <h3>网卡</h3>
+        <div class="wz-opt-row">
+          <div class="wz-opt sel" onclick="selOpt(this)"><span class="sel-mark">已选</span><b>2 × 25GbE 双口</b><span>+ 1 × BMC 管理口</span></div>
+          <div class="wz-opt" onclick="selOpt(this)"><span class="sel-mark">已选</span><b>2 × 100GbE + 2 × 25GbE</b><span>高性能网络</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="wz-bar">
+      <div class="wz-bar-inner">
+        <div class="wz-sum"><b>当前配置</b> · 擎天 T-4U · 2 × Xeon 6542Y · 512GB DDR5 · 2×960GB NVMe · 8×3.84TB NVMe · 8 × L20 48GB · 2×25GbE · 3 年维保</div>
+        <button class="btn-primary btn-cta" onclick="switchView('config')">完成配置，获取报价 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ 视图 3：★ 配置完成 · 获取报价页（入口一） ═══════════ -->
+<div id="view-config" class="view">
+  <div class="q-page">
+    <div class="q-inner">
+      <div class="q-backbar anno-target" style="position:relative">
+        <span class="anno-mark" style="top:10px; left:-10px">1</span>
+        <button class="scene-back" onclick="switchView('detail')">← 返回配置</button>
+        <span class="q-steplabel">CONFIG SNAPSHOT · 配置完成</span>
+      </div>
+
+      <!-- 上：配置快照 -->
+      <div class="snap-card">
+        <div class="snap-head">
+          <h2>擎天 T-4U · 标准训练配置</h2>
+          <span>共 10 项</span>
+        </div>
+        <div class="snap-rows">
+          <div class="snap-row"><span class="k">机型</span><span class="v">擎天 T-4U</span></div>
+          <div class="snap-row"><span class="k">机箱形态</span><span class="v">4U 机架式</span></div>
+          <div class="snap-row"><span class="k">处理器</span><span class="v">2 × Intel Xeon 6542Y（16C 2.9GHz）</span></div>
+          <div class="snap-row"><span class="k">内存</span><span class="v">512GB（16 × 32GB DDR5-5600）</span></div>
+          <div class="snap-row"><span class="k">系统盘</span><span class="v">2 × 960GB NVMe M.2（RAID1）</span></div>
+          <div class="snap-row"><span class="k">数据盘</span><span class="v">8 × 3.84TB NVMe U.2</span></div>
+          <div class="snap-row"><span class="k">加速卡</span><span class="v">8 × L20 48GB</span></div>
+          <div class="snap-row"><span class="k">网卡</span><span class="v">2 × 25GbE 双口 + 1 × BMC 管理口</span></div>
+          <div class="snap-row"><span class="k">电源</span><span class="v">2+2 冗余 2000W 钛金</span></div>
+          <div class="snap-row"><span class="k">质保</span><span class="v">3 年 · 下一工作日上门</span></div>
+        </div>
+        <div class="snap-actions anno-target" style="position:relative">
+          <span class="anno-mark" style="top:-10px; left:-10px">2</span>
+          <button class="ghost-btn">🔗 复制分享链接</button>
+          <button class="ghost-btn">📄 下载规格书（PDF）</button>
+        </div>
+      </div>
+
+      <!-- 下：线索登记表（字段 = 商机详情页线索登记节点） -->
+      <div class="lead-card2 anno-target" style="position:relative">
+        <span class="anno-mark" style="top:-10px; right:-10px">3</span>
+        <div id="quoteForm">
+        <div class="lc-head">
+          <h3>提交需求，获取这台配置的报价</h3>
+          <p class="biz-note"><b>商务咨询专用</b> —— 请填写公司信息与有效手机号；我们按你配置的这台实配报价，无任何约束。</p>
+        </div>
+        <div class="lc-body">
+          <div class="sec-label">需求信息 / REQUIREMENT · 与商机线索登记表同构</div>
+          <div>
+            <label class="f-label">需求原文<em>*</em><span style="font-weight:400;color:var(--muted);font-size:11.5px;margin-left:8px">客户原话，保留自由文本</span></label>
+            <textarea class="f-textarea" placeholder="例：做智算中心训练集群，先采购 2 台试点，Q1 内要到货，机房 42U 标准机柜、220V 供电…"></textarea>
+          </div>
+          <div class="anno-target" style="position:relative">
+            <span class="anno-mark" style="top:-8px; left:-8px">10</span>
+            <label class="f-label">需求附件<span style="font-weight:400;color:var(--muted);font-size:11.5px;margin-left:8px">选填 · 招标书 / 配置清单 / 现场照片，随线索一起转给业务</span></label>
+            <div class="att-chips">
+              <span class="att-chip"><b>招标技术要求.pdf</b><span class="sz">1.2 MB</span><button type="button">✕</button></span>
+              <span class="att-chip"><b>需求清单.xlsx</b><span class="sz">38 KB</span><button type="button">✕</button></span>
+            </div>
+            <div class="att-upload"><button class="ghost-btn small" type="button">＋ 上传附件</button><span>Word / Excel / PDF / 图片 · 单个 ≤ 20MB · 最多 5 个</span></div>
+          </div>
+          <div class="anno-target" style="position:relative">
+            <span class="anno-mark" style="top:-8px; left:-8px">8</span>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+              <span class="f-label" style="margin-bottom:0">配置</span>
+              <div class="seg"><button type="button" class="on">合并采购</button><button type="button">备选对比</button></div>
+            </div>
+            <div class="cfg-tabbar">
+              <span class="cfg-tab on">擎天 T-4U</span>
+              <button class="cfg-tab add" type="button">＋ 配置</button>
+            </div>
+            <div class="f-grid3" style="margin-top:12px">
+              <div><label class="f-label">机型型号<span class="auto-tag">已自动带入</span></label><input class="f-input filled" value="擎天 T-4U" readonly></div>
+              <div><label class="f-label">平台（芯片）<span class="auto-tag">已自动带入</span></label><input class="f-input filled" value="AMD" readonly></div>
+              <div><label class="f-label">服务器类型<span class="auto-tag">已自动带入</span></label><input class="f-input filled" value="AI 训练" readonly></div>
+            </div>
+            <div class="f-grid3" style="margin-top:12px">
+              <div><label class="f-label">机箱形态<span class="auto-tag">已自动带入</span></label><input class="f-input filled" value="4U" readonly></div>
+              <div><label class="f-label">数量<em>*</em></label><div class="unit-wrap"><input class="f-input" value="2" inputmode="numeric"><span class="u">台</span></div></div>
+              <div><label class="f-label">维保年限</label><div class="f-select-wrap"><select class="f-select"><option>1 年</option><option selected>3 年</option><option>5 年</option></select></div></div>
+            </div>
+            <div class="f-grid3" style="margin-top:12px">
+              <div><label class="f-label">期望交期</label><input class="f-input" type="date"></div>
+              <div></div>
+              <div></div>
+            </div>
+            <div style="margin-top:14px">
+              <label class="f-label">KP 部件清单<span class="auto-tag">已按所配部件自动带入</span></label>
+              <div class="kp-wrap anno-target" style="position:relative">
+                <span class="anno-mark" style="top:-8px; left:-8px">9</span>
+                <table class="kp-table">
+                  <thead><tr><th>分组</th><th>Catalogue</th><th>Configuration Description</th><th style="text-align:right">Quantity</th><th>Note</th></tr></thead>
+                  <tbody>
+                    <tr><td class="kp-cat">CPU</td><td>Xeon 6542Y</td><td>Intel Xeon 6542Y 16C 2.9GHz</td><td style="text-align:right">2</td><td class="kp-note">1 颗/路 ×2</td></tr>
+                    <tr><td class="kp-cat">内存</td><td>DDR5-5600 32G</td><td>32GB DDR5-5600 RDIMM</td><td style="text-align:right">16</td><td class="kp-note">16 × 32GB = 512GB</td></tr>
+                    <tr><td class="kp-cat">系统盘</td><td>NVMe M.2 960G</td><td>960GB NVMe M.2</td><td style="text-align:right">2</td><td class="kp-note">RAID1</td></tr>
+                    <tr><td class="kp-cat">数据盘</td><td>NVMe U.2 3.84T</td><td>3.84TB NVMe U.2</td><td style="text-align:right">8</td><td class="kp-note"></td></tr>
+                    <tr><td class="kp-cat">加速卡</td><td>L20 48G</td><td>NVIDIA L20 48GB PCIe</td><td style="text-align:right">8</td><td class="kp-note"></td></tr>
+                    <tr><td class="kp-cat">网卡</td><td>25GbE 双口</td><td>双口 25GbE SFP28</td><td style="text-align:right">2</td><td class="kp-note"></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="kp-auto-hint">与商机线索登记表同一套字段 —— 这份部件清单会原样进入需求草稿，业务侧零重填；访客不懂部件可整段不管，需求写进需求原文即可。</p>
+            </div>
+          </div>
+
+          <div class="sec-label">联系信息 / CONTACT</div>
+          <div class="f-grid2">
+            <div><label class="f-label">公司名称<em>*</em></label><input class="f-input" placeholder="贵司全称"></div>
+            <div><label class="f-label">联系人姓名<em>*</em></label><input class="f-input" placeholder="怎么称呼您"></div>
+          </div>
+          <div class="f-grid2">
+            <div><label class="f-label">手机号<em>*</em></label><input class="f-input" placeholder="11 位手机号"></div>
+            <div><label class="f-label">工作邮箱</label><input class="f-input" placeholder="name@company.com（选填）"></div>
+          </div>
+          <div class="hp-field"><label>网站</label><input tabindex="-1" autocomplete="off"></div>
+        </div>
+        <div class="modal-foot" style="padding:0 28px 28px">
+          <button class="btn-primary btn-submit" onclick="submitQuote()">提交需求，获取报价 →</button>
+          <p class="privacy-line" style="margin-top:12px">提交即表示同意我们仅将以上信息与你的配置快照用于本次咨询联系，不做其他用途。</p>
+        </div>
+        </div>
+        <div class="success-pane" id="quoteSuccess">
+          <div class="success-ico">✓</div>
+          <h4>已收到，配置与需求已登记</h4>
+          <p>方案团队会按这台配置在 1 个工作日内回复报价建议，请保持手机畅通。</p>
+          <div class="lead-no">登记号 LEAD-20261031142530XXX</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ 视图 4：/lead 独立提交页（入口二） ═══════════ -->
+<div id="view-lead" class="view">
+  <div class="leadpage">
+    <header class="pub-header">
+      <div class="pub-logo"><b>霄擎算力</b><span>XIAOQING COMPUTING</span></div>
+      <nav class="pub-nav"><a href="javascript:void(0)" onclick="switchView('catalog')">← 浏览产品目录</a></nav>
+    </header>
+    <div class="leadpage-hero anno-target" style="position:relative">
+      <span class="anno-mark" style="top:52px; right:16%">5</span>
+      <h1>登记你的服务器需求</h1>
+      <p>无需注册登录 —— 填一份需求登记表，方案团队 1 个工作日内与您联系</p>
+    </div>
+    <div class="lead-card">
+      <div id="leadForm">
+      <div class="lc-body">
+        <div class="sec-label">需求信息 / REQUIREMENT · 与商机线索登记表同构</div>
+        <div>
+          <label class="f-label">需求原文<em>*</em></label>
+          <textarea class="f-textarea" style="min-height:110px" placeholder="客户原话即可：做什么用、大致数量、预算范围、期望到货时间…"></textarea>
+        </div>
+        <div>
+          <label class="f-label">需求附件<span style="font-weight:400;color:var(--muted);font-size:11.5px;margin-left:8px">选填 · 招标书 / 配置清单 / 现场照片</span></label>
+          <div class="att-chips">
+            <span class="att-chip"><b>机房平面图.dwg.pdf</b><span class="sz">820 KB</span><button type="button">✕</button></span>
+          </div>
+          <div class="att-upload"><button class="ghost-btn small" type="button">＋ 上传附件</button><span>Word / Excel / PDF / 图片 · 单个 ≤ 20MB · 最多 5 个</span></div>
+        </div>
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <span class="f-label" style="margin-bottom:0">配置</span>
+            <div class="seg"><button type="button" class="on">合并采购</button><button type="button">备选对比</button></div>
+          </div>
+          <div class="cfg-tabbar">
+            <span class="cfg-tab on">配置 1</span>
+            <button class="cfg-tab add" type="button">＋ 配置</button>
+          </div>
+          <div class="f-grid3" style="margin-top:12px">
+            <div><label class="f-label">机型型号</label><div class="f-select-wrap"><select class="f-select" id="leadModel" onchange="onModelSel(this)"><option selected>请选择 / 不确定</option><option>沧海 X-2U</option><option>擎天 T-4U</option><option>极光 E-1U</option><option>星云 S-5U</option><option>天枢 A-2U</option><option>玄穹 H-8U</option></select></div></div>
+            <div><label class="f-label">平台（芯片）</label>
+              <div class="f-select-wrap"><select class="f-select" id="leadChip"><option selected>请选择 / 不确定</option><option>AMD</option><option>Intel</option><option>兆芯</option><option>海光</option></select></div>
+            </div>
+            <div><label class="f-label">服务器类型</label>
+              <div class="f-select-wrap"><select class="f-select" id="leadType"><option selected>请选择 / 不确定</option><option>通用计算</option><option>AI 训练</option><option>推理</option><option>存储</option><option>边缘</option><option>其他</option></select></div>
+            </div>
+          </div>
+          <div class="f-grid3" style="margin-top:12px">
+            <div><label class="f-label">机箱形态</label>
+              <div class="f-select-wrap"><select class="f-select" id="leadForm"><option selected>请选择 / 不确定</option><option>1U</option><option>2U</option><option>4U</option><option>8U</option></select></div>
+            </div>
+            <div><label class="f-label">数量</label><div class="unit-wrap"><input class="f-input" placeholder="如 2" inputmode="numeric"><span class="u">台</span></div></div>
+            <div><label class="f-label">维保年限</label>
+              <div class="f-select-wrap"><select class="f-select"><option selected>不确定</option><option>1 年</option><option>3 年</option><option>5 年</option></select></div>
+            </div>
+          </div>
+          <div class="f-grid3" style="margin-top:12px">
+            <div><label class="f-label">期望交期</label><input class="f-input" type="date"></div>
+            <div></div>
+            <div></div>
+          </div>
+          <details class="kp-fold" style="margin-top:14px">
+            <summary><span class="chev">▶</span> KP 部件清单（选填 · 懂行的可按 Catalogue 填）<span class="auto-tag">默认收起</span></summary>
+            <div style="margin-top:10px">
+              <div class="kp-wrap">
+                <table class="kp-table">
+                  <thead><tr><th>分组</th><th>Catalogue</th><th>Configuration Description</th><th style="text-align:right">Quantity</th><th>Note</th></tr></thead>
+                  <tbody>
+                    <tr><td class="kp-cat">-</td><td><input class="f-input" placeholder="" style="padding:4px 8px;font-size:12px"></td><td><input class="f-input" placeholder="部件描述" style="padding:4px 8px;font-size:12px"></td><td style="text-align:right"><input class="f-input" placeholder="1" style="padding:4px 8px;font-size:12px;width:64px;text-align:right"></td><td><input class="f-input" placeholder="" style="padding:4px 8px;font-size:12px"></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style="margin-top:8px"><button class="ghost-btn small" type="button">＋ 添加部件行</button></div>
+            </div>
+          </details>
+        </div>
+
+        <div class="sec-label">联系信息 / CONTACT</div>
+        <div class="f-grid2">
+          <div><label class="f-label">公司名称<em>*</em></label><input class="f-input" placeholder="贵司全称"></div>
+          <div><label class="f-label">联系人姓名<em>*</em></label><input class="f-input" placeholder="怎么称呼您"></div>
+        </div>
+        <div class="f-grid2">
+          <div><label class="f-label">手机号<em>*</em></label><input class="f-input" placeholder="11 位手机号"></div>
+          <div><label class="f-label">工作邮箱</label><input class="f-input" placeholder="name@company.com（选填）"></div>
+        </div>
+      </div>
+      <div class="modal-foot" style="padding:0 30px 30px">
+        <button class="btn-primary btn-submit" onclick="submitLead()">提交需求登记 →</button>
+        <p class="privacy-line" style="margin-top:12px">提交即表示同意我们仅将以上信息用于本次咨询联系，不做其他用途。</p>
+      </div>
+      </div>
+      <div class="success-pane" id="leadSuccess">
+        <div class="success-ico">✓</div>
+        <h4>需求登记已收到</h4>
+        <p>方案团队 1 个工作日内与您联系，请保持手机畅通。</p>
+        <div class="lead-no">登记号 LEAD-20261031142530XXX</div>
+      </div>
+    </div>
+    <footer class="pub-footer">霄擎算力 · 提交需求登记（公开版）</footer>
+  </div>
+</div>
+
+<!-- ═══════════ 视图 5：移动端形态 ═══════════ -->
+<div id="view-mobile" class="view">
+  <div class="mobile-wrap">
+    <div class="phone-col">
+      <div class="phone">
+        <div class="ph-status">375 × 812 · 公开目录</div>
+        <div class="ph-body">
+          <div class="ph-head"><b>霄擎算力</b><button class="btn-primary" onclick="switchView('lead')">提交需求</button></div>
+          <div class="ph-mini-scene"><h1>配置一台服务器</h1><div class="scene-sun"></div><div class="scene-horizon" style="bottom:30%"></div></div>
+          <div class="ph-caps">
+            <button class="cap-btn cur">全部·6</button><button class="cap-btn">通用·2</button><button class="cap-btn">AI训练·1</button><button class="cap-btn">推理·1</button><button class="cap-btn">存储·1</button>
+          </div>
+          <div class="ph-models">
+            <div class="model-card"><span class="lc-chip lc-active" style="top:8px;right:8px">在售</span><div class="m-thumb"><div class="chassis"><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="psu"></div></div></div><div class="m-name">沧海 X-2U</div><div class="m-specs"><span><i>形态</i>2U</span><span><i>盘位</i>12</span><span><i>芯片</i>Intel</span></div></div>
+            <div class="model-card"><span class="lc-chip lc-active" style="top:8px;right:8px">在售</span><div class="m-thumb"><div class="chassis"><div class="bay-row"><span class="bay hot"></span><span class="bay hot"></span><span class="bay hot"></span></div><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="psu"></div></div></div><div class="m-name">擎天 T-4U</div><div class="m-specs"><span><i>形态</i>4U</span><span><i>盘位</i>8</span><span><i>芯片</i>AMD</span></div></div>
+            <div class="model-card"><span class="lc-chip lc-new" style="top:8px;right:8px">新品</span><div class="m-thumb"><div class="chassis"><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="psu"></div></div></div><div class="m-name">极光 E-1U</div><div class="m-specs"><span><i>形态</i>1U</span><span><i>盘位</i>4</span><span><i>芯片</i>兆芯</span></div></div>
+            <div class="model-card"><span class="lc-chip lc-active" style="top:8px;right:8px">在售</span><div class="m-thumb"><div class="chassis"><div class="bay-row"><span class="bay hot"></span><span class="bay hot"></span><span class="bay"></span><span class="bay"></span></div><div class="bay-row"><span class="bay"></span><span class="bay"></span><span class="bay"></span><span class="bay"></span></div><div class="psu"></div></div></div><div class="m-name">天枢 A-2U</div><div class="m-specs"><span><i>形态</i>2U</span><span><i>盘位</i>8</span><span><i>芯片</i>AMD</span></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="phone-caption">目录页 · 胶囊横滑 + 两列货架</div>
+    </div>
+    <div class="phone-col">
+      <div class="phone">
+        <div class="ph-status">375 × 812 · 配置完成 · 获取报价</div>
+        <div class="ph-body">
+          <div class="ph-head"><b style="font-size:14px">← 返回配置</b><span style="margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--muted)">CONFIG SNAPSHOT</span></div>
+          <div class="ph-snap">
+            <h3>擎天 T-4U · 标准训练配置</h3>
+            <div class="snap-row"><span class="k">机型</span><span class="v">擎天 T-4U</span></div>
+            <div class="snap-row"><span class="k">处理器</span><span class="v">2 × Xeon 6542Y</span></div>
+            <div class="snap-row"><span class="k">内存</span><span class="v">512GB DDR5</span></div>
+            <div class="snap-row"><span class="k">加速卡</span><span class="v">8 × L20 48GB</span></div>
+            <div class="snap-row"><span class="k">质保</span><span class="v">3 年上门</span></div>
+          </div>
+          <div class="ph-form">
+            <h2>提交需求，获取报价</h2>
+            <div><label class="f-label">需求原文<em>*</em></label><textarea class="f-textarea" placeholder="场景、数量、期望时间…" style="min-height:84px"></textarea></div>
+            <div class="f-grid3" style="grid-template-columns:1fr 1fr">
+              <div><label class="f-label">机型型号<span class="auto-tag">已带入</span></label><input class="f-input filled" value="擎天 T-4U" readonly></div>
+              <div><label class="f-label">数量<em>*</em></label><div class="unit-wrap"><input class="f-input" value="2" inputmode="numeric"><span class="u">台</span></div></div>
+            </div>
+            <div class="f-grid2" style="grid-template-columns:1fr 1fr">
+              <div><label class="f-label">公司名称<em>*</em></label><input class="f-input" placeholder="贵司全称"></div>
+              <div><label class="f-label">手机号<em>*</em></label><input class="f-input" placeholder="11 位手机号"></div>
+            </div>
+            <p class="privacy-line">提交即表示同意我们仅将以上信息与配置快照用于本次咨询。</p>
+          </div>
+          <div class="ph-cta-full"><button class="btn-primary">提交需求，获取报价 →</button></div>
+        </div>
+      </div>
+      <div class="phone-caption">配置完成页 · 快照折叠精简 + 登记表（窄屏单列）</div>
+    </div>
+  </div>
+</div>
+
+<!-- 标注图例 -->
+<div class="anno-legend">
+  <h4>标注 · 规格要点</h4>
+  <ul>
+    <li><span class="no">1</span><span><b>入口一 · 改造点</b>：配置向导完成页原「打印规格书」按钮不再直接出 PDF —— 点击进入本页（配置快照 + 登记表）。本页仅在公开应用存在；登录侧配置向导不受影响。</span></li>
+    <li><span class="no">2</span><span><b>快照操作</b>：「下载规格书 PDF」沿用现有规格书打印链路（统一序列化 DOM→print-pdf）；「复制分享链接」复用产出物分享 token 机制，免登录回看配置快照。</span></li>
+    <li><span class="no">3</span><span><b>登记表 = 完全复用商机详情页线索登记表</b>（用户定调）：需求原文 + 配置（组合拆分/方案备选 + 多配置 tabs + 机型型号/平台类型/服务器类型/机箱形态/数量/维保年限，字段权威 requirement_sheet_form）+ KP 部件清单，<b>不删字段、不改结构、不另设字段集</b>，只加底部联系信息段与蜜罐。配置完成页 KP 按所配部件自动带入；/lead 页 KP 折叠为选填。落库 slots 与登记表同构 → 专人转化后一键生成需求草稿，业务侧零重填。<b>平台=芯片，代号不出公开面</b>：对外展示芯片品牌（AMD/Intel/兆芯…），保存时映射内部代号（AMD=Orion、兆芯=Polaris，映射服务端维护）；目录卡与详情页的「系列」同步改显芯片。机型型号=下拉选在售机型自动带出三项，<b>可留空、不可乱填</b>；新增期望交期（内部登记表定义同步加字段）；「组合拆分/方案备选」更名<b>「合并采购 / 备选对比」</b>，内部登记表同步改名。<b>实现复用（用户定调：不重写已有）</b>：本表 = 商机详情页 RequirementForm 公共组件薄改——数据源注入（内部 catalogApi ↔ 公开 publicCatalogApi）+ publicMode（加联系信息段/蜜罐/KP 折叠）；平台与机箱形态随机型自动带出<b>沿用其现有 onModelSelect 机制</b>，不另写映射；服务器类型选项 = 系统 server_types 动态读取 + 「其他」。<b>需求附件沿用登记表既有能力</b>（RequirementForm 的 after-req-text 插槽 + 附件条）：随表单一起提交，转化后转钉到需求草稿版本（复用附件钉版本机制）；公开上传走专用 multipart 端点（类型/个数/大小限制 + 同一套限流），存储与商机附件同通道。</span></li>
+    <li><span class="no">4</span><span><b>反滥用</b>：隐藏蜜罐字段 website + 同 IP 10 分钟 5 次限流（429）+ 同手机号未结线索自动并入。</span></li>
+    <li><span class="no">5</span><span><b>入口二 · /lead 独立页</b>：同一张登记表的完整形态（配置区全部可填可留空，KP 折叠选填），业务或外部访客免登录直达；顶栏「提交需求」与货架 CTA 条均跳本页（不再有紧凑弹窗，全站仅两张表：完成页 + 本页，同一结构）。公开应用五条路由：/lead、/catalog、/catalog/types/:id、/catalog/models/:id、/catalog/config/:modelId，独立前端入口，依赖图物理不含登录态代码。</span></li>
+    <li><span class="no">6</span><span><b>配置路径保留（修正）</b>：机型详情页主 CTA 仍是「配置这台服务器 →」，进公开版配置向导；配置卡 CTA 同样进向导。原方案把 CTA 换成「提交需求」是错的——那会砍断配置完成页入口的漏斗源头。「提交需求」入口收在顶栏按钮与货架 CTA 条，服务不想点配置的访客。</span></li>
+    <li><span class="no">7</span><span><b>公开版配置向导（新增实现面，本次工作量最大的一块）</b>：新路由 /catalog/config/:modelId；选项数据走公开白名单 API（复用内部 derive 服务出站，剥除一切价格字段）；兼容性约束（功耗/槽位/盘位）内置；完成页即「配置快照 + 登记表」。原配置完成页的「← 返回配置」回本向导。</span></li>
+    <li><span class="no">○</span><span><b>全页规范</b>：不出现价格、登录入口、内部导航；「产品资料」受总闸 lead.public_docs_enabled 控制；公开 API 字段白名单 + cpq_public_ro 只读 DB 角色（价格物理不出网）；价格词黑名单过滤 specs 自由文本。</span></li>
+  </ul>
+</div>
+
+<script>
+function switchView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('on'))
+  document.getElementById('view-' + name).classList.add('on')
+  document.querySelectorAll('.proto-bar [data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === name))
+  window.scrollTo(0, 0)
+}
+document.querySelectorAll('.proto-bar [data-view]').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)))
+
+function submitQuote() {
+  document.getElementById('quoteForm').style.display = 'none'
+  document.getElementById('quoteSuccess').classList.add('on')
+  window.scrollTo(0, 0)
+}
+function submitLead() {
+  document.getElementById('leadForm').style.display = 'none'
+  document.getElementById('leadSuccess').classList.add('on')
+  window.scrollTo(0, 0)
+}
+document.querySelectorAll('.open-detail').forEach(c => c.addEventListener('click', () => switchView('detail')))
+function selOpt(el) {
+  el.parentElement.querySelectorAll('.wz-opt').forEach(o => o.classList.remove('sel'))
+  el.classList.add('sel')
+}
+// 机型 → 芯片/服务器类型/形态 自动带出（真实实现=公开机型列表 API + 映射，选了自动填、留空允许、不能乱填）
+const MODEL_CHIP = {
+  '沧海 X-2U': ['Intel', '通用计算', '2U'],
+  '擎天 T-4U': ['AMD', 'AI 训练', '4U'],
+  '极光 E-1U': ['兆芯', '边缘', '1U'],
+  '星云 S-5U': ['Intel', '存储', '5U'],
+  '天枢 A-2U': ['AMD', '推理一体', '2U'],
+  '玄穹 H-8U': ['AMD', '通用计算', '8U'],
+}
+function onModelSel(sel) {
+  const v = MODEL_CHIP[sel.value]
+  const reset = id => { const el = document.getElementById(id); if (el) el.selectedIndex = 0 }
+  if (!v) { ['leadChip', 'leadType', 'leadForm'].forEach(reset); return }
+  const apply = (id, val) => { const el = document.getElementById(id); if (el) el.value = val }
+  apply('leadChip', v[0]); apply('leadType', v[1]); apply('leadForm', v[2])
+}
+document.getElementById('annoToggle').addEventListener('click', function () {
+  const on = document.body.classList.toggle('annotated')
+  this.textContent = '标注：' + (on ? '开' : '关')
+  this.classList.toggle('on', on)
+})
+</script>
+</body>
+</html>

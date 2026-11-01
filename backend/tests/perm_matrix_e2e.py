@@ -282,14 +282,16 @@ def run_opp_a(tok, opp_a):
         403, "总监越权提成本 403", json={"assignee_name": QUOTE})
 
     print("-- 商机状态权限门控 + 节点任务队列(/opps?node=) --")
-    api(te, "PUT", f"/api/opportunities/{opp_a}/meta", 403,
-        "技术改商机状态 403", json={"result": "won"})
-    api(cost, "PUT", f"/api/opportunities/{opp_a}/meta", 403,
-        "成本改商机状态 403", json={"result": "won"})
-    api(quote, "PUT", f"/api/opportunities/{opp_a}/meta", 200,
-        "报价员改商机状态 200", json={"result": "won"})
-    api(biz, "PUT", f"/api/opportunities/{opp_a}/meta", 200,
-        "业务改回商机状态 200", json={"result": "pending"})
+    api(te, "PUT", f"/api/opportunities/{opp_a}/meta", 400,
+        "meta 通道改状态 400（result 只走 result-change）", json={"result": "won"})
+    api(te, "POST", f"/api/opportunities/{opp_a}/result-change", 403,
+        "技术改商机状态 403", json={"result": "won", "note": "e2e"})
+    api(cost, "POST", f"/api/opportunities/{opp_a}/result-change", 403,
+        "成本改商机状态 403", json={"result": "won", "note": "e2e"})
+    api(quote, "POST", f"/api/opportunities/{opp_a}/result-change", 200,
+        "报价员改商机状态 200", json={"result": "won", "note": "e2e 权限回归"})
+    api(biz, "POST", f"/api/opportunities/{opp_a}/result-change", 200,
+        "业务改回商机状态 200", json={"result": "pending", "note": "e2e 改回"})
     r = api(quote, "GET", "/api/portal/opps?node=quoting&scope=mine", 200,
             "报价员节点任务队列 200")
     cards = r.json().get("cards", [])

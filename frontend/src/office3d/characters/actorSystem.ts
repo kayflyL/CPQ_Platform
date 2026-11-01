@@ -646,10 +646,10 @@ function updateActorStatus(actor: Actor, event?: OfficeColleagueStatus) {
 /** 头顶信息三层策略：事件气泡闪现 6s 淡出；等待输入/异常持续显示；悬停角色常显。
  * 状态信标的位置/缩放由 tick 的弹性锚定与状态动画驱动，此处不碰。 */
 function updateOverheads(now: number) {
-  const hoverKey = rt.hoveredRoleKey()
   for (const actor of actorMap.values()) {
     const persistent = actor.status === 'waiting_input' || actor.status === 'error'
-    const target = hoverKey === actor.roleKey || persistent || now < actor.bubbleVisibleUntil ? 1 : 0
+    // 悬停不再点亮头顶牌（交互统一为点击出 [档案][聊天] 卡）；仅事件气泡与持续告警保留
+    const target = persistent || now < actor.bubbleVisibleUntil ? 1 : 0
     const next = actor.bubbleOpacity + (target - actor.bubbleOpacity) * 0.14
     actor.bubbleOpacity = next
     actor.bubble.material.opacity = next
@@ -821,7 +821,7 @@ function rebuildActorRoute(actor: Actor, targetZone: OfficeZone | null) {
 function updateSelection() {
   for (const actor of actorMap.values()) {
     actor.selectionRing.visible = actor.roleKey === rt.selectedRoleKey()
-    actor.label.visible = actor.roleKey === rt.selectedRoleKey() || actor.roleKey === rt.hoveredRoleKey()
+    actor.label.visible = actor.roleKey === rt.selectedRoleKey()
   }
 }
 

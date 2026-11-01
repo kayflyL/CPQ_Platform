@@ -726,7 +726,7 @@ function returnQuoteToCost(quotationId: string, label: string) {
     <ResponsiveModal
       :open="!!sheetDetail"
       :title="`成本表明细 · ${sheetDetail?.name || ''}`"
-      tier="viewer"
+      tier="sheet"
       :footer="null"
       centered
       wrap-class-name="portal-sheet-modal"

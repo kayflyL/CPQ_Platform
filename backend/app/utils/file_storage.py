@@ -197,6 +197,34 @@ class FileStorage:
             "url": url,
         }
 
+    def save_lead_attachment(self, file_content: bytes, original_name: str, lead_id: str) -> dict:
+        """Save a public lead attachment to storage/lead-attachments/[lead_id]/ — 原始名净化 + 短 uuid。
+
+        公开表单附件（免登录提交），按线索子目录归档；格式/大小限制在 API 层校验。
+        Returns {stored_path, filename, file_size, name}.
+        """
+        import uuid
+        import re as _re
+        from pathlib import PurePath
+
+        ext = PurePath(original_name).suffix.lower()
+        stem = _re.sub(r'[^0-9A-Za-z一-鿿\-_]', '', PurePath(original_name).stem)[:40] or 'file'
+        stored_name = f"{stem}_{uuid.uuid4().hex[:8]}{ext}"
+
+        doc_dir = self._safe_join("lead-attachments", lead_id)
+        doc_dir.mkdir(parents=True, exist_ok=True)
+        stored_path = doc_dir / stored_name
+        with open(stored_path, "wb") as f:
+            f.write(file_content)
+
+        rel = f"lead-attachments/{lead_id}/{stored_name}"
+        return {
+            "stored_path": rel,
+            "filename": stored_name,
+            "file_size": len(file_content),
+            "name": PurePath(original_name).name,
+        }
+
     def save_model_doc(self, file_content: bytes, original_name: str,
                        model_id: Optional[int] = None) -> dict:
         """Save a model datasheet PDF to storage/model-docs/[model_id]/ — 原始名净化 + 短 uuid。

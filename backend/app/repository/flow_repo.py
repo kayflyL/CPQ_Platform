@@ -152,7 +152,7 @@ class FlowRepository:
         flow.updated_at = _now()
 
     _OPPORTUNITY_CORE_COLUMNS = {
-        "opportunity_id", "customer_name", "sales_person", "fae", "quotation_person",
+        "opportunity_id", "customer_name", "sales_person", "fae",
         "industry", "order_type", "result",
         "created_at", "updated_at", "status", "extra_fields", "tenant_id",
     }
@@ -271,8 +271,9 @@ class FlowRepository:
         return items[start:start + page_size], total
 
     def resolve_node_assignee(self, opportunity_id: str, node_key: str) -> str:
-        """计算某节点默认处理人：商机角色字段优先（fae→boming、报价人→quoting），
-        其次业务默认规则，最后节点兜底规则（business_user_id='*'，承接全部业务含未来新增）。"""
+        """计算某节点默认处理人：商机角色字段优先（fae→boming），其次业务默认规则，
+        最后节点兜底规则（business_user_id='*'，承接全部业务含未来新增）。
+        quoting 不读商机字段——报价人已反转为 quoting 节点处理人的同步镜像，方向只能单向。"""
         from app.models.opportunity import Opportunity
         opp = self.session.query(Opportunity).filter(
             Opportunity.opportunity_id == opportunity_id
@@ -283,7 +284,6 @@ class FlowRepository:
         prefer_field = {
             "boming": (opp.fae or "").strip(),
             "costing": "",
-            "quoting": (opp.quotation_person or "").strip(),
         }.get(node_key, "")
         rule = ""
         if business_user_id:
@@ -299,6 +299,23 @@ class FlowRepository:
             ).first()
             rule = (fb.assignee_name if fb else "") or ""
         return (prefer_field or rule or "").strip()
+
+    def _sync_quotation_person(self, opportunity_id: str, assignee_value: str) -> None:
+        """报价人=quoting 节点处理人的同步镜像：指派/转交/默认补齐/清空时回写姓名。
+        商机表不再手填此字段（登记页无输入框），导出模板绑 quotation_person 直接吃镜像值。"""
+        if not opportunity_id:
+            return
+        from app.models.opportunity import Opportunity
+        opp = self.session.query(Opportunity).filter(
+            Opportunity.opportunity_id == opportunity_id
+        ).first()
+        if not opp:
+            return
+        name = assignee_to_name(assignee_value or "")
+        if (opp.quotation_person or "") != name:
+            opp.quotation_person = name
+            opp.updated_at = _now()
+            self.session.commit()
 
     def apply_default_assignments(self, flow_id: str, opportunity_id: str) -> None:
         """按业务账号默认规则补齐当前流程节点的 assignees（只补缺失，不覆盖手动转交）。"""
@@ -317,6 +334,8 @@ class FlowRepository:
             flow.assignees = assignees
             flow.updated_at = _now()
             self.session.commit()
+            if current == "quoting":
+                self._sync_quotation_person(opportunity_id, assignees[current])
 
     def get_assignment_rules(self, business_user_id: str = None) -> List[dict]:
         q = self.session.query(FlowAssignmentRule)
@@ -371,6 +390,8 @@ class FlowRepository:
             flow.assignees = {**(flow.assignees or {}), node_key: new_uid}
             flow.updated_at = _now()
             self.session.commit()
+            if node_key == "quoting":
+                self._sync_quotation_person(flow.opportunity_id, new_uid)
         comment = (f"由 {assignee_to_name(old) or '未指派'} "
                    f"转交给 {assignee_to_name(assignee_to_uid(assignee_name)) or assignee_name}")
         self.append_node(flow_id, node_key, "assign", actor=actor, comment=comment)
@@ -399,6 +420,8 @@ class FlowRepository:
             r.assignees = {**(r.assignees or {}), node_key: ""}
             r.updated_at = _now()
             self.session.commit()
+            if node_key == "quoting":
+                self._sync_quotation_person(r.opportunity_id, "")
             self.append_node(r.flow_id, node_key, "assign", actor=actor,
                              comment=f"由 {assignee_to_name(cur) or '未指派'} 转交给 未指派")
             cleared += 1

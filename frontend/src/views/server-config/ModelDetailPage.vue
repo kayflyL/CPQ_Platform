@@ -2,13 +2,14 @@
 /** 机型产品详情页（配置面展示）— 看介绍/规格 → 点「配置这台」进配置向导。纯展示，无管理入口。 */
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
 import { catalogApi, type ServerModel, type ModelScenario } from '@/api/serverConfig'
-import { downloadOfficeFile } from '@/utils/fileDownload'
+import { publicCatalogApi } from '@/api/publicIntake'
+import AttachmentPreviewModal from '@/components/feed/AttachmentPreviewModal.vue'
 import CapabilityShowcase from '@/components/server-config/CapabilityShowcase.vue'
 import { useSeriesStore } from '@/stores/series'
 import { STAGE_THEMES, type StageThemeKey } from '@/constants/stageThemes'
 
+const props = defineProps<{ publicMode?: boolean }>()
 const route = useRoute()
 const router = useRouter()
 const model = ref<ServerModel | null>(null)
@@ -36,12 +37,15 @@ const scnList = computed<ModelScenario[]>(() =>
   (pc.value?.scenarios || []).map(s => (typeof s === 'string' ? { name: s } : s))
 )
 
-// 机型资料 PDF（product_content.docs）：铭牌卡「下载资料」下拉 + 页尾「产品资料」区块；走带鉴权 blob 下载（裸直链 AUTH_ENABLED 下 401）
+// 机型资料 PDF（product_content.docs）：铭牌卡「产品资料」下拉 + 页尾「产品资料」区块；
+// 点击先预览（复用附件预览弹窗：鉴权 blob → objectURL），下载收进弹窗
 const docs = computed(() => pc.value?.docs || [])
 const fmtMB = (n?: number) => (n ? (n / 1024 / 1024).toFixed(1) + ' MB' : '')
-async function downloadDoc(d: { name?: string; url: string }) {
-  try { await downloadOfficeFile(d.url, d.name || '资料.pdf') }
-  catch { message.error('下载失败，请稍后重试') }
+const docPreviewOpen = ref(false)
+const docPreview = ref<{ original_filename: string; url: string } | null>(null)
+function openDoc(d: { name?: string; url: string }) {
+  docPreview.value = { original_filename: d.name || '资料.pdf', url: d.url }
+  docPreviewOpen.value = true
 }
 const hasContent = computed(() => {
   const c = pc.value
@@ -84,16 +88,20 @@ async function load() {
   loading.value = true
   try {
     const id = Number(route.params.modelId)
-    model.value = await catalogApi.getModel(id)
+    model.value = props.publicMode ? await publicCatalogApi.getModel(id) : await catalogApi.getModel(id)
   } finally { loading.value = false }
 }
 function back() {
   // 有站内来路原路返回（如从服务器页门户货架直达）；直开详情页才回机型目录
   if (window.history.state?.back) { router.back(); return }
   const tid = model.value?.server_type_id
-  router.push(tid ? `/servers/types/${tid}` : '/servers')
+  const base = props.publicMode ? '/catalog' : '/servers'
+  router.push(tid ? `${base}/types/${tid}` : base)
 }
-function configure() { if (model.value) router.push(`/servers/config/${model.value.id}`) }
+function configure() {
+  if (!model.value) return
+  router.push(`${props.publicMode ? '/catalog' : '/servers'}/config/${model.value.id}`)
+}
 
 // 首屏深色场景垫在透明顶栏下（同机型目录页做法）：声明 hero-dark 换浅色导航文字；
 // 滚动后浮现的玻璃底带用本页主题色（各主题天空顶色），避免固定深蓝压酒红/暗紫天空
@@ -192,9 +200,9 @@ onBeforeUnmount(() => {
             <div class="hero-actions">
               <a-button type="primary" size="large" @click="configure">配置这台服务器 →</a-button>
               <a-dropdown v-if="docs.length" placement="bottomRight">
-                <a-button size="large" class="doc-btn">下载资料 ▾</a-button>
+                <a-button size="large" class="doc-btn">产品资料 ▾</a-button>
                 <template #overlay>
-                  <a-menu class="model-doc-menu" @click="({ key }: any) => downloadDoc(docs[Number(key)])">
+                  <a-menu class="model-doc-menu" @click="({ key }: any) => openDoc(docs[Number(key)])">
                     <a-menu-item v-for="(d, i) in docs" :key="i">
                       <span class="mdoc-tag">{{ d.type || '其他' }}</span>
                       <span class="mdoc-name" :title="d.name">{{ d.name }}</span>
@@ -281,19 +289,19 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
-          <!-- 产品资料（规格书/彩页/用户手册等；与铭牌「下载资料」下拉同源 product_content.docs） -->
+          <!-- 产品资料（规格书/彩页/用户手册等；与铭牌「产品资料」下拉同源 product_content.docs，点击先预览） -->
           <section v-if="docs.length" class="sec">
             <div class="sec-head">
               <div><div class="sec-kicker">Documents</div><div class="sec-title">产品资料</div></div>
-              <div class="sec-sub">共 {{ docs.length }} 份 · 点卡片下载</div>
+              <div class="sec-sub">共 {{ docs.length }} 份 · 点卡片预览</div>
             </div>
             <div class="docs-grid">
-              <button v-for="d in docs" :key="d.url" type="button" class="doc-card" @click="downloadDoc(d)">
+              <button v-for="d in docs" :key="d.url" type="button" class="doc-card" @click="openDoc(d)">
                 <span class="doc-card-tag">{{ d.type || '其他' }}</span>
                 <span class="doc-card-name" :title="d.name">{{ d.name }}</span>
                 <span class="doc-card-meta">
                   <span>{{ fmtMB(d.size) }}</span>
-                  <span class="doc-card-cta">下载 →</span>
+                  <span class="doc-card-cta">预览 →</span>
                 </span>
               </button>
             </div>
@@ -317,6 +325,9 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </a-spin>
+
+    <!-- 机型资料预览（复用附件预览弹窗，下载在弹窗内） -->
+    <AttachmentPreviewModal v-model:open="docPreviewOpen" :attachment="docPreview" />
   </div>
 </template>
 
@@ -624,7 +635,7 @@ onBeforeUnmount(() => {
 .cfg-cta { margin-top: 2px; font-size: 12.5px; color: #8cbdff; font-weight: 600; cursor: pointer; }
 .cfg-cta:hover { text-decoration: underline; }
 
-/* 产品资料卡：类型徽标 + 文件名 + 大小，整卡可点下载（铭牌「下载资料」下拉同源） */
+/* 产品资料卡：类型徽标 + 文件名 + 大小，整卡可点预览（铭牌「产品资料」下拉同源） */
 .docs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 .doc-card {
   display: flex; flex-direction: column; align-items: flex-start; gap: 9px;
@@ -683,7 +694,7 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
-/* 「下载资料」下拉 overlay 传送到 body 下，scoped 样式够不到：.model-doc-menu 前缀防泄漏。
+/* 「产品资料」下拉 overlay 传送到 body 下，scoped 样式够不到：.model-doc-menu 前缀防泄漏。
    菜单本体是 antd 浅色，徽标/字号在此配套调 */
 .model-doc-menu .mdoc-tag {
   display: inline-block; margin-right: 8px; padding: 0 8px; border-radius: 4px;

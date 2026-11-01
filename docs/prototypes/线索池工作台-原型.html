@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>线索池工作台 · 原型</title>
+<style>
+/* ============================================================
+   原型② 线索池工作台（内部面 · Glass Console 浅色）
+   视觉基准：tokens.css 浅色主题逐值搬运（间距 4/8/12/16/24/32 · 字阶 11/12/14/16/20/24 ·
+   圆角 2/4/6/8/12 · 工业蓝 #1677FF · 白玻璃卡片 · 禁左侧彩色装饰条）
+   规格要点：AI 初筛卡 · 专人确认分配 · 转化（选归属业务）/驳回（字典） · 待人工置顶
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --accent: #1677FF;
+  --accent-light: #4096ff;
+  --t1: #1d2129; --t2: #4e5969; --t3: #86909c; --t4: #c9cdd4;
+  --line: rgba(22, 119, 255, 0.10);
+  --line-strong: rgba(22, 119, 255, 0.16);
+  /* 浅色玻璃配方（tokens.css 逐值） */
+  --glass-card-bg: linear-gradient(135deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.24) 40%, rgba(255,255,255,0.44) 100%);
+  --glass-border: rgba(120, 144, 176, 0.38);
+  --glass-shadow: 0 10px 30px rgba(22, 119, 255, 0.08), inset 0 1px 0 rgba(255,255,255,0.62);
+  --blur: 14px;
+  --r-xs: 2px; --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 12px;
+}
+body {
+  font-family: var(--font); color: var(--t1); font-size: 14px; line-height: 1.6;
+  background:
+    radial-gradient(ellipse 80% 60% at 12% 0%, rgba(22, 119, 255, 0.16), transparent 55%),
+    radial-gradient(ellipse 65% 55% at 95% 15%, rgba(91, 143, 249, 0.12), transparent 60%),
+    linear-gradient(180deg, #DCE9F8 0%, #E9F0FA 45%, #F2F6FC 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* ---------- 原型工具条（非产品 UI） ---------- */
+.proto-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 999;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.proto-bar .pb-title { font-weight: 700; margin-right: 8px; }
+.proto-bar .pb-title small { font-weight: 400; color: var(--t3); margin-left: 6px; }
+.pb-btn {
+  padding: 5px 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: rgba(255,255,255,0.5);
+  color: var(--t2); font-size: 12.5px; font-family: inherit; transition: all .2s;
+}
+.pb-btn:hover { border-color: var(--line-strong); color: var(--t1); }
+.pb-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.proto-bar .pb-hint { margin-left: auto; color: var(--t3); font-size: 11.5px; }
+
+.view { display: none; padding: 78px 32px 60px; max-width: 1280px; margin: 0 auto; }
+.view.on { display: block; }
+
+/* ---------- 页头 ---------- */
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.page-head h1 { font-size: 24px; font-weight: 700; line-height: 1.25; }
+.page-head .desc { font-size: 13px; color: var(--t3); margin-top: 4px; }
+.head-stats { display: flex; gap: 8px; }
+.stat-chip {
+  display: flex; flex-direction: column; align-items: center; padding: 8px 18px;
+  background: var(--glass-card-bg); border: 1px solid var(--glass-border);
+  border-radius: var(--r-lg); backdrop-filter: blur(var(--blur)); box-shadow: var(--glass-shadow);
+}
+.stat-chip b { font-family: var(--mono); font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat-chip span { font-size: 11px; color: var(--t3); }
+.stat-chip.warn b { color: #d48806; }
+
+/* ---------- 筛选条 ---------- */
+.filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.tab-chip {
+  padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; font-family: inherit;
+  border: 1px solid transparent; background: rgba(255,255,255,0.4); color: var(--t2); transition: all .2s;
+}
+.tab-chip:hover { color: var(--t1); }
+.tab-chip.on { background: var(--accent); color: #fff; font-weight: 600; box-shadow: 0 4px 12px rgba(22,119,255,0.25); }
+.tab-chip .n { opacity: 0.65; font-size: 12px; margin-left: 2px; }
+.filter-sep { width: 1px; height: 20px; background: var(--line-strong); margin: 0 4px; }
+.grade-chip {
+  padding: 4px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; font-family: inherit;
+  border: 1px solid var(--line); background: rgba(255,255,255,0.4); color: var(--t3);
+}
+.grade-chip.on { border-color: var(--accent); color: var(--accent); background: rgba(22,119,255,0.08); font-weight: 600; }
+.search-input {
+  margin-left: auto; width: 240px; padding: 7px 12px; font-size: 13px; font-family: inherit;
+  border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  background: rgba(255,255,255,0.6); color: var(--t1); outline: none;
+}
+.search-input:focus { border-color: var(--accent); }
+
+/* ---------- 表格卡 ---------- */
+.table-card {
+  background: var(--glass-card-bg); border: 1px solid var(--glass-border);
+  border-radius: var(--r-xl); backdrop-filter: blur(var(--blur)); box-shadow: var(--glass-shadow);
+  overflow: hidden;
+}
+table.lead-tb { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lead-tb thead th {
+  text-align: left; padding: 11px 14px; font-size: 12px; font-weight: 600; color: var(--t3);
+  background: rgba(255,255,255,0.35); border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.lead-tb tbody td { padding: 12px 14px; border-bottom: 1px solid rgba(22,119,255,0.06); vertical-align: middle; }
+.lead-tb tbody tr { cursor: pointer; transition: background .15s; }
+.lead-tb tbody tr:hover { background: rgba(255,255,255,0.48); }
+.lead-tb tbody tr:last-child td { border-bottom: none; }
+.cell-main { font-weight: 600; color: var(--t1); }
+.cell-sub { font-size: 12px; color: var(--t3); margin-top: 1px; }
+.mono { font-family: var(--mono); font-size: 12px; color: var(--t2); font-variant-numeric: tabular-nums; }
+.req-clip { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--t2); }
+.dedup-badge {
+  display: inline-block; margin-left: 6px; padding: 0 7px; font-size: 10.5px; font-weight: 700;
+  color: #7c5cf0; background: rgba(124,92,240,0.10); border: 1px solid rgba(124,92,240,0.28); border-radius: 999px;
+}
+
+/* 状态徽标（无彩色装饰条，层级靠字号字重） */
+
+.status-chip {
+  display: inline-block; padding: 2px 10px; font-size: 11.5px; font-weight: 600;
+  border-radius: 999px; border: 1px solid transparent; white-space: nowrap;
+}
+.s-new      { color: #1677ff; background: rgba(22,119,255,0.08);  border-color: rgba(22,119,255,0.25); }
+.s-screening{ color: #0ea5b7; background: rgba(49,196,214,0.12);  border-color: rgba(49,196,214,0.30); }
+.s-screened { color: #7c5cf0; background: rgba(124,92,240,0.10);  border-color: rgba(124,92,240,0.28); }
+.s-confirmed{ color: #2f9d78; background: rgba(82,201,160,0.14);  border-color: rgba(82,201,160,0.35); }
+.s-assigned { color: #fff;    background: var(--accent);          border-color: var(--accent); }
+.s-rejected { color: #e5484d; background: rgba(255,107,107,0.10); border-color: rgba(255,107,107,0.30); }
+.spin {
+  display: inline-block; width: 11px; height: 11px; vertical-align: -1px; margin-right: 5px;
+  border: 2px solid rgba(14,165,183,0.25); border-top-color: #0ea5b7; border-radius: 50%;
+  animation: rot 0.9s linear infinite;
+}
+@keyframes rot { to { transform: rotate(360deg); } }
+
+/* ---------- 详情抽屉 ---------- */
+.drawer-mask { position: fixed; inset: 0; z-index: 200; display: none; background: rgba(29,33,41,0.35); backdrop-filter: blur(3px); }
+.drawer-mask.on { display: block; }
+.drawer {
+  position: fixed; top: 0; right: -500px; z-index: 201;
+  width: 480px; max-width: 96vw; height: 100vh; overflow-y: auto;
+  background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.86));
+  backdrop-filter: blur(20px); border-left: 1px solid var(--glass-border);
+  box-shadow: -16px 0 48px rgba(22,119,255,0.12);
+  transition: right .32s cubic-bezier(.16,1,.3,1);
+  display: flex; flex-direction: column;
+}
+.drawer.on { right: 0; }
+.dw-head { padding: 20px 24px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: flex-start; gap: 10px; }
+.dw-head h3 { font-size: 17px; font-weight: 700; }
+.dw-head .sub { font-size: 12px; color: var(--t3); margin-top: 3px; }
+.dw-close { margin-left: auto; background: none; border: none; font-size: 18px; color: var(--t3); cursor: pointer; }
+.dw-close:hover { color: var(--t1); }
+.dw-body { padding: 16px 24px 24px; display: flex; flex-direction: column; gap: 14px; flex: 1; }
+.dw-sec-title { font-size: 12px; font-weight: 600; color: var(--t3); letter-spacing: 0.06em; margin-bottom: 8px; }
+.kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+.kv-item { display: flex; flex-direction: column; }
+.kv-item i { font-style: normal; font-size: 11px; color: var(--t3); }
+.kv-item b { font-size: 13px; font-weight: 600; color: var(--t1); }
+.req-quote {
+  padding: 12px 14px; border-radius: var(--r-md); font-size: 13px; color: var(--t2); line-height: 1.75;
+  background: rgba(22,119,255,0.04); border: 1px solid rgba(22,119,255,0.10);
+}
+.slot-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.slot-chip {
+  padding: 3px 10px; font-size: 12px; border-radius: 999px;
+  background: rgba(255,255,255,0.55); border: 1px solid var(--line); color: var(--t2);
+}
+.slot-chip b { color: var(--t1); font-weight: 600; }
+.snapshot-link { font-size: 12.5px; color: var(--accent); cursor: pointer; font-weight: 600; }
+.snapshot-link:hover { text-decoration: underline; }
+
+/* AI 初筛卡 */
+.ai-card {
+  border: 1px solid var(--line-strong); border-radius: var(--r-lg);
+  background: rgba(255,255,255,0.5); overflow: hidden;
+}
+.ai-card-head {
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(22,119,255,0.07), rgba(54,207,207,0.05));
+  border-bottom: 1px solid var(--line);
+}
+.ai-card-head .t { font-size: 13px; font-weight: 700; }
+.ai-card-head .time { margin-left: auto; font-size: 11px; color: var(--t3); font-family: var(--mono); }
+.ai-card-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+.ai-failed {
+  display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #d48806;
+  background: rgba(250,173,20,0.08); border: 1px solid rgba(250,173,20,0.25);
+  padding: 10px 12px; border-radius: var(--r-md);
+}
+.dw-foot { display: flex; gap: 10px; padding: 14px 24px 20px; border-top: 1px solid var(--line); background: rgba(255,255,255,0.4); }
+.btn {
+  flex: 1; padding: 10px 16px; font-size: 14px; font-weight: 600; font-family: inherit;
+  border-radius: var(--r-md); cursor: pointer; transition: all .2s; text-align: center;
+}
+.btn-ghost-danger { background: rgba(255,107,107,0.06); color: #e5484d; border: 1px solid rgba(255,107,107,0.35); }
+.btn-ghost-danger:hover { background: rgba(255,107,107,0.12); }
+.btn-primary { background: var(--accent); color: #fff; border: 1px solid var(--accent); }
+.btn-primary:hover { background: var(--accent-light); }
+.btn-plain { background: rgba(255,255,255,0.6); color: var(--t2); border: 1px solid var(--line-strong); }
+.btn-plain:hover { color: var(--t1); }
+
+/* ---------- 弹窗（转化 / 驳回） ---------- */
+.modal-mask { position: fixed; inset: 0; z-index: 300; display: none; align-items: center; justify-content: center; background: rgba(29,33,41,0.35); backdrop-filter: blur(3px); }
+.modal-mask.on { display: flex; }
+.modal {
+  width: min(92vw, 480px); max-height: 88vh; overflow: auto;
+  border-radius: var(--r-xl); border: 1px solid var(--glass-border);
+  background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.88));
+  backdrop-filter: blur(20px); box-shadow: 0 24px 64px rgba(22,119,255,0.18);
+}
+.md-head { padding: 20px 24px 0; }
+.md-head h3 { font-size: 17px; font-weight: 700; }
+.md-head p { font-size: 12.5px; color: var(--t3); margin-top: 4px; }
+.md-body { padding: 16px 24px 8px; display: flex; flex-direction: column; gap: 13px; }
+.md-lead-mini {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  border-radius: var(--r-md); background: rgba(22,119,255,0.05); border: 1px solid rgba(22,119,255,0.12); font-size: 13px;
+}
+.md-lead-mini b { font-weight: 700; }
+.md-lead-mini .sub { color: var(--t3); font-size: 12px; }
+.f-label { display: block; font-size: 13px; font-weight: 600; color: var(--t2); margin-bottom: 6px; }
+.f-label em { color: #e5484d; font-style: normal; margin-left: 2px; }
+.f-select, .f-textarea {
+  width: 100%; padding: 9px 12px; font-size: 14px; font-family: inherit; color: var(--t1);
+  background: rgba(255,255,255,0.7); border: 1px solid var(--line-strong); border-radius: var(--r-md); outline: none;
+}
+.f-select:focus, .f-textarea:focus { border-color: var(--accent); }
+.f-textarea { min-height: 76px; resize: vertical; line-height: 1.6; }
+.auto-actions { display: flex; flex-direction: column; gap: 6px; }
+.auto-action { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--t2); }
+.auto-action .ck {
+  flex-shrink: 0; width: 16px; height: 16px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; color: #2f9d78; background: rgba(82,201,160,0.15); border: 1px solid rgba(82,201,160,0.35);
+}
+.md-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 24px 22px; }
+.md-foot .btn { flex: none; padding: 9px 22px; }
+
+/* ---------- 移动端 ---------- */
+.mobile-wrap { display: flex; gap: 48px; justify-content: center; flex-wrap: wrap; padding: 24px 0 40px; }
+.phone {
+  width: 375px; height: 720px; border-radius: 36px; overflow: hidden; position: relative;
+  border: 8px solid #2c3542; background: #F2F6FC; box-shadow: 0 30px 80px rgba(22,119,255,0.15); flex-shrink: 0;
+}
+.phone .ph-status { height: 34px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--t3); font-family: var(--mono); background: rgba(255,255,255,0.6); }
+.phone .ph-body { height: calc(100% - 34px); overflow-y: auto; }
+.ph-head { padding: 14px 16px 10px; }
+.ph-head h1 { font-size: 20px; font-weight: 700; }
+.ph-head .desc { font-size: 12px; color: var(--t3); margin-top: 2px; }
+.ph-tabs { display: flex; gap: 6px; padding: 0 12px 10px; overflow-x: auto; }
+.ph-tabs .tab-chip { flex-shrink: 0; padding: 5px 12px; font-size: 12px; }
+.ph-cards { display: flex; flex-direction: column; gap: 10px; padding: 2px 12px 20px; }
+.ph-card {
+  padding: 12px 14px; border-radius: var(--r-lg);
+  background: var(--glass-card-bg); border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--blur)); box-shadow: var(--glass-shadow);
+  display: flex; flex-direction: column; gap: 7px;
+}
+.ph-card .row1 { display: flex; align-items: center; gap: 8px; }
+.ph-card .row1 b { font-size: 14px; }
+.ph-card .row1 .time { margin-left: auto; font-size: 11px; color: var(--t3); }
+.ph-card .row2 { font-size: 12.5px; color: var(--t2); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.phone-caption { text-align: center; margin-top: 14px; font-size: 12.5px; color: var(--t3); }
+.phone-col { display: flex; flex-direction: column; }
+
+.flow-row { display: flex; gap: 14px; align-items: stretch; flex-wrap: wrap; margin-top: 20px; }
+.flow-card {
+  flex: 1 1 200px; min-width: 210px; padding: 16px;
+  border-radius: var(--r-lg); background: var(--glass-card-bg); border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--blur)); box-shadow: var(--glass-shadow);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.flow-card .st { display: flex; align-items: center; gap: 8px; }
+.flow-card .st .n {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  background: var(--accent); color: #fff; font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; font-family: var(--mono);
+}
+.flow-card .st b { font-size: 14px; }
+.flow-card .who {
+  align-self: flex-start; font-size: 11px; font-weight: 600; padding: 2px 10px; border-radius: 999px;
+}
+.flow-card .who.auto { color: #2f9d78; background: rgba(82,201,160,0.14); border: 1px solid rgba(82,201,160,0.35); }
+.flow-card .who.human { color: var(--accent); background: rgba(22,119,255,0.08); border: 1px solid rgba(22,119,255,0.28); }
+.flow-card .bd { font-size: 12.5px; color: var(--t2); line-height: 1.7; }
+.flow-card .bd b { color: var(--t1); }
+.flow-arrow { align-self: center; color: var(--t3); font-size: 20px; flex: 0 0 auto; }
+
+/* ---------- 标注层 ---------- */
+.anno-mark {
+  display: none; position: absolute; z-index: 90;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #B37F00; color: #fff; font-size: 12px; font-weight: 700;
+  align-items: center; justify-content: center; cursor: help;
+  box-shadow: 0 0 0 3px rgba(250,173,20,0.30);
+  font-family: var(--font);
+}
+body.annotated .anno-mark { display: flex; }
+body.annotated .anno-target { outline: 2px dashed rgba(250,173,20,0.65); outline-offset: 3px; }
+.anno-legend {
+  display: none; position: fixed; right: 16px; top: 104px; z-index: 998; width: 330px;
+  max-height: calc(100vh - 130px); overflow: auto;
+  background: rgba(255,255,255,0.95); border: 1px solid var(--line-strong); border-radius: 10px;
+  padding: 16px 18px; font-size: 12.5px; line-height: 1.7; color: var(--t2);
+  box-shadow: 0 16px 48px rgba(22,119,255,0.15);
+}
+body.annotated .anno-legend { display: block; }
+.anno-legend h4 { font-size: 13px; color: var(--t1); margin-bottom: 10px; }
+.anno-legend li { margin-bottom: 9px; list-style: none; display: flex; gap: 8px; }
+.anno-legend .no {
+  flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; margin-top: 2px;
+  background: #B37F00; color: #fff; font-size: 11px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.anno-legend b { color: var(--t1); }
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <span class="pb-title">原型② 线索池工作台 <small>内部面 · Glass Console 浅色 · 规格评审用</small></span>
+  <button class="pb-btn on" data-view="pool">线索池列表</button>
+  <button class="pb-btn" data-view="flow">线索流转全景</button>
+  <button class="pb-btn" data-view="mobile">移动端形态</button>
+  <button class="pb-btn" id="annoToggle">标注：关</button>
+  <span class="pb-hint">点表格行开详情抽屉 · 抽屉里点「驳回/确认有效」体验弹窗</span>
+</div>
+
+<!-- ═══════════ 视图 1：线索池列表 + 详情抽屉 ═══════════ -->
+<div id="view-pool" class="view on" style="position:relative">
+  <div class="page-head">
+    <div>
+      <h1>线索池</h1>
+      <div class="desc">公开渠道汇聚的线索 · AI 初筛后由专人确认分配 · 转化后进入既有商机流程</div>
+    </div>
+    <div class="head-stats">
+      <div class="stat-chip warn"><b>5</b><span>待处理</span></div>
+      <div class="stat-chip"><b>5</b><span>今日新增</span></div>
+      <div class="stat-chip"><b>23</b><span>全部线索</span></div>
+      <div class="stat-chip"><b>4</b><span>本周转化</span></div>
+    </div>
+  </div>
+
+  <div class="filter-bar anno-target" style="position:relative">
+    <span class="anno-mark" style="top:-12px; left:120px">1</span>
+    <button class="tab-chip on">全部 <span class="n">23</span></button>
+    <button class="tab-chip">待处理 <span class="n">5</span></button>
+    <button class="tab-chip">已确认 <span class="n">6</span></button>
+    <button class="tab-chip">已转化 <span class="n">4</span></button>
+    <button class="tab-chip">已驳回 <span class="n">1</span></button>
+    <input class="search-input" placeholder="搜索公司 / 联系人 / 手机号">
+  </div>
+
+  <div class="table-card anno-target" style="position:relative">
+    <span class="anno-mark" style="top:-10px; left:-10px">2</span>
+    <table class="lead-tb">
+      <thead>
+        <tr>
+          <th>公司 / 联系人</th>
+          <th>需求摘要</th>
+          <th style="width:150px">意向机型 / 数量</th>
+          <th style="width:96px">状态</th>
+          <th style="width:110px">提交时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr onclick="openDrawer()">
+          <td><div class="cell-main">华云智算科技</div><div class="cell-sub">刘经理 · 138****2201</div></td>
+          <td><div class="req-clip">智算中心一期，需要 8 卡训练服务器 12 台，要求本月内到货…</div></td>
+          <td><span class="mono">擎天 T-4U × 12</span></td>
+          <td><span class="status-chip s-new">新线索</span></td>
+          <td><span class="mono">10-31 09:41</span></td>
+        </tr>
+        <tr onclick="openDrawer()">
+          <td><div class="cell-main">蓝湖数据技术<span class="dedup-badge">×2 并入</span></div><div class="cell-sub">周工 · 159****0088</div></td>
+          <td><div class="req-clip">大模型训练试点，先采 2 台，Q1 预算已批，希望看标准训练配置…</div></td>
+          <td><span class="mono">擎天 T-4U × 2</span></td>
+          <td><span class="status-chip s-new">新线索</span></td>
+          <td><span class="mono">10-31 08:15</span></td>
+        </tr>
+        <tr>
+          <td><div class="cell-main">晟安建设集团</div><div class="cell-sub">赵总 · 137****6632</div></td>
+          <td><div class="req-clip">公司机房虚拟化改造，想了解 2U 通用机型</div></td>
+          <td><span class="mono">沧海 X-2U × ?</span></td>
+          <td><span class="status-chip s-new">新线索</span></td>
+          <td><span class="mono">10-30 17:22</span></td>
+        </tr>
+        <tr>
+          <td><div class="cell-main">星驰视频云</div><div class="cell-sub">孙工 · 189****3345</div></td>
+          <td><div class="req-clip">推理一体机，替代现有 GPU 服务器做视觉质检，需上门测试…</div></td>
+          <td><span class="mono">天枢 A-2U × 3</span></td>
+          <td><span class="status-chip s-confirmed">已确认</span></td>
+          <td><span class="mono">10-30 14:03</span></td>
+        </tr>
+        <tr>
+          <td><div class="cell-main">（未留公司）</div><div class="cell-sub">微信用户 · 136****9920</div></td>
+          <td><div class="req-clip">服务器多少钱一台</div></td>
+          <td><span class="mono">—</span></td>
+          <td><span class="status-chip s-new">新线索</span></td>
+          <td><span class="mono">10-30 11:48</span></td>
+        </tr>
+        <tr>
+          <td><div class="cell-main">个人 · 王同学</div><div class="cell-sub">毕设用 · 150****1177</div></td>
+          <td><div class="req-clip">学生毕业设计，想买一台便宜的二手服务器</div></td>
+          <td><span class="mono">—</span></td>
+          <td><span class="status-chip s-new">新线索</span></td>
+          <td><span class="mono">10-29 20:10</span></td>
+        </tr>
+        <tr>
+          <td><div class="cell-main">宏图系统集成</div><div class="cell-sub">吴经理 · 133****5858</div></td>
+          <td><div class="req-clip">存储节点扩容，48 盘位机型 4 台，年底前交付</div></td>
+          <td><span class="mono">星云 S-5U × 4</span></td>
+          <td><span class="status-chip s-assigned">已转化</span></td>
+          <td><span class="mono">10-29 15:36</span></td>
+        </tr>
+        <tr>
+          <td><div class="cell-main">某某推广公司</div><div class="cell-sub">网络表单 · 131****0000</div></td>
+          <td><div class="req-clip">专业的域名注册、建站服务，有需要联系…</div></td>
+          <td><span class="mono">—</span></td>
+          <td><span class="status-chip s-rejected">已驳回</span></td>
+          <td><span class="mono">10-29 09:02</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size:12px;color:var(--t3);margin-top:12px">列表默认按「新线索优先 → 时间」排序 · 已转化行点击跳商机详情 · IP/UA 仅审计留痕不展示</p>
+
+  <!-- 详情抽屉 -->
+  <div class="drawer-mask" id="drawerMask" onclick="closeDrawer()"></div>
+  <aside class="drawer" id="drawer">
+    <div class="dw-head">
+      <div>
+        <h3>蓝湖数据技术 <span class="status-chip s-new" style="margin-left:6px">新线索</span></h3>
+        <div class="sub">LEAD-20261031081544A01 · 来源：配置完成页（擎天 T-4U） · 今天 08:15</div>
+      </div>
+      <button class="dw-close" onclick="closeDrawer()">✕</button>
+    </div>
+    <div class="dw-body">
+      <div>
+        <div class="dw-sec-title">联系信息</div>
+        <div class="kv-grid">
+          <div class="kv-item"><i>公司</i><b>蓝湖数据技术（重复提交 ×2，已并入）</b></div>
+          <div class="kv-item"><i>联系人</i><b>周工</b></div>
+          <div class="kv-item"><i>手机号</i><b>159****0088</b></div>
+          <div class="kv-item"><i>工作邮箱</i><b>zhou@lanhutech.com</b></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="dw-sec-title">需求原文（客户原话）</div>
+        <div class="req-quote">我们在做大模型训练试点，先采购 2 台 8 卡机器验证效果，Q1 预算已经批了，希望按官网的标准训练配置给个报价，走得急。<br>—— 第二次提交补充：能不能顺便报一下 3 年维保的价格。</div>
+      </div>
+
+      <div>
+        <div class="dw-sec-title">配置意向 <span class="snapshot-link" style="float:right">含配置快照 · 10 项 ↗</span></div>
+        <div class="slot-chips">
+          <span class="slot-chip">机型 <b>擎天 T-4U</b></span>
+          <span class="slot-chip">平台 <b>Titan</b></span>
+          <span class="slot-chip">形态 <b>4U</b></span>
+          <span class="slot-chip">数量 <b>2 台</b></span>
+          <span class="slot-chip">维保 <b>3 年</b></span>
+        </div>
+      </div>
+
+      <!-- AI 初筛卡：一期人工筛选，此处为二期预留落点 -->
+      <div class="ai-card anno-target" style="position:relative">
+        <span class="anno-mark" style="top:-10px; right:-10px">3</span>
+        <div class="ai-card-head">
+          <span class="t">AI 初筛 · 二期预留</span>
+          <span class="time">未启用</span>
+        </div>
+        <div class="ai-card-body">
+          <div class="ai-failed" style="display:flex">
+            一期为人工逐条筛选。此处预留 AI 初筛卡落点：启用后展示三维评分（需求明确度/采购意向/企业信号）+ 摘要 + 旗标 + 跟进切入点。机制 = LLM 结构化评分（llm_client，非硬编码规则），表结构已留 ai_* 字段，启用不改表、人工流程不变。
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="dw-foot anno-target" style="position:relative">
+      <span class="anno-mark" style="top:-10px; right:130px">4</span>
+      <button class="btn btn-ghost-danger" onclick="openModal('rejectModal')">驳回</button>
+      <button class="btn btn-primary" onclick="openModal('convertModal')">确认有效，分配转化 →</button>
+    </div>
+  </aside>
+</div>
+
+<!-- ═══════════ 视图 1.5：线索流转全景 ═══════════ -->
+<div id="view-flow" class="view">
+  <div class="page-head">
+    <div>
+      <h1>线索流转全景</h1>
+      <div class="desc">从访客提交到报价定稿的完整链路 —— 自动化与人工环节一目了然，商机详情页四步流程零改动</div>
+    </div>
+  </div>
+
+  <div class="flow-row">
+    <div class="flow-card">
+      <div class="st"><span class="n">1</span><b>访客提交</b></div>
+      <span class="who auto">公开面 · 免登录</span>
+      <div class="bd">配置完成页 / /lead 独立页<br><b>登记表与商机线索登记表同构</b>：需求原文 + 配置 + KP 部件清单 + 联系方式</div>
+    </div>
+    <div class="flow-arrow">➜</div>
+    <div class="flow-card">
+      <div class="st"><span class="n">2</span><b>专人筛选</b></div>
+      <span class="who human">人工 · 线索池</span>
+      <div class="bd">逐条核验需求与联系方式<br>确认有效 或 驳回（原因字典）<br><b>二期可加 AI 初筛预分级</b>（落点已留）</div>
+    </div>
+    <div class="flow-arrow">➜</div>
+    <div class="flow-card">
+      <div class="st"><span class="n">3</span><b>专人确认 · 分配</b></div>
+      <span class="who human">人工 · 线索池</span>
+      <div class="bd">确认有效 → 选归属业务<br>驳回走原因字典<br><b>重复提交自动并入计数</b></div>
+    </div>
+    <div class="flow-arrow">➜</div>
+    <div class="flow-card">
+      <div class="st"><span class="n">4</span><b>自动转商机</b></div>
+      <span class="who auto">自动 · 秒级</span>
+      <div class="bd">建商机（客户名=公司，归属所选业务）<br><b>登记表原样生成需求草稿</b><br>extra_fields 记线索溯源 + 企微通知业务</div>
+    </div>
+    <div class="flow-arrow">➜</div>
+    <div class="flow-card">
+      <div class="st"><span class="n">5</span><b>商机详情页四步</b></div>
+      <span class="who human">既有流程 · 零改动</span>
+      <div class="bd"><b>需求单</b>（草稿已就绪，业务确认提交）<br><b>指派</b>（调度台/默认承接规则）<br><b>方案配置</b>（技术支持）<br><b>成本核算</b> → <b>报价定稿</b></div>
+    </div>
+  </div>
+
+  <div class="table-card" style="margin-top:20px; padding:16px 20px">
+    <b style="font-size:14px">回写与追溯</b>
+    <div style="font-size:12.5px; color:var(--t2); line-height:1.8; margin-top:8px">
+      · 转商机后线索状态 = 已转化，列表直达商机详情<br>
+      · 商机详情 extra_fields 记 lead_id / lead_source，随时反查这条商机来自哪次提交、哪个页面<br>
+      · 二期 AI 初筛启用后：评分/摘要/旗标留档（llm_client 结构化评分，非硬编码规则），为什么分高/低有据可查<br>
+      · 各环节时间戳齐全，天然形成<b>漏斗指标</b>（提交→有效→转化→成单），是后续做漏斗视图的数据底座
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ 视图 2：移动端形态 ═══════════ -->
+<div id="view-mobile" class="view">
+  <div class="mobile-wrap">
+    <div class="phone-col">
+      <div class="phone">
+        <div class="ph-status">375 × 812 · 线索池（卡片列表）</div>
+        <div class="ph-body">
+          <div class="ph-head"><h1>线索池</h1><div class="desc">待人工 3 · 今日新增 5</div></div>
+          <div class="ph-tabs">
+            <button class="tab-chip on">全部 23</button><button class="tab-chip">待处理 5</button><button class="tab-chip">已确认 6</button><button class="tab-chip">已转化 4</button>
+          </div>
+          <div class="ph-cards">
+            <div class="ph-card">
+              <div class="row1"><span class="status-chip s-new">新线索</span><span class="time">09:41</span></div>
+              <div class="row1"><b>华云智算科技</b></div>
+              <div class="row2">刘经理 · 智算中心一期 12 台…</div>
+              <div class="row2"><span class="status-chip s-new">新线索</span><span class="mono">擎天 T-4U × 12</span></div>
+            </div>
+            <div class="ph-card">
+              <div class="row1"><span class="status-chip s-new">新线索</span><span class="time">08:15</span></div>
+              <div class="row1"><b>蓝湖数据技术</b></div>
+              <div class="row2">周工 · 训练试点 2 台，Q1 预算已批…</div>
+              <div class="row2"><span class="status-chip s-new">新线索</span><span class="mono">擎天 T-4U × 2</span></div>
+            </div>
+            <div class="ph-card">
+              <div class="row1"><span class="status-chip s-confirmed">已确认</span><span class="time">昨天</span></div>
+              <div class="row1"><b>晟安建设集团</b></div>
+              <div class="row2">赵总 · 机房虚拟化改造…</div>
+              <div class="row2"><span class="status-chip s-new">新线索</span><span class="mono">沧海 X-2U</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="phone-caption">列表 · 磁贴卡片化（isMobile 模式）</div>
+    </div>
+    <div class="phone-col">
+      <div class="phone">
+        <div class="ph-status">375 × 812 · 线索详情（全宽抽屉）</div>
+        <div class="ph-body">
+          <div class="ph-head" style="display:flex;align-items:center"><b style="font-size:15px">← 返回</b><b style="margin-left:10px">蓝湖数据技术</b><span class="status-chip s-screened" style="margin-left:auto">已初筛</span></div>
+          <div class="ph-cards" style="padding-top:0">
+            <div class="ph-card">
+              <div class="row2" style="color:var(--t3)">联系信息</div>
+              <div class="row2">周工 · 159****0088 · zhou@lanhutech.com</div>
+            </div>
+            <div class="ph-card">
+              <div class="row2" style="color:var(--t3)">需求原文</div>
+              <div class="row2" style="line-height:1.7">大模型训练试点，先采购 2 台 8 卡机器验证效果，Q1 预算已批…</div>
+            </div>
+            <div class="ph-card">
+              <div class="row2"><span class="slot-chip">机型 <b>擎天 T-4U</b></span><span class="slot-chip">数量 <b>2 台</b></span><span class="slot-chip">维保 <b>3 年</b></span></div>
+            </div>
+            <div class="ph-card">
+              <div class="row1"><span class="t" style="font-weight:700;font-size:13px">AI 初筛 · 二期预留</span><span class="time">未启用</span></div>
+              <div class="row2" style="line-height:1.6;color:var(--t3)">一期人工筛选；二期在此展示 LLM 结构化评分（明确度/意向/企业信号）+ 摘要 + 旗标，表结构已留 ai_* 字段。</div>
+            </div>
+          </div>
+          <div class="ph-cta-full" style="display:flex;gap:10px;background:linear-gradient(to top,#F2F6FC 60%,transparent)">
+            <button class="btn btn-ghost-danger" style="flex:1">驳回</button>
+            <button class="btn btn-primary" style="flex:2">确认有效，分配转化 →</button>
+          </div>
+        </div>
+      </div>
+      <div class="phone-caption">详情 · 全宽抽屉 + 底部固定操作</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ 转化弹窗 ═══════════ -->
+<div class="modal-mask" id="convertModal">
+  <div class="modal">
+    <div class="md-head">
+      <h3>转化商机 · 分配归属业务</h3>
+      <p>LEAD-20261031081544A01 · 蓝湖数据技术</p>
+    </div>
+    <div class="md-body">
+      <div class="md-lead-mini">
+        <span class="status-chip s-new">新线索</span>
+        <span><b>擎天 T-4U × 2</b></span>
+        <span class="sub">训练试点 · Q1 · 预算已批</span>
+      </div>
+      <div>
+        <label class="f-label">归属业务<em>*</em></label>
+        <select class="f-select">
+          <option selected>请选择业务同事…</option>
+          <option>陈销售（在职 · 本月 6 单）</option>
+          <option>林销售（在职 · 本月 3 单）</option>
+          <option>高销售（在职 · 本月 0 单）</option>
+        </select>
+      </div>
+      <div class="auto-actions">
+        <div class="auto-action"><span class="ck">✓</span>自动创建商机，客户名 = 蓝湖数据技术，归属所选业务</div>
+        <div class="auto-action"><span class="ck">✓</span>自动生成需求草稿（需求原文 + 配置意向 + 配置快照），业务确认后走指派→配置→核价→报价</div>
+        <div class="auto-action"><span class="ck">✓</span>企微通知归属业务（尽力而为）</div>
+      </div>
+    </div>
+    <div class="md-foot">
+      <button class="btn btn-plain" onclick="closeModal('convertModal')">取消</button>
+      <button class="btn btn-primary" onclick="closeModal('convertModal')">确认转化</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ 驳回弹窗 ═══════════ -->
+<div class="modal-mask" id="rejectModal">
+  <div class="modal">
+    <div class="md-head">
+      <h3>驳回线索</h3>
+      <p>驳回后线索归档，不再出现在待处理列表</p>
+    </div>
+    <div class="md-body">
+      <div>
+        <label class="f-label">驳回原因<em>*</em><span style="font-weight:400;color:var(--t3);font-size:12px;margin-left:8px">字典可由管理员维护（lead.reject_reasons）</span></label>
+        <select class="f-select">
+          <option selected>请选择原因…</option>
+          <option>非目标客户</option>
+          <option>垃圾广告</option>
+          <option>重复线索</option>
+          <option>无真实需求</option>
+          <option>信息不实</option>
+          <option>超经营范围</option>
+        </select>
+      </div>
+      <div>
+        <label class="f-label">备注</label>
+        <textarea class="f-textarea" placeholder="一句话说明（选填）"></textarea>
+      </div>
+    </div>
+    <div class="md-foot">
+      <button class="btn btn-plain" onclick="closeModal('rejectModal')">取消</button>
+      <button class="btn btn-ghost-danger" style="flex:none;padding:9px 22px" onclick="closeModal('rejectModal')">确认驳回</button>
+    </div>
+  </div>
+</div>
+
+<!-- 标注图例 -->
+<div class="anno-legend">
+  <h4>标注 · 规格要点</h4>
+  <ul>
+    <li><span class="no">1</span><span><b>状态即筛选 tab</b>：全部/待人工/已初筛/已确认/已转化/已驳回，计数徽标；分级（高/中/低）与搜索叠加过滤。</span></li>
+    <li><span class="no">2</span><span><b>列表排序</b>：新线索（待处理）置顶 → 时间；重复提交并入显示「×N 并入」紫徽标；已转化行点击直达商机详情。</span></li>
+    <li><span class="no">3</span><span><b>AI 初筛 = 二期预留（用户定调：一期先跑通人工）</b>：抽屉里是预留落点卡。机制已定——LLM 结构化评分（llm_client，输入仅公开字段，非硬编码规则），表已留 ai_* 字段，二期启用不改表、人工流程不变。</span></li>
+    <li><span class="no">4</span><span><b>专人分配</b>：确认有效 → 选归属业务一键转化；自动建商机（extra_fields 记 lead 溯源）+ 生成需求草稿（与线索登记节点 slots 同构）+ 企微通知；驳回原因走 system_config 字典。权限：page.leads 查看 / action.lead.manage 操作。</span></li>
+    <li><span class="no">5</span><span><b>线索流转全景（本视图）</b>：提交 → 专人筛选 → 自动转商机 → 商机详情页四步（需求单→指派→方案配置→核价→报价，既有流程零改动）。绿色=自动、蓝色=人工；extra_fields 线索溯源 + 各环节时间戳 = 后续漏斗视图的数据底座。</span></li>
+    <li><span class="no">○</span><span><b>移动端</b>：isMobile 模式（matchMedia 768px），列表卡片化、抽屉全宽 + 底部固定操作；间距/字阶/圆角全部走 tokens（4/8/12/16/24/32 · 11/12/14/16/20/24 · 2/4/6/8/12）；分级靠右缘小圆点+文字，无彩色装饰条。</span></li>
+  </ul>
+</div>
+
+<script>
+function switchView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('on'))
+  document.getElementById('view-' + name).classList.add('on')
+  document.querySelectorAll('.proto-bar [data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === name))
+  window.scrollTo(0, 0)
+}
+document.querySelectorAll('.proto-bar [data-view]').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)))
+
+function openDrawer() {
+  document.getElementById('drawer').classList.add('on')
+  document.getElementById('drawerMask').classList.add('on')
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('on')
+  document.getElementById('drawerMask').classList.remove('on')
+}
+function openModal(id) { document.getElementById(id).classList.add('on') }
+function closeModal(id) { document.getElementById(id).classList.remove('on') }
+document.querySelectorAll('.modal-mask').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.classList.remove('on') }))
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); document.querySelectorAll('.modal-mask.on').forEach(m => m.classList.remove('on')) } })
+
+document.getElementById('annoToggle').addEventListener('click', function () {
+  const on = document.body.classList.toggle('annotated')
+  this.textContent = '标注：' + (on ? '开' : '关')
+  this.classList.toggle('on', on)
+})
+</script>
+</body>
+</html>

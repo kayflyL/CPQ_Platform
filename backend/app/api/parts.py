@@ -6,7 +6,7 @@ from typing import Optional
 import pandas as pd
 import io
 from app.repository.parts_master_repo import PartsMasterRepository
-from app.api.deps import get_current_user, require_perms, field_visible
+from app.api.deps import get_current_user, get_optional_user, require_perms, field_visible
 from app.utils.price_mask import mask_part_price_fields
 
 # 默认登录门槛；分类树/料号写操作收「配件」页权限。
@@ -16,7 +16,7 @@ _PRICE_VIEW = "field.parts.price"
 _PRICE_MANAGE = "action.parts.price.manage"
 
 router = APIRouter(prefix="/api/parts", tags=["parts"],
-                   dependencies=[Depends(get_current_user)])
+                   dependencies=[Depends(get_optional_user)])
 
 
 @router.get("")
@@ -29,9 +29,9 @@ def list_parts(
     page_size: int = 50,
     sort_by: Optional[str] = None,   # name / unit_price
     sort_order: Optional[str] = None, # asc / desc
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_optional_user),
 ):
-    """分页查询料号列表。page 从 1 开始。"""
+    """分页查询料号列表。page 从 1 开始。匿名可读，价格 fail-closed 遮蔽。"""
     repo = PartsMasterRepository()
     all_parts = repo.list(category, search, major_category=major_category)
     if chassis:

@@ -10,8 +10,10 @@ short UUID prevents same-name collisions. The stem is file metadata (the origina
 filename), NOT a business field like sales/chassis/platform, so editing
 business fields still cannot orphan files.
 
-Folder naming: {sanitized_customer_name}_{opp_id} — includes customer name
-for easy identification, suffixed with opp_id for uniqueness.
+Folder naming: {sanitized_customer_name}_{opp_id} — the customer name is a
+one-time cosmetic prefix frozen at first save; customer renames do NOT touch
+the filesystem or storage_keys (folder lookup matches on the immutable
+opportunity_id, so drifted/legacy folder names keep resolving).
 """
 from __future__ import annotations
 
@@ -45,11 +47,6 @@ class StorageAdapter(Protocol):
         ...
 
     def delete(self, storage_key: str) -> bool: ...
-
-    def rename_opportunity_folder(self, opportunity_id: str, old_customer: str, new_customer: str) -> tuple[bool, dict]:
-        """Rename opportunity folder when customer name changes.
-        Returns (success, {old_key_prefix, new_key_prefix}) for DB updates."""
-        ...
 
     def delete_opportunity_folder(self, opportunity_id: str) -> int:
         """Physically remove the opportunity's on-disk folder(s); return count removed."""
@@ -126,8 +123,14 @@ class LocalFileStorage:
         return [d for d in base.iterdir() if d.is_dir() and sanitized in d.name]
 
     def save_bytes(self, opportunity_id: str, object_id: str, content: bytes, ext: str, customer_name: str = "", subfolder: str = "") -> str:
-        """Save file under opportunities/{customer_name}_{opp_id}/{subfolder}/"""
-        folder = self._build_folder_name(opportunity_id, customer_name)
+        """Save file under opportunities/{customer_name}_{opp_id}/{subfolder}/.
+
+        Folder name is frozen at first save: existing folders for this
+        opportunity_id are reused as-is, so a later customer rename never
+        renames/moves anything on disk (lookup matches on the immutable id).
+        """
+        existing = self._find_opportunity_folders(opportunity_id)
+        folder = existing[0].name if existing else self._build_folder_name(opportunity_id, customer_name)
         safe_subfolder = self._sanitize((subfolder or "").strip("/").strip("\\"))
         obj = self._sanitize(object_id)
         ext = ext if ext.startswith(".") else f".{ext}"
@@ -168,50 +171,6 @@ class LocalFileStorage:
             p.unlink()
             return True
         return False
-
-    def rename_opportunity_folder(self, opportunity_id: str, old_customer: str, new_customer: str) -> tuple[bool, dict]:
-        """Rename opportunity folder when customer name changes.
-
-        Returns:
-            (success, {old_prefix, new_prefix}) - prefix for updating storage_key in DB
-
-        Example:
-            Old folder: opportunities/华为_OPP-xxx/
-            New folder: opportunities/华为科技_OPP-xxx/
-            Returns: (True, {"old_prefix": "opportunities/华为_OPP-xxx",
-                             "new_prefix": "opportunities/华为科技_OPP-xxx"})
-        """
-        existing = self._find_opportunity_folders(opportunity_id)
-        new_folder = self._build_folder_name(opportunity_id, new_customer)
-        new_path = self._safe_join("opportunities", new_folder)
-
-        if not existing:
-            # Nothing on disk yet — ensure the new-named folder exists for
-            # future uploads. Empty old_prefix => caller skips the DB rewrite.
-            new_path.mkdir(parents=True, exist_ok=True)
-            return True, {"old_prefix": "", "new_prefix": f"opportunities/{new_folder}"}
-
-        # old_prefix is the actual on-disk folder name, which may differ from
-        # what old_customer would produce (e.g. legacy '未命名_OPP-…').
-        old_prefix = f"opportunities/{existing[0].name}"
-
-        for src in existing:
-            if src.resolve() == new_path.resolve():
-                continue
-            if new_path.exists():
-                # Target already present (e.g. a second drifted folder) — merge.
-                for f in src.iterdir():
-                    target = new_path / f.name
-                    if not target.exists():
-                        shutil.move(str(f), str(target))
-                try:
-                    src.rmdir()
-                except OSError:
-                    pass  # Folder not empty, keep it
-            else:
-                shutil.move(str(src), str(new_path))
-
-        return True, {"old_prefix": old_prefix, "new_prefix": f"opportunities/{new_folder}"}
 
     def delete_opportunity_folder(self, opportunity_id: str) -> int:
         """Physically remove this opportunity's folder(s) from disk.

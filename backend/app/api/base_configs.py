@@ -2,11 +2,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional, List
 from app.repository.base_config_repo import BaseConfigRepository
-from app.api.deps import get_current_user, require_perms
+from app.api.deps import get_current_user, get_optional_user, require_perms
 
-# 默认登录门槛；写操作与成本分析收「服务器管理」页权限。
+# 读端点匿名可达（公开配置向导用，get_optional_user）；写操作与成本分析仍收「服务器管理」页权限。
 router = APIRouter(prefix="/api/base-configs", tags=["base-configs"],
-                   dependencies=[Depends(get_current_user)])
+                   dependencies=[Depends(get_optional_user)])
 
 
 @router.get("")

@@ -4,12 +4,16 @@
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { catalogApi, type ServerType, type ServerModel } from '@/api/serverConfig'
+import { publicCatalogApi } from '@/api/publicIntake'
 import ModelShowcase from '@/components/server-config/ModelShowcase.vue'
 import ServerModelCard from '@/components/common/ServerModelCard.vue'
 import { getShowcaseConfig } from '@/components/server-config/showcase-config'
 
+const props = defineProps<{ publicMode?: boolean }>()
 const route = useRoute()
 const router = useRouter()
+
+const R = computed(() => (props.publicMode ? '/catalog' : '/servers'))
 
 const typeId = computed(() => Number(route.params.typeId))
 const currentType = ref<ServerType | null>(null)
@@ -22,10 +26,12 @@ const showcaseConfig = computed(() =>
 async function loadTypeAndModels() {
   loading.value = true
   try {
-    const typesRes = await catalogApi.listTypes()
+    const typesRes = props.publicMode ? await publicCatalogApi.listTypes() : await catalogApi.listTypes()
     currentType.value = typesRes.types.find(t => t.id === typeId.value) || null
 
-    const modelsRes = await catalogApi.listModels(typeId.value, { publishedOnly: true })
+    const modelsRes = props.publicMode
+      ? await publicCatalogApi.listModels(typeId.value)
+      : await catalogApi.listModels(typeId.value, { publishedOnly: true })
     models.value = modelsRes.models
   } catch (e: any) {
     console.error('加载机型失败', e)
@@ -33,11 +39,11 @@ async function loadTypeAndModels() {
 }
 
 function goBack() {
-  router.push('/servers')
+  router.push(R.value)
 }
 
 function goToDetail(model: ServerModel) {
-  router.push(`/servers/models/${model.id}`)
+  router.push(`${R.value}/models/${model.id}`)
 }
 
 // 整页固定暗色垫在透明顶栏下：声明 hero-dark，顶栏切浅色文字（浅色主题下也可读）
@@ -86,7 +92,7 @@ onBeforeUnmount(() => markHeroDark(false))
           @click="goToDetail(m)"
         />
       </div>
-      <div v-else-if="!loading" class="sc-empty">该类型下暂无机型，去「管理」添加。</div>
+      <div v-else-if="!loading" class="sc-empty">{{ publicMode ? '该类型下暂无机型。' : '该类型下暂无机型，去「管理」添加。' }}</div>
     </div>
   </div>
 </template>

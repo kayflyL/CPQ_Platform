@@ -36,6 +36,7 @@ export interface ReasoningFlow {
   is_active: boolean
   description: string | null
   node_configs?: Partial<Record<ReasoningNodeKey, Record<string, any>>>  // 仅 get_active 返回
+  skill_key?: string  // create-from-template 返回新画布的 skill key（详情页直接进画布填空用）
 }
 
 export const reasoningFlowApi = {

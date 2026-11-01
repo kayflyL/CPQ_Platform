@@ -10,11 +10,14 @@ import { ref, computed } from 'vue'
 import { useSeriesStore } from '@/stores/series'
 import axios from 'axios'
 import { catalogApi, kpPartsApi, baseConfigApi, type ServerModel } from '@/api/serverConfig'
+import { publicCatalogApi } from '@/api/publicIntake'
 import type { RequirementSlots, PortalSheetRow } from '@/api/portal'
 import KpPartsEditor from '@/components/opportunity/KpPartsEditor.vue'
 
 const props = withDefaults(defineProps<{
   readonly?: boolean
+  /** 公开模式：机型/类型下拉走公开白名单 API（只出上架机型），供公开线索登记表复用 */
+  publicMode?: boolean
 }>(), { readonly: false })
 
 const emit = defineEmits<{ change: [] }>()
@@ -25,7 +28,16 @@ seriesStore.ensureSeries()
 const formOptions = ref<{ value: string; label: string }[]>([])
 
 const defaultKpCategories = ref<string[]>([])
-const seriesOptions = computed(() => seriesStore.items.map((s) => ({ value: s.value, label: s.label })))
+const seriesOptions = computed(() => {
+  // 公开模式平台字段对外用芯片品牌（用户口径：AMD 就是 Orion，兆芯就是 Polaris），
+  // 提交后由后端翻译回内部代号；内部模式照旧走系列 store。
+  if (props.publicMode) {
+    return ['AMD', 'Intel', '兆芯', '海光', '其他'].map((b) => ({ value: b, label: b }))
+  }
+  return seriesStore.items.map((s) => ({ value: s.value, label: s.label }))
+})
+// 内部代号 → 品牌（公开表单展示用；onModelSelect 带出 / fromSlots 回填时翻译）
+const _CHIP_BY_SERIES: Record<string, string> = { Orion: 'AMD', Polaris: '兆芯' }
 const modelOptions = ref<{ value: string; label: string }[]>([])
 const serverTypeOptions = ref<{ value: string; label: string }[]>([])
 const modelRecords = ref<ServerModel[]>([])
@@ -101,8 +113,13 @@ function markPrimary(name: string) {
 
 async function loadModelOptions() {
   try {
-    const res = await catalogApi.listModels()
-    modelRecords.value = res.models || []
+    if (props.publicMode) {
+      const res = await publicCatalogApi.listModels()
+      modelRecords.value = res.models || []
+    } else {
+      const res = await catalogApi.listModels()
+      modelRecords.value = res.models || []
+    }
     modelOptions.value = modelRecords.value
       .filter((m) => m && m.name)
       .map((m) => ({ value: m.name, label: m.name }))
@@ -113,8 +130,14 @@ async function loadModelOptions() {
 
 async function loadServerTypes() {
   try {
-    const res = await catalogApi.listTypes()
-    const types = res.types || []
+    let types: any[] = []
+    if (props.publicMode) {
+      const res = await publicCatalogApi.listTypes()
+      types = res.types || []
+    } else {
+      const res = await catalogApi.listTypes()
+      types = res.types || []
+    }
     serverTypeOptions.value = types
       .filter((t) => t && t.name)
       .map((t) => ({ value: t.name, label: t.name }))
@@ -165,9 +188,15 @@ const configFields = ref<FormFieldDef[]>([])
 
 async function loadFormDefinition() {
   try {
-    const { data } = await axios.get('/api/system-config/requirement_sheet_form/value')
-    const fields = data?.value?.config_fields
-    configFields.value = Array.isArray(fields) ? fields : []
+    if (props.publicMode) {
+      const form = await publicCatalogApi.getSheetForm()
+      const fields = form?.config_fields
+      configFields.value = Array.isArray(fields) ? fields : []
+    } else {
+      const { data } = await axios.get('/api/system-config/requirement_sheet_form/value')
+      const fields = data?.value?.config_fields
+      configFields.value = Array.isArray(fields) ? fields : []
+    }
   } catch {
     configFields.value = []
   }
@@ -228,7 +257,10 @@ function onModelSelect(value: string) {
   const model = modelRecords.value.find((m) => m.name === value)
   const cfg = activeConfig.value
   if (!model || !cfg) return
-  if (model.base_config?.series) cfg.platform_type = model.base_config.series
+  if (model.base_config?.series) {
+    const series = model.base_config.series
+    cfg.platform_type = props.publicMode ? (_CHIP_BY_SERIES[series] || series) : series
+  }
   if (model.base_config?.form) cfg.chassis_form = model.base_config.form
   if (model.server_type_id != null) {
     const typeName = serverTypeMap[String(model.server_type_id)]
@@ -253,6 +285,7 @@ function toSlots(): RequirementSlots {
     chassis_form: c.chassis_form || '',
     qty: Number(c.qty) || 1,
     warranty_years: String(Number(c.warranty_years) || 1),
+    expected_delivery: (c as any).expected_delivery || '',
     kp_rows: (c.kp_rows || []).filter((r) => (r.catalogue || '').trim() || (r.description || '').trim()).map((r) => ({
       category: r.category || 'Key Parts',
       part_category: r.part_category || '',
@@ -282,6 +315,7 @@ function toSlots(): RequirementSlots {
     if (first.server_type) slots.server_type = first.server_type
     if (first.chassis_form) slots.chassis_form = first.chassis_form
     if (first.warranty_years) slots.warranty_years = first.warranty_years
+    if (first.expected_delivery) (slots as any).expected_delivery = first.expected_delivery
     if (first.kp_rows.length) slots.kp_rows = first.kp_rows
   }
   return slots
@@ -299,11 +333,12 @@ function fromSlots(slots: RequirementSlots) {
     configs.value = rawConfigs.map((c: any, i: number) => ({
       name: (c.name || '').trim() || `CFG${i + 1}`,
       server_model: c.server_model || '',
-      platform_type: c.platform_type || '',
+      platform_type: props.publicMode ? (_CHIP_BY_SERIES[c.platform_type] || c.platform_type || '') : (c.platform_type || ''),
       server_type: c.server_type || '',
       chassis_form: c.chassis_form || '',
       qty: Number(c.qty) || 1,
       warranty_years: warrantyNumber(c.warranty_years ?? slots.warranty_years),
+      expected_delivery: (c as any).expected_delivery || (slots as any).expected_delivery || '',
       kp_rows: rowsFromConfig(c),
     }))
     // 方案备选：主推默认第一个配置
@@ -317,11 +352,12 @@ function fromSlots(slots: RequirementSlots) {
     configs.value = [{
       name: 'CFG1',
       server_model: slots.server_model || '',
-      platform_type: slots.platform_type || '',
+      platform_type: props.publicMode ? (_CHIP_BY_SERIES[slots.platform_type || ''] || slots.platform_type || '') : (slots.platform_type || ''),
       server_type: slots.server_type || '',
       chassis_form: slots.chassis_form || '',
       qty: Number(slots.purchase_qty) || 1,
       warranty_years: warrantyNumber(slots.warranty_years),
+      expected_delivery: (slots as any).expected_delivery || '',
       kp_rows: legacyKp,
     }]
   }
@@ -366,8 +402,8 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
             :disabled="readonly"
             @change="(e: any) => onConfigRelationChange(e.target.value)"
           >
-            <a-radio-button value="compose">组合拆分</a-radio-button>
-            <a-radio-button value="alternative">方案备选</a-radio-button>
+            <a-radio-button value="compose">合并采购</a-radio-button>
+            <a-radio-button value="alternative">备选对比</a-radio-button>
           </a-radio-group>
           <a-button v-if="!readonly" size="small" @click="addConfig">+ 配置</a-button>
         </div>

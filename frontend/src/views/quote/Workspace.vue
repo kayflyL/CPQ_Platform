@@ -1035,8 +1035,9 @@ import { partsApi } from '@/api/serverConfig'
 import { syncKpPrice, getKpHistory, updateKpPriceHistory, normalizeKpCategory } from '@/api/quote'
 import { quotationApi } from '@/api'
 import { downloadBlob } from '@/utils/download'
+import dayjs from 'dayjs'
 import { buildPrintTitle, exportSpecPdf } from '@/utils/printExport'
-import { calcUnitCost, computeKpMatch, currencySymbol, dbPriceOf, isNewPart, kpPriceAction, matchClass, rmbToBasePrice, safeServerModelFilename } from '@/utils/quoteCommon'
+import { calcUnitCost, computeKpMatch, currencySymbol, dbPriceOf, isNewPart, kpPriceAction, matchClass, rmbToBasePrice, safeFilenamePart } from '@/utils/quoteCommon'
 import { feedApi } from '@/api/feed'
 import { portalApi } from '@/api/portal'
 import type { OutboundApprovalState } from '@/api/portal'
@@ -1494,8 +1495,11 @@ async function handleDownloadExport() {
     const { resolvedWorkbookToXlsx } = await import('@/utils/xlsx-exporter')
     const blob = await resolvedWorkbookToXlsx(wb)
     const oid = store.opportunityInfo?.opportunity_id || '报价单'
-    const serverModel = safeServerModelFilename(activeConfig.value?.server_model)
-    const fname = `CloudPrime-${serverModel}-${oid}_报价单${isInternalVersion.value ? '_对内版' : ''}.xlsx`
+    // 业务命名：业务名-报价单日期-报价单-客户名_v版本[_对内版]；精确商机号不进文件名——明细页 B1 印着、归档元数据可查
+    const oi = store.opportunityInfo || ({} as any)
+    const date = String(oi.date || '').replace(/-/g, '') || dayjs().format('YYYYMMDD')
+    const ver = parseInt(String(oi.version ?? '').replace(/^v/i, ''), 10)
+    const fname = `${safeFilenamePart(oi.sales_person, '未分配')}-${date}-报价单-${safeFilenamePart(oi.customer_name, '未命名客户')}_v${ver > 0 ? ver : 1}${isInternalVersion.value ? '_对内版' : ''}.xlsx`
     downloadBlob(blob, fname)
     if (isInternalVersion.value) {
       // 对内版（含成本/利润率）：只归档到内部附件，不冻结报价单、不落策略快照

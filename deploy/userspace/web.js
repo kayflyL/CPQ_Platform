@@ -33,7 +33,14 @@ function handleRequest(req, res) {
   if (file !== DIST && !file.startsWith(DIST + path.sep)) { res.writeHead(403); return res.end(); }
   let st = null;
   try { st = fs.statSync(file); } catch {}
-  if (!st || st.isDirectory()) file = path.join(DIST, 'index.html');   // SPA 路由回退
+  if (st && st.isDirectory()) {
+    // 目录形式 → 优先该目录自身的 index.html（多入口门面如 /office/），没有再走 SPA 回退
+    const dirIndex = path.join(file, 'index.html');
+    if (fs.existsSync(dirIndex)) file = dirIndex;
+    else file = path.join(DIST, 'index.html');
+  } else if (!st) {
+    file = path.join(DIST, 'index.html');   // SPA 路由回退
+  }
   const ext = path.extname(file).toLowerCase();
   const cache = file.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache';
   const stream = fs.createReadStream(file);

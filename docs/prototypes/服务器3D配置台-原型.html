@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESA240 V3 · 3D 配置台样张</title>
+<!--
+  服务器3D配置台样张(2026-11-01)
+  蓝本 = 服务器管理-图纸配置里 ESA240 V3(机型16)三视图标注 + 底座25档案:
+  4U / 2×AMD 9004 / 24×DDR5 6400 / 8×双宽GPU直连 / 13×FHHL PCIe Gen5 + 1×OCP3.0
+  CRPS 3+1 电源 / 12×6056 热插拔风扇 / 12×3.5" 前置盘位 / 双挂耳
+  工艺 = 程序化参数化建模(零美术资产):低模几何 + 发光贴边 + bloom 泛光 + 动效
+  方向 = 科技感/炫酷(深空蓝+玻璃+辉光),非写实金属
+  引库惯例同 宣传视频-工作台首页一屏式.html(jsdelivr three importmap)
+-->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    background: #0a1526;
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: #dfe9f5;
+  }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; }
+  /* 暗角,压住四周让主体聚焦 */
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none; z-index: 2;
+    background: radial-gradient(ellipse at 50% 42%, transparent 58%, rgba(1,4,10,.4) 100%);
+  }
+  .hud { position: fixed; z-index: 5; }
+  .glass {
+    background: rgba(9, 16, 30, .68);
+    border: 1px solid rgba(122, 200, 255, .16);
+    border-radius: 12px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, .45);
+  }
+  /* 左上:标题 */
+  #title { top: 18px; left: 18px; padding: 12px 16px; }
+  #title .t1 { font-size: 15px; font-weight: 700; letter-spacing: .06em; }
+  #title .t1 b { color: #4cc9f0; font-weight: 800; }
+  #title .t2 { margin-top: 3px; font-size: 11px; color: #7d8ba1; letter-spacing: .04em; }
+  /* 右上:控制台 */
+  #panel { top: 18px; right: 18px; padding: 12px; width: 216px; }
+  #panel .sec { margin-bottom: 10px; }
+  #panel .sec:last-child { margin-bottom: 0; }
+  #panel .lab {
+    font-size: 10px; color: #6b7a92; letter-spacing: .18em; margin-bottom: 6px;
+  }
+  .btnrow { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn {
+    appearance: none; border: 1px solid rgba(122, 200, 255, .22);
+    background: rgba(20, 34, 58, .55); color: #cfe2f5;
+    font-size: 12px; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+    transition: all .18s ease; letter-spacing: .03em;
+  }
+  .btn:hover { border-color: rgba(122, 200, 255, .55); background: rgba(30, 52, 88, .7); }
+  .btn.on {
+    background: rgba(28, 84, 128, .75); border-color: #4cc9f0; color: #e8f7ff;
+    box-shadow: 0 0 12px rgba(76, 201, 240, .35);
+  }
+  .stepper { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; }
+  .stepper .sname { font-size: 12px; color: #a8bad0; }
+  .stepper .sctrl { display: flex; align-items: center; gap: 8px; }
+  .stepper button {
+    width: 22px; height: 22px; border-radius: 6px; cursor: pointer; font-size: 13px; line-height: 1;
+    border: 1px solid rgba(122, 200, 255, .22); background: rgba(20, 34, 58, .55); color: #cfe2f5;
+  }
+  .stepper button:hover { border-color: rgba(122,200,255,.55); }
+  .stepper .sval { min-width: 20px; text-align: center; font-size: 13px; font-weight: 700; color: #4cc9f0; font-variant-numeric: tabular-nums; }
+  /* 左下:部件清单 */
+  #legend { bottom: 18px; left: 18px; padding: 10px 14px; display: flex; gap: 14px; align-items: center; }
+  #legend .li { font-size: 11px; color: #93a6bf; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  #legend .li b { color: #e6f2ff; font-size: 12px; }
+  #legend .dot { width: 6px; height: 6px; border-radius: 50%; background: #4cc9f0; box-shadow: 0 0 6px rgba(76,201,240,.9); }
+  #legend .dot.v { background: #a78bfa; box-shadow: 0 0 6px rgba(167,139,250,.9); }
+  #legend .dot.g { background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,.9); }
+  /* 右下:FPS */
+  #fps { bottom: 18px; left: 50%; transform: translateX(-50%); padding: 6px 12px; font-size: 11px; color: #7d8ba1;
+         font-variant-numeric: tabular-nums; letter-spacing: .08em; }
+  #fps b { color: #34d399; font-size: 13px; }
+  /* 悬浮提示 */
+  #tip {
+    position: fixed; z-index: 9; pointer-events: none; display: none;
+    padding: 7px 11px; max-width: 260px;
+    background: rgba(8, 14, 26, .88); border: 1px solid rgba(122, 200, 255, .35);
+    border-radius: 9px; font-size: 12px; line-height: 1.55; color: #d7e5f5;
+    box-shadow: 0 6px 24px rgba(0,0,0,.5); backdrop-filter: blur(10px);
+  }
+  #tip b { color: #4cc9f0; display: block; margin-bottom: 1px; font-size: 12.5px; }
+  #tip .sub { color: #8fa2bb; font-size: 11px; }
+  /* 点击固定的信息卡 */
+  #card {
+    position: fixed; z-index: 8; right: 18px; bottom: 18px; width: 252px; display: none;
+    padding: 14px 16px;
+  }
+  #card.show { display: block; }
+  #card h3 { font-size: 14px; color: #4cc9f0; margin-bottom: 6px; letter-spacing: .04em; }
+  #card p { font-size: 12px; color: #a8bad0; line-height: 1.65; }
+  #card .chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; }
+  #card .chip {
+    font-size: 10.5px; padding: 2px 8px; border-radius: 99px;
+    background: rgba(76, 201, 240, .1); border: 1px solid rgba(76, 201, 240, .3); color: #9fd9f5;
+  }
+  #card .x {
+    position: absolute; top: 8px; right: 10px; cursor: pointer; color: #6b7a92; font-size: 14px;
+  }
+  #card .x:hover { color: #cfe2f5; }
+  /* 浅色主题(服务器配置页可切主题,3D台跟随) */
+  body.light { color: #243247; background: #e6edf7; }
+  body.light #vignette { background: radial-gradient(ellipse at 50% 42%, transparent 60%, rgba(120,140,170,.25) 100%); }
+  body.light .glass { background: rgba(255,255,255,.74); border-color: rgba(70,110,160,.28); box-shadow: 0 8px 32px rgba(90,110,140,.28); }
+  body.light #title .t1 { color: #1c2a3a; }
+  body.light #title .t1 b { color: #0f6fa8; }
+  body.light #title .t2, body.light .lab, body.light #fps, body.light .li, body.light .sname { color: #5d7391; }
+  body.light .btn { background: rgba(255,255,255,.65); border-color: rgba(70,110,160,.32); color: #2a3c55; }
+  body.light .btn:hover { border-color: rgba(30,110,180,.6); background: rgba(255,255,255,.9); }
+  body.light .btn.on { background: rgba(120,190,240,.5); border-color: #1d7fc0; color: #0d2c47; box-shadow: 0 0 12px rgba(60,150,220,.3); }
+  body.light .stepper button { background: rgba(255,255,255,.65); border-color: rgba(70,110,160,.32); color: #2a3c55; }
+  body.light .sval { color: #0f6fa8; }
+  body.light #tip { background: rgba(255,255,255,.94); border-color: rgba(70,110,160,.4); color: #243247; }
+  body.light #tip b { color: #0f6fa8; }
+  body.light #tip .sub { color: #5d7391; }
+  body.light #card h3 { color: #0f6fa8; }
+  body.light #card p { color: #45597a; }
+  body.light #card .chip { background: rgba(30,130,200,.1); border-color: rgba(30,130,200,.35); color: #0f6fa8; }
+  body.light #legend .li b { color: #243247; }
+  body.light #fps b { color: #0e7a4e; }
+  @media (max-width: 760px) {
+    #panel { width: auto; right: 10px; top: 10px; left: auto; max-width: 46vw; }
+    #title { left: 10px; top: 10px; max-width: 50vw; }
+    #legend { display: none; }
+    #card { right: 10px; bottom: 10px; width: calc(100vw - 20px); }
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="stage"></div>
+<div id="vignette"></div>
+
+<div id="title" class="hud glass">
+  <div class="t1">ESA240 V3 <b>· 3D 配置台样张</b></div>
+  <div class="t2">程序化参数化生成 · 蓝本=图纸配置+底座档案 · 科技感方向</div>
+</div>
+
+<div id="panel" class="hud glass">
+  <div class="sec">
+    <div class="lab">视角</div>
+    <div class="btnrow" id="views">
+      <button class="btn" data-v="front">正面</button>
+      <button class="btn" data-v="rear">背面</button>
+      <button class="btn" data-v="top">俯视</button>
+      <button class="btn" data-v="inner">内部</button>
+    </div>
+  </div>
+  <div class="sec">
+    <div class="lab">形态</div>
+    <div class="btnrow">
+      <button class="btn" id="btnExplode">爆炸视图</button>
+      <button class="btn on" id="btnRotate">自动旋转</button>
+      <button class="btn" id="btnTheme">浅色模式</button>
+    </div>
+  </div>
+  <div class="sec">
+    <div class="lab">改配置 · 机器实时跟着变</div>
+    <div class="stepper">
+      <span class="sname">GPU 双宽卡</span>
+      <span class="sctrl">
+        <button id="gpuMinus">−</button><span class="sval" id="gpuVal">8</span><button id="gpuPlus">＋</button>
+      </span>
+    </div>
+    <div class="stepper">
+      <span class="sname">CPU 处理器</span>
+      <span class="sctrl">
+        <button id="cpuMinus">−</button><span class="sval" id="cpuVal">2</span><button id="cpuPlus">＋</button>
+      </span>
+    </div>
+    <div class="stepper">
+      <span class="sname">3.5" 盘位</span>
+      <span class="sctrl">
+        <button id="bayMinus">−</button><span class="sval" id="bayVal">12</span><button id="bayPlus">＋</button>
+      </span>
+    </div>
+    <div class="stepper">
+      <span class="sname">DDR5 内存</span>
+      <span class="sctrl">
+        <button id="dimmMinus">−</button><span class="sval" id="dimmVal">24</span><button id="dimmPlus">＋</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div id="legend" class="hud glass">
+  <span class="li"><span class="dot"></span>盘位 <b>12</b></span>
+  <span class="li"><span class="dot"></span>风扇 <b>12</b></span>
+  <span class="li"><span class="dot"></span>CPU <b>2</b></span>
+  <span class="li"><span class="dot"></span>内存 <b>24</b></span>
+  <span class="li"><span class="dot v"></span>GPU <b>8</b></span>
+  <span class="li"><span class="dot g"></span>电源 <b>3+1</b></span>
+  <span class="li"><span class="dot"></span>PCIe <b>13+OCP</b></span>
+</div>
+
+<div id="fps" class="hud glass">FPS <b id="fpsVal">--</b></div>
+<div id="tip"></div>
+
+<div id="card" class="hud glass">
+  <span class="x" id="cardClose">✕</span>
+  <h3 id="cardTitle"></h3>
+  <p id="cardDesc"></p>
+  <div class="chips" id="cardChips"></div>
+</div>
+
+<script type="module">
+import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+
+/* ───── 配置即入参(来自底座25档案/图纸标注) — 改这里=换机型 ───── */
+const CFG = {
+  form: '4U', bays: 12, fans: 12, cpus: 2, dimms: 24, gpus: 8,
+  psu: { total: 4, active: 3 }, pcie: 13, ocp: 1,
+  size: { W: 4.6, H: 1.78, D: 7.2 },   // 438mm×178mm×720mm 按米
+}
+
+/* ───── 部件语义(来自图纸 region 标注) — hover/点击弹这 ───── */
+const PART_INFO = {
+  drives: { name: '前置硬盘区', qty: () => `${state.bays}×3.5" 热插拔`,
+    desc: 'SATA / SAS / NVMe 盘位,支持热插拔。对应图纸前视图「前置硬盘区(12×3.5")」标注。',
+    chips: ['热插拔', 'SATA/SAS/NVMe', '图纸:前视图'] },
+  ears: { name: '挂耳(指示灯/把手)', qty: () => '左电源键+状态灯 · 右VGA/USB',
+    desc: '对应图纸前视图「左挂耳(指示灯/把手)」「右挂耳(VGA/USB/把手)」标注。',
+    chips: ['电源键', '状态灯', '图纸:前视图'] },
+  fans: { name: '风扇区', qty: () => `${CFG.fans}×6056 热插拔`,
+    desc: '12×6056 热插拔风扇墙,整机散热风道第一级。对应图纸俯视图「风扇区」标注。',
+    chips: ['6056', '热插拔', '图纸:俯视图'] },
+  cpu: { name: 'CPU/内存区', qty: () => `${state.cpus}×AMD 9004/9005 · ${state.dimms}×DDR5 6400`,
+    desc: '绿色主板上双路 AMD 9004/9005,内存一根根竖插成排(俯视图浅绿竖条)。对应图纸俯视图「CPU/内存区」标注。',
+    chips: ['AMD 9004/9005', 'DDR5 6400', '图纸:俯视图'] },
+  gpus: { name: 'GPU 区 · Switch板', qty: () => `${state.gpus}×双宽GPU 竖插一排`,
+    desc: '深绿 Switch 板上竖插一排双宽 GPU(俯视图的一排竖线),CPU 直连 Passthrough,PCIe Gen5 x16。',
+    chips: ['双宽', 'Passthrough', 'Gen5 x16', '图纸:俯视图'] },
+  psu: { name: '电源区', qty: () => `CRPS ${CFG.psu.active}+1 冗余`,
+    desc: 'CRPS 3+1 冗余电源(1300/1600/2000/2700W 可选)。对应图纸后视图「电源区(左/右)」标注。',
+    chips: ['CRPS', '3+1 冗余', '图纸:后视图'] },
+  pcie: { name: 'PCIe 扩展槽区', qty: () => `${CFG.pcie}×FHHL x16 + ${CFG.ocp}×OCP3.0`,
+    desc: '13×FHHL PCIe Gen5 x16 + 1×OCP3.0 x8。对应图纸后视图「PCIe 扩展槽区」「主板IO区」标注。',
+    chips: ['FHHL', 'Gen5 x16', 'OCP3.0', '图纸:后视图'] },
+}
+
+/* ───── 渲染基座 ───── */
+const stage = document.getElementById('stage')
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+renderer.setSize(innerWidth, innerHeight)
+renderer.toneMapping = THREE.ACESFilmicToneMapping
+renderer.toneMappingExposure = 1.15
+renderer.shadowMap.enabled = true
+renderer.shadowMap.type = THREE.PCFSoftShadowMap
+stage.appendChild(renderer.domElement)
+
+const scene = new THREE.Scene()
+scene.background = new THREE.Color('#0a1526')
+scene.fog = new THREE.FogExp2('#0a1526', 0.022)
+
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 200)
+camera.position.set(20, 13, 20)
+
+const controls = new OrbitControls(camera, renderer.domElement)
+controls.target.set(0, 0.9, 0)
+controls.enableDamping = true
+controls.dampingFactor = 0.07
+controls.minDistance = 3.5
+controls.maxDistance = 40
+controls.maxPolarAngle = Math.PI * 0.52
+controls.autoRotate = true
+controls.autoRotateSpeed = 0.85
+
+const composer = new EffectComposer(renderer)
+composer.addPass(new RenderPass(scene, camera))
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.85, 0.55, 0.72)
+composer.addPass(bloom)
+composer.addPass(new OutputPass())
+
+/* ───── 灯光:1 主光 + 双氛围点光 + 低环境 ───── */
+const ambient = new THREE.AmbientLight('#8fb4dd', 0.65)
+scene.add(ambient)
+const key = new THREE.DirectionalLight('#eaf4ff', 1.8)
+key.position.set(7, 12, 6)
+key.castShadow = true
+key.shadow.mapSize.set(2048, 2048)
+key.shadow.camera.left = -9; key.shadow.camera.right = 9
+key.shadow.camera.top = 9; key.shadow.camera.bottom = -9
+key.shadow.radius = 6
+scene.add(key)
+const rimCyan = new THREE.PointLight('#1e6fff', 7, 30); rimCyan.position.set(-8, 4, -8); scene.add(rimCyan)
+const rimViolet = new THREE.PointLight('#7c3aed', 5, 30); rimViolet.position.set(8, 3, -9); scene.add(rimViolet)
+const fillTop = new THREE.PointLight('#a5d8ff', 14, 16); fillTop.position.set(0, 4.2, 0.5); scene.add(fillTop)
+
+/* ───── 地台:暗面 + 极坐标网格 + 发光环 ───── */
+const floor = new THREE.Mesh(
+  new THREE.CircleGeometry(34, 72),
+  new THREE.MeshStandardMaterial({ color: '#0c1930', roughness: 0.92, metalness: 0.25 })
+)
+floor.rotation.x = -Math.PI / 2; floor.position.y = -0.08; floor.receiveShadow = true
+scene.add(floor)
+let grid = null
+function buildGrid(c1, c2) {
+  if (grid) { scene.remove(grid); grid.geometry.dispose(); grid.material.dispose() }
+  grid = new THREE.PolarGridHelper(30, 12, 8, 72, c1, c2)
+  grid.position.y = -0.07
+  scene.add(grid)
+}
+function glowRing(r, color, inten) {
+  const m = new THREE.Mesh(
+    new THREE.TorusGeometry(r, 0.02, 8, 128),
+    new THREE.MeshBasicMaterial({ color })
+  )
+  m.material.color.multiplyScalar(inten)
+  m.rotation.x = -Math.PI / 2; m.position.y = -0.04
+  scene.add(m); return m
+}
+const ringA = glowRing(4.6, '#21a8ff', 1.6)
+const ringB = glowRing(5.1, '#7c5cff', 0.9)
+
+/* ───── 材质工厂(共享,少材质=少切换) ───── */
+const M = {
+  body:  new THREE.MeshStandardMaterial({ color: '#2e4059', metalness: 0.6, roughness: 0.45 }),
+  dark:  new THREE.MeshStandardMaterial({ color: '#1c2a40', metalness: 0.55, roughness: 0.55 }),
+  glass: new THREE.MeshStandardMaterial({ color: '#9fd4ff', metalness: 0, roughness: 0.3,
+           transparent: true, opacity: 0.10, depthWrite: false }),
+  edge:  new THREE.MeshBasicMaterial({ color: new THREE.Color('#2fbcff').multiplyScalar(1.9) }),
+  cyan:  new THREE.MeshBasicMaterial({ color: new THREE.Color('#37c8ff').multiplyScalar(2.0) }),
+  violet:new THREE.MeshBasicMaterial({ color: new THREE.Color('#9a6bff').multiplyScalar(1.2) }),
+  green: new THREE.MeshBasicMaterial({ color: new THREE.Color('#2fe6a8').multiplyScalar(2.1) }),
+  amber: new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffb454').multiplyScalar(1.7) }),
+  dim:   new THREE.MeshBasicMaterial({ color: new THREE.Color('#1d3a5c').multiplyScalar(1.2) }),
+  fin:   new THREE.MeshStandardMaterial({ color: '#3d5378', metalness: 0.7, roughness: 0.35 }),
+  board:  new THREE.MeshStandardMaterial({ color: '#1f8a4c', metalness: 0.3, roughness: 0.5 }),
+  boardDk:new THREE.MeshStandardMaterial({ color: '#14532d', metalness: 0.3, roughness: 0.55 }),
+  dimm:   new THREE.MeshStandardMaterial({ color: '#4ade80', metalness: 0.25, roughness: 0.4, emissive: '#166534', emissiveIntensity: 0.3 }),
+  cpuCap: new THREE.MeshBasicMaterial({ color: new THREE.Color('#38bdf8').multiplyScalar(1.4) }),
+}
+function box(w, h, d, mat, r = 0.02) {
+  const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, r), mat)
+  m.castShadow = true; m.receiveShadow = true
+  return m
+}
+
+/* ───── 整机 ───── */
+const machine = new THREE.Group()
+scene.add(machine)
+const { W, H, D } = CFG.size
+const parts = []            // 可爆炸部件 { g, base, off }
+const glowMats = {}        // partKey → [发光材质, 原始色]
+function part(key, off) {
+  const g = new THREE.Group()
+  g.userData.part = key
+  g.userData.off = off
+  machine.add(g)
+  parts.push({ g, base: null, off })
+  return g
+}
+function tagGlow(key, mat) { (glowMats[key] = glowMats[key] || []).push(mat); return mat }
+
+/* 机身外壳(底 + 两侧 + 后 + 前框,顶留空给玻璃盖) */
+{
+  const t = 0.07
+  const shell = part('shell', new THREE.Vector3(0, 0, 0))
+  const bottom = box(W, t, D, M.body); bottom.position.y = t / 2; shell.add(bottom)
+  for (const s of [-1, 1]) {
+    const side = box(t, H - t, D, M.body)
+    side.position.set(s * (W - t) / 2, t + (H - t) / 2, 0); shell.add(side)
+  }
+  const back = box(W - 2 * t, H - t, t, M.body)
+  back.position.set(0, t + (H - t) / 2, -(D - t) / 2); shell.add(back)
+  // 侧面发光刻线(分段短划,弱亮度)
+  for (const s of [-1, 1]) {
+    for (let seg = 0; seg < 4; seg++) {
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.016, D * 0.12), tagGlow('shell', M.edge.clone()))
+      stripe.material.color.set('#1d5f9e').multiplyScalar(0.9)
+      stripe.position.set(s * (W / 2 + 0.002), H * 0.5, -D * 0.32 + seg * D * 0.21)
+      shell.add(stripe)
+    }
+  }
+  shell.userData.off = new THREE.Vector3(0, 0, 0)
+}
+
+/* 烟熏玻璃顶盖 */
+const topCover = part('cover', new THREE.Vector3(0, 2.3, 0))
+{
+  const cover = new THREE.Mesh(new RoundedBoxGeometry(W - 0.08, 0.05, D - 0.08, 2, 0.02), M.glass)
+  cover.position.set(0, H + 0.025, 0)
+  topCover.add(cover)
+  // 盖沿四周发光细框(四条边条,不是整块板)
+  const frMat = tagGlow('cover', M.edge.clone())
+  frMat.color.set('#2fa8e8').multiplyScalar(1.1)
+  const frT = 0.014, frY = H + 0.02
+  const frDims = [
+    [W - 0.04, frT, frT, 0, frY, (D - 0.04) / 2],
+    [W - 0.04, frT, frT, 0, frY, -(D - 0.04) / 2],
+    [frT, frT, D - 0.04, (W - 0.04) / 2, frY, 0],
+    [frT, frT, D - 0.04, -(W - 0.04) / 2, frY, 0],
+  ]
+  for (const [sw, sh, sd, sx, sy, sz] of frDims) {
+    const seg = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, sd), frMat)
+    seg.position.set(sx, sy, sz)
+    topCover.add(seg)
+  }
+  // 顶面蚀刻品牌字(用小条模拟,避免字体资产)
+  for (let i = 0; i < 5; i++) {
+    const seg = new THREE.Mesh(new THREE.BoxGeometry(0.05 + Math.random() * 0.22, 0.006, 0.014),
+      tagGlow('cover', M.dim.clone()))
+    seg.position.set(-1.1 + i * 0.55, H + 0.055, 2.2)
+    topCover.add(seg)
+  }
+}
+
+/* 前部:挂耳 + 盘位笼 */
+const frontAsm = part('front', new THREE.Vector3(0, 0, 2.1))
+const earGlow = []
+{
+  for (const s of [-1, 1]) {
+    const ear = box(0.16, H, 0.5, M.body, 0.03)
+    ear.position.set(s * (W / 2 + 0.06), H / 2, D / 2 - 0.25)
+    frontAsm.add(ear)
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.012, H * 0.8, 0.012), tagGlow('ears', M.edge.clone()))
+    stripe.material.color.set('#1f7fd0').multiplyScalar(1.3)
+    stripe.position.set(s * (W / 2 + 0.06) + s * 0.086, H * 0.5, D / 2 + 0.01)
+    frontAsm.add(stripe)
+  }
+  // 左耳:电源键(呼吸) + 三状态灯
+  const pwr = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.02, 24), M.cyan.clone())
+  pwr.rotation.x = Math.PI / 2
+  pwr.position.set(-(W / 2 + 0.06), H * 0.72, D / 2 + 0.012)
+  frontAsm.add(pwr)
+  earGlow.push(pwr.material)
+  const leds = ['#2fe6a8', '#ffb454', '#37c8ff']
+  leds.forEach((c, i) => {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.03, 0.01),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(1.8) }))
+    l.position.set(-(W / 2 + 0.06), H * (0.5 - i * 0.13), D / 2 + 0.012)
+    frontAsm.add(l)
+  })
+  // 右耳:VGA/USB 口
+  for (let i = 0; i < 3; i++) {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.024, 0.012), M.dim.clone())
+    p.position.set(W / 2 + 0.06, H * (0.62 - i * 0.14), D / 2 + 0.012)
+    frontAsm.add(p)
+  }
+}
+const driveLEDs = []
+const driveCage = new THREE.Group()
+frontAsm.add(driveCage)
+{
+  // 上半:进风格栅(细条,不发光) + 品牌发光条
+  const grille = new THREE.Group()
+  for (let i = 0; i < 5; i++) {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(W - 0.5, 0.02, 0.015), M.dark)
+    s.position.set(-0.15, H * 0.78 + i * 0.055, D / 2 + 0.005)
+    grille.add(s)
+  }
+  driveCage.add(grille)
+  const brandMat = tagGlow('drives', M.edge.clone())
+  brandMat.color.set('#2fa8e8').multiplyScalar(1.6)
+  const brand = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.05, 0.012), brandMat)
+  brand.position.set(-0.15, H * 0.62, D / 2 + 0.01)
+  driveCage.add(brand)
+  // 盘位:12 盘 = 4列×3行(前视图蓝本),列间蓝色分隔线
+  const n = CFG.bays
+  const bw = 0.62, bh = 0.3
+  for (let i = 0; i < n; i++) {
+    const g = new THREE.Group()
+    const tray = box(bw, bh, 0.08, M.dark, 0.012)
+    g.add(tray)
+    const driveBody = box(bw * 0.88, bh * 0.8, 1.05, M.body, 0.01)
+    driveBody.position.set(0, 0, -0.6)
+    g.add(driveBody)
+    const hm = M.edge.clone()
+    hm.color.set('#1f7fd0').multiplyScalar(1.5)
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(bw * 0.55, 0.04, 0.012), tagGlow('drives', hm))
+    handle.position.set(0, bh * 0.28, 0.05)
+    g.add(handle)
+    const led = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.01),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color('#2fe6a8').multiplyScalar(1.6) }))
+    led.material = led.material.clone()
+    led.position.set(-bw * 0.32, bh * 0.28, 0.05)
+    g.add(led); driveLEDs.push(led.material)
+    g.position.set(-1.55 + (i % 4) * 1.03, 0.26 + Math.floor(i / 4) * 0.42, D / 2 + 0.02)
+    g.userData.idx = i
+    driveCage.add(g)
+  }
+  for (let c = 0; c < 3; c++) {
+    const sep = new THREE.Mesh(new THREE.BoxGeometry(0.012, 3 * 0.42, 0.012), tagGlow('drives', M.cyan.clone()))
+    sep.position.set(-1.035 + c * 1.03, 0.47, D / 2 + 0.02)
+    driveCage.add(sep)
+  }
+}
+
+/* 风扇墙(12×6056,旋转) */
+const fanWall = part('fans', new THREE.Vector3(0, 0, 0))
+const fanSpinners = []
+{
+  const n = CFG.fans, r = 0.17
+  const x0 = -(n * (r * 2 + 0.06) - 0.06) / 2
+  for (let i = 0; i < n; i++) {
+    const g = new THREE.Group()
+    const frame = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.16, 24), M.body)
+    frame.rotation.x = Math.PI / 2; frame.castShadow = true
+    g.add(frame)
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.32, r * 0.32, 0.17, 16), M.fin)
+    hub.rotation.x = Math.PI / 2; g.add(hub)
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(r * 0.38, 0.012, 8, 28), tagGlow('fans', M.cyan.clone()))
+    halo.position.z = 0.09
+    g.add(halo)
+    const spin = new THREE.Group()
+    for (let b = 0; b < 7; b++) {
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(r * 0.72, 0.008, r * 0.3), M.fin)
+      blade.position.x = r * 0.45
+      const holder = new THREE.Group()
+      holder.rotation.z = (b / 7) * Math.PI * 2
+      holder.add(blade); spin.add(holder)
+    }
+    g.add(spin); fanSpinners.push({ s: spin, v: 7 + Math.random() * 5 })
+    // 中心微光
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.1, r * 0.1, 0.18, 12),
+      tagGlow('fans', M.dim.clone()))
+    core.rotation.x = Math.PI / 2; g.add(core)
+    g.position.set(x0 + i * (r * 2 + 0.06) + r, H * 0.52, D * 0.245)
+    fanWall.add(g)
+  }
+}
+
+/* CPU + 内存区(俯视图蓝本:绿色主板+2×AMD+24×DDR5竖条) */
+const cpuBank = part('cpu', new THREE.Vector3(0, 2.0, 0))
+const dimmUnits = []
+const cpuUnits = []
+{
+  // 主板(中绿PCB)+发光走线
+  const mb = box(W - 0.7, 0.05, 2.05, M.board, 0.01)
+  mb.position.set(0, 0.3, D * 0.09)
+  cpuBank.add(mb)
+  for (let i = 0; i < 7; i++) {
+    const tr = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.006, 1.85), tagGlow('cpu', M.dim.clone()))
+    tr.position.set(-1.5 + i * 0.5, 0.335, D * 0.09)
+    cpuBank.add(tr)
+  }
+  // 2×CPU:蓝色顶盖(俯视蓝块)+鳍片塔,随配置增减
+  for (const s of [-1, 1]) {
+    const unit = new THREE.Group()
+    const fin = new THREE.Group()
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.06, 0.48), tagGlow('cpu', M.cpuCap.clone()))
+    cap.position.y = 0.38
+    fin.add(cap)
+    for (let i = 0; i < 9; i++) {
+      const f = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.012, 0.44), M.fin)
+      f.position.y = 0.44 + i * 0.03
+      f.castShadow = true
+      fin.add(f)
+    }
+    fin.position.set(0, 0, D * 0.09)
+    unit.add(fin)
+    unit.position.set(s * 0.85, 0, 0)
+    cpuBank.add(unit)
+    cpuUnits.push(unit)
+  }
+  // 24×内存:单行依次排列,绕双CPU分三组6/12/6(俯视浅黄竖条)
+  const dimmX = []
+  for (let i = 0; i < 6; i++) dimmX.push(-1.92 + i * 0.12)
+  for (let i = 0; i < 12; i++) dimmX.push(-0.5 + i * 0.09)
+  for (let i = 0; i < 6; i++) dimmX.push(1.2 + i * 0.12)
+  for (let i = 0; i < dimmX.length; i++) {
+    const d = new THREE.Group()
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 0.85), M.dimm)
+    bar.position.y = 0.325 + 0.21
+    bar.castShadow = true; d.add(bar)
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.054, 0.014, 0.85), M.dimm.clone())
+    tip.material.emissive = new THREE.Color('#86efac')
+    tip.material.emissiveIntensity = 0.5
+    tip.position.y = 0.325 + 0.42 - 0.007; d.add(tip)
+    d.position.set(dimmX[i], 0, D * 0.09)
+    cpuBank.add(d)
+    dimmUnits.push(d)
+  }
+}
+
+/* GPU 区(俯视图蓝本:深绿Switch板+一排竖插双宽GPU) */
+const gpuBank = part('gpus', new THREE.Vector3(0, 3.4, 0))
+const gpuUnits = []
+{
+  // Switch 板(深绿PCB,横置近后端)
+  const sw = box(W - 0.6, 0.06, 0.55, M.boardDk, 0.01)
+  sw.position.set(0, 0.32, -(D / 2) + 0.62)
+  gpuBank.add(sw)
+  // 8×双宽GPU竖插一排:挡板朝后,卡体沿z向前伸,顶缘发光条=俯视"一排竖线"
+  for (let i = 0; i < CFG.gpus; i++) {
+    const g = new THREE.Group()
+    const x = -1.75 + i * 0.5
+    const conn = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.12), tagGlow('gpus', M.violet.clone()))
+    conn.position.set(0, 0.37, 0)
+    g.add(conn)
+    const pcb = box(0.36, 1.0, 2.3, M.dark, 0.02)
+    pcb.position.set(0, 0.85, 1.18)
+    g.add(pcb)
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.018, 2.15), tagGlow('gpus', M.violet.clone()))
+    stripe.position.set(0, 1.36, 1.18)
+    g.add(stripe)
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.014, 8, 32), tagGlow('gpus', M.cyan.clone()))
+    ring.rotation.x = Math.PI / 2
+    ring.position.set(0, 0.9, 0.42)
+    g.add(ring)
+    const bracket = box(0.34, 0.8, 0.03, M.body, 0.008)
+    bracket.position.set(0, 0.74, 0.02)
+    g.add(bracket)
+    g.position.set(x, 0, -(D / 2) + 0.62)
+    g.userData.idx = i
+    gpuBank.add(g)
+    gpuUnits.push(g)
+  }
+}
+
+/* 后部:电源 3+1 + PCIe 排 + OCP */
+const rearAsm = part('rear', new THREE.Vector3(0, 0, -2.4))
+const psuGlow = []
+{
+  // CRPS 电源 4 槽(3 亮 1 暗备槽)
+  for (let i = 0; i < CFG.psu.total; i++) {
+    const g = new THREE.Group()
+    const mod = box(0.72, 0.82, 0.3, M.body, 0.02)
+    mod.position.y = 0.5
+    g.add(mod)
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.014),
+      i < CFG.psu.active ? M.green.clone() : tagGlow('psu', M.dim.clone()))
+    handle.position.set(0, 0.72, 0.16)
+    g.add(handle)
+    if (i < CFG.psu.active) psuGlow.push(handle.material)
+    const grille = new THREE.Group()
+    for (let k = 0; k < 6; k++) {
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.014, 0.012), M.dark)
+      s.position.set(0, 0.2 + k * 0.07, 0.16)
+      grille.add(s)
+    }
+    g.add(grille)
+    g.position.set(-(CFG.psu.total * 0.82) / 2 + 0.45 + i * 0.82, 0, -(D / 2) - 0.13)
+    rearAsm.add(g)
+  }
+  // PCIe 槽排+OCP+BMC 挂独立语义子组供拾取
+  const pcieSub = new THREE.Group()
+  pcieSub.userData.part = 'pcie'
+  rearAsm.add(pcieSub)
+  // PCIe 槽排(发光细缝)
+  for (let i = 0; i < CFG.pcie; i++) {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.3, 0.012), tagGlow('pcie', M.amber.clone()))
+    s.material = s.material.clone()
+    s.material.color.set('#c88a3f').multiplyScalar(1.1)
+    s.position.set(-1.72 + i * 0.265, H * 0.66, -(D / 2) - 0.012)
+    pcieSub.add(s)
+  }
+  // OCP 3.0
+  const ocp = box(0.44, 0.42, 0.06, M.body, 0.02)
+  ocp.position.set(1.95, H * 0.66, -(D / 2) - 0.05)
+  pcieSub.add(ocp)
+  const ocpLed = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.02, 0.015), tagGlow('pcie', M.cyan.clone()))
+  ocpLed.position.set(1.95, H * 0.78, -(D / 2) - 0.085)
+  pcieSub.add(ocpLed)
+  // BMC 状态灯
+  const bmc = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.012), tagGlow('pcie', M.green.clone()))
+  bmc.position.set(-2.05, H * 0.4, -(D / 2) - 0.012)
+  pcieSub.add(bmc)
+}
+
+/* 内部走线(发光弧线,示意) */
+{
+  for (let i = 0; i < 3; i++) {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-1.6 + i * 1.6, 0.35, -(D / 2) - 0.1),
+      new THREE.Vector3(-1.2 + i * 1.2, 1.15, -1.2 - i * 0.4),
+      new THREE.Vector3(-0.6 + i * 0.6, 0.6, D * 0.12 + i * 0.3),
+    ])
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.014, 6), M.dim)
+    machine.add(tube)
+  }
+}
+
+/* 记录爆炸基準位 */
+for (const p of parts) p.base = p.g.position.clone()
+
+/* ───── 漂浮尘埃(氛围) ───── */
+{
+  const geo = new THREE.BufferGeometry()
+  const N = 260, pos = new Float32Array(N * 3)
+  for (let i = 0; i < N; i++) {
+    pos[i * 3] = (Math.random() - 0.5) * 26
+    pos[i * 3 + 1] = Math.random() * 9
+    pos[i * 3 + 2] = (Math.random() - 0.5) * 26
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+    color: '#3b82f6', size: 0.045, transparent: true, opacity: 0.5,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }))
+  pts.name = 'dust'
+  scene.add(pts)
+}
+
+/* ───── 状态 ───── */
+const state = { explode: 0, explodeTarget: 0, gpus: CFG.gpus, bays: CFG.bays, dimms: CFG.dimms, cpus: CFG.cpus,
+  theme: 'dark', themeGlassBase: 0.10 }
+
+/* 双主题表:配置页可切主题,3D台整场景跟随 */
+const THEMES = {
+  dark: {
+    bg: '#0a1526', floor: '#0c1930', grid1: 0x22456f, grid2: 0x16304f,
+    body: '#2e4059', dark: '#1c2a40', fin: '#3d5378',
+    board: '#1f8a4c', boardDk: '#14532d',
+    glass: '#9fd4ff', glassBase: 0.10,
+    amb: 0.65, key: 2.0, fill: 14, rimC: 7, rimV: 5,
+    bloom: 0.85, bloomThr: 0.72, exp: 1.15,
+  },
+  light: {
+    bg: '#e6edf7', floor: '#d7e1ee', grid1: 0xa8bcd8, grid2: 0xc3d2e6,
+    body: '#97abc6', dark: '#6a80a0', fin: '#93a7c1',
+    board: '#24a45c', boardDk: '#178a48',
+    glass: '#4a7fb5', glassBase: 0.07,
+    amb: 0.95, key: 1.7, fill: 18, rimC: 2.5, rimV: 2,
+    bloom: 0.32, bloomThr: 0.9, exp: 1.0,
+  },
+}
+
+function applyTheme(name) {
+  const t = THEMES[name]
+  state.theme = name
+  state.themeGlassBase = t.glassBase
+  scene.background.set(t.bg)
+  scene.fog.color.set(t.bg)
+  floor.material.color.set(t.floor)
+  buildGrid(t.grid1, t.grid2)
+  M.body.color.set(t.body)
+  M.dark.color.set(t.dark)
+  M.fin.color.set(t.fin)
+  M.glass.color.set(t.glass)
+  M.board.color.set(t.board)
+  M.boardDk.color.set(t.boardDk)
+  ambient.intensity = t.amb
+  key.intensity = t.key
+  fillTop.intensity = t.fill
+  rimCyan.intensity = t.rimC
+  rimViolet.intensity = t.rimV
+  bloom.strength = t.bloom
+  bloom.threshold = t.bloomThr
+  renderer.toneMappingExposure = t.exp
+  document.body.classList.toggle('light', name === 'light')
+  const bt = document.querySelector('#btnTheme')
+  if (bt) bt.textContent = name === 'light' ? '深色模式' : '浅色模式'
+}
+applyTheme('dark')
+const VIEWS = {
+  front: { pos: [0, 2.6, 12.5], tgt: [0, 0.9, 1] },
+  rear:  { pos: [0, 2.8, -12.5], tgt: [0, 0.9, -1] },
+  top:   { pos: [0.01, 14.5, 2.2], tgt: [0, 0.8, 0] },
+  inner: { pos: [4.6, 5.4, 5.8], tgt: [0, 1.1, -0.6] },
+}
+let camTween = null
+function flyTo(v, opts = {}) {
+  camTween = {
+    t: 0, dur: 0.9, resumeRotate: !!opts.resumeRotate,
+    p0: camera.position.clone(), p1: new THREE.Vector3(...v.pos),
+    g0: controls.target.clone(), g1: new THREE.Vector3(...v.tgt),
+  }
+  controls.autoRotate = false
+  document.querySelector('#btnRotate').classList.remove('on')
+}
+function popIn(obj) {
+  obj.visible = true
+  obj.userData.pop = 0.0001
+}
+
+/* ───── HUD 交互 ───── */
+const $ = (s) => document.querySelector(s)
+const tip = $('#tip'), card = $('#card')
+let pinnedKey = null
+document.querySelectorAll('#views .btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#views .btn').forEach(x => x.classList.remove('on'))
+    b.classList.add('on')
+    flyTo(VIEWS[b.dataset.v])
+  })
+})
+$('#btnExplode').addEventListener('click', (e) => {
+  state.explodeTarget = state.explodeTarget ? 0 : 1
+  e.target.classList.toggle('on', !!state.explodeTarget)
+})
+$('#btnRotate').addEventListener('click', (e) => {
+  controls.autoRotate = !controls.autoRotate
+  e.target.classList.toggle('on', controls.autoRotate)
+})
+function setGpus(n) {
+  state.gpus = Math.max(0, Math.min(CFG.gpus, n))
+  $('#gpuVal').textContent = state.gpus
+  gpuUnits.forEach((g, i) => {
+    if (i < state.gpus) popIn(g)
+    else { g.visible = false; g.userData.pop = undefined }
+  })
+}
+function setBays(n) {
+  state.bays = Math.max(0, Math.min(CFG.bays, n))
+  $('#bayVal').textContent = state.bays
+  const trays = driveCage.children.filter(c => c.userData.idx != null)
+  trays.forEach((g) => {
+    if (g.userData.idx < state.bays) popIn(g)
+    else { g.visible = false; g.userData.pop = undefined }
+  })
+}
+function setCpus(n) {
+  state.cpus = Math.max(0, Math.min(CFG.cpus, n))
+  $('#cpuVal').textContent = state.cpus
+  cpuUnits.forEach((g, i) => {
+    if (i < state.cpus) popIn(g)
+    else { g.visible = false; g.userData.pop = undefined }
+  })
+}
+function setDimms(n) {
+  state.dimms = Math.max(0, Math.min(CFG.dimms, n))
+  $('#dimmVal').textContent = state.dimms
+  dimmUnits.forEach((g, i) => {
+    if (i < state.dimms) popIn(g)
+    else { g.visible = false; g.userData.pop = undefined }
+  })
+}
+$('#gpuMinus').addEventListener('click', () => setGpus(state.gpus - 1))
+$('#gpuPlus').addEventListener('click', () => setGpus(state.gpus + 1))
+$('#bayMinus').addEventListener('click', () => setBays(state.bays - 1))
+$('#bayPlus').addEventListener('click', () => setBays(state.bays + 1))
+$('#dimmMinus').addEventListener('click', () => setDimms(state.dimms - 1))
+$('#dimmPlus').addEventListener('click', () => setDimms(state.dimms + 1))
+$('#cpuMinus').addEventListener('click', () => setCpus(state.cpus - 1))
+$('#cpuPlus').addEventListener('click', () => setCpus(state.cpus + 1))
+$('#btnTheme').addEventListener('click', () => applyTheme(state.theme === 'light' ? 'dark' : 'light'))
+$('#cardClose').addEventListener('click', () => { pinnedKey = null; card.classList.remove('show') })
+
+function showCard(key) {
+  const info = PART_INFO[key]
+  if (!info) return
+  $('#cardTitle').textContent = info.name
+  $('#cardDesc').textContent = info.desc
+  const chips = info.chips.concat([info.qty()])
+  $('#cardChips').innerHTML = chips.map(c => `<span class="chip">${c}</span>`).join('')
+  card.classList.add('show')
+}
+
+/* 拾取 */
+const ray = new THREE.Raycaster()
+const ptr = new THREE.Vector2()
+let hovered = null
+const KEY_ALIAS = { front: 'drives', ears: 'ears', fans: 'fans', cpu: 'cpu', gpus: 'gpus', rear: 'psu', cover: 'cover', shell: 'shell' }
+function resolveKey(obj) {
+  let o = obj
+  while (o && o !== scene) {
+    if (o.userData && o.userData.part) {
+      const k = o.userData.part
+      return KEY_ALIAS[k] || (PART_INFO[k] ? k : null)
+    }
+    o = o.parent
+  }
+  return null
+}
+renderer.domElement.addEventListener('pointermove', (e) => {
+  ptr.x = (e.clientX / innerWidth) * 2 - 1
+  ptr.y = -(e.clientY / innerHeight) * 2 + 1
+  ray.setFromCamera(ptr, camera)
+  const hits = ray.intersectObjects(machine.children, true)
+  let key = null
+  const chainVisible = (o) => { for (let p = o; p && p !== machine; p = p.parent) if (p.visible === false) return false; return true }
+  for (const h of hits) {
+    if (!chainVisible(h.object)) continue
+    key = resolveKey(h.object)
+    if (key) break
+  }
+  hovered = key
+  if (key) {
+    const info = PART_INFO[key]
+    tip.style.display = 'block'
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - 270) + 'px'
+    tip.style.top = (e.clientY + 14) + 'px'
+    tip.innerHTML = `<b>${info.name}</b>${info.qty()}<span class="sub">点击固定详情</span>`
+    document.body.style.cursor = 'pointer'
+  } else {
+    tip.style.display = 'none'
+    document.body.style.cursor = ''
+  }
+})
+renderer.domElement.addEventListener('click', () => {
+  if (hovered) { pinnedKey = hovered; showCard(pinnedKey) }
+})
+
+/* ───── 入场镜头 ───── */
+flyTo({ pos: [6.4, 4.1, 9.6], tgt: [0, 0.9, 0] }, { resumeRotate: true })
+camTween.dur = 2.2
+
+/* 调试句柄(控制台排障用) */
+window.__proto3d = { scene, machine, M, state, topCover }
+
+/* ───── 主循环 ───── */
+const clock = new THREE.Clock()
+let fpsAcc = 0, fpsN = 0, fpsT = 0
+const easeOut = (x) => 1 - Math.pow(1 - x, 3)
+const easeInOut = (x) => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2
+
+function tick() {
+  requestAnimationFrame(tick)
+  const dt = Math.min(clock.getDelta(), 0.05)
+  const t = clock.elapsedTime
+
+  // 镜头补间
+  // 先 update 泄掉阻尼增量(飞行中 autoRotate 已关,不会加新旋转),再覆盖补间位姿
+  controls.update()
+  if (camTween) {
+    camTween.t += dt / camTween.dur
+    const k = easeInOut(Math.min(camTween.t, 1))
+    camera.position.lerpVectors(camTween.p0, camTween.p1, k)
+    controls.target.lerpVectors(camTween.g0, camTween.g1, k)
+    camera.lookAt(controls.target)
+    if (camTween.t >= 1) {
+      if (camTween.resumeRotate) {
+        controls.autoRotate = true
+        document.querySelector('#btnRotate').classList.add('on')
+      }
+      camTween = null
+    }
+  }
+
+  // 爆炸插值
+  state.explode += (state.explodeTarget - state.explode) * (1 - Math.exp(-dt * 5))
+  for (const p of parts) {
+    p.g.position.copy(p.base).addScaledVector(p.off, easeOut(state.explode))
+  }
+  M.glass.opacity = state.themeGlassBase - 0.06 * state.explode
+
+  // 呼吸 / 闪烁 / 旋转
+  const breath = 1.1 + 0.45 * Math.sin(t * 2.1)
+  earGlow.forEach(m => m.color.set('#37c8ff').multiplyScalar(breath))
+  ringA.material.color.set('#21a8ff').multiplyScalar(1.2 + 0.35 * Math.sin(t * 1.4))
+  for (const f of fanSpinners) f.s.rotation.z += dt * f.v
+  for (const m of driveLEDs) {
+    m.color.set('#2fe6a8').multiplyScalar(Math.random() < 0.015 ? 2.6 : 1.2 + 0.25 * Math.sin(t * 3 + Math.random()))
+  }
+  for (const m of psuGlow) m.color.set('#2fe6a8').multiplyScalar(1.5 + 0.3 * Math.sin(t * 2.6))
+
+  // pop-in 补间
+  machine.traverse((o) => {
+    if (o.userData.pop != null) {
+      o.userData.pop = Math.min(o.userData.pop + dt * 4, 1)
+      const s = 0.6 + 0.4 * easeOut(o.userData.pop)
+      o.scale.setScalar(s)
+      if (o.userData.pop >= 1) { o.scale.setScalar(1); o.userData.pop = undefined }
+    }
+  })
+
+  // 悬停发光
+  for (const [k, mats] of Object.entries(glowMats)) {
+    const on = k === hovered || (k === pinnedKey)
+    for (const m of mats) {
+      if (m.userData.base == null) m.userData.base = m.color.clone()
+      const want = on ? 2.2 : 1.0
+      m.userData.lerp = (m.userData.lerp ?? 1) + (want - (m.userData.lerp ?? 1)) * (1 - Math.exp(-dt * 9))
+      m.color.copy(m.userData.base).multiplyScalar(m.userData.lerp)
+    }
+  }
+
+  const dust = scene.getObjectByName('dust')
+  if (dust) { dust.rotation.y += dt * 0.01; dust.position.y = Math.sin(t * 0.18) * 0.3 }
+
+  controls.update()
+  composer.render()
+
+  fpsAcc += dt; fpsN++
+  if ((fpsT += dt) >= 0.5) {
+    $('#fpsVal').textContent = Math.round(fpsN / fpsAcc)
+    fpsAcc = 0; fpsN = 0; fpsT = 0
+  }
+}
+tick()
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight
+  camera.updateProjectionMatrix()
+  renderer.setSize(innerWidth, innerHeight)
+  composer.setSize(innerWidth, innerHeight)
+})
+</script>
+</body>
+</html>

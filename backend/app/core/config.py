@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     def DATABASE_URL(self) -> str:
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}?client_encoding=UTF8"
 
+    # 公开链路专用只读连接（cpq_public_ro，见 migrations/20261031_create_public_readonly_role.sql）。
+    # 空值=回退主连接（本地开发未建角色时），启动时打警告日志。
+    PUBLIC_DB_URL: str = os.getenv("PUBLIC_DB_URL", "")
+
     # Data path (DBs, Configs, Projects) - kept for backward compatibility
     DATA_PATH: str = os.getenv("DATA_PATH", r"D:\Quotation_Automation")
 

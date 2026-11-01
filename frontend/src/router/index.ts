@@ -18,7 +18,8 @@ const routes = [
   {
     path: '/',
     component: DefaultLayout,
-    redirect: '/portal',
+    // 根路径分流在守卫里做（判 to.path === '/'，要等 loadMe 恢复会话）：
+    // 匿名 → 公开目录；登录用户 → 工作台。灰度期（AUTH_ENABLED=false）视为已登录。
     children: [
       {
         path: '/galaxy',
@@ -53,6 +54,18 @@ const routes = [
         name: 'Opportunities',
         component: () => import('@/views/opportunity/OpportunityList.vue'),
         meta: { title: '商机线索', perm: 'page.opportunities_all' }
+      },
+      {
+        path: '/leads',
+        name: 'LeadPool',
+        component: () => import('@/views/lead/LeadPool.vue'),
+        meta: { title: '线索池', perm: 'page.leads' }
+      },
+      {
+        path: '/leads/:leadId',
+        name: 'LeadDetail',
+        component: () => import('@/views/lead/LeadDetailPage.vue'),
+        meta: { title: '线索详情', perm: 'page.leads' }
       },
       {
         path: '/ai-leads',
@@ -93,6 +106,39 @@ const routes = [
         name: 'Servers',
         component: () => import('@/views/ServerConfig.vue'),
         meta: { title: '服务器配置', perm: 'page.servers' }
+      },
+      // —— 公开路由（meta.public）：匿名可访问，登录用户照常可见（顶栏合并公开导航项）——
+      {
+        path: '/catalog',
+        name: 'PublicCatalog',
+        component: () => import('@/views/public/PublicCatalogPage.vue'),
+        meta: { title: '服务器产品目录', public: true }
+      },
+      {
+        path: '/catalog/types/:typeId',
+        name: 'PublicServerModels',
+        component: () => import('@/views/ServerModelsPage.vue'),
+        props: { publicMode: true },
+        meta: { title: '机型目录', public: true }
+      },
+      {
+        path: '/catalog/models/:modelId',
+        name: 'PublicModelDetail',
+        component: () => import('@/views/server-config/ModelDetailPage.vue'),
+        props: { publicMode: true },
+        meta: { title: '机型详情', public: true }
+      },
+      {
+        path: '/catalog/config/:modelId',
+        name: 'PublicWizard',
+        component: () => import('@/views/public/PublicWizardPage.vue'),
+        meta: { title: '配置服务器', public: true }
+      },
+      {
+        path: '/lead',
+        name: 'PublicLead',
+        component: () => import('@/views/public/LeadFormPage.vue'),
+        meta: { title: '提交需求', public: true }
       },
       {
         path: '/servers/admin',
@@ -148,6 +194,13 @@ const routes = [
         name: 'ServerDrawingConfig',
         component: () => import('@/views/admin/ServerDrawingConfig.vue'),
         meta: { title: '服务器图纸配置', perm: 'page.settings.admin' }
+      },
+
+      {
+        path: '/servers/3d-models/:id(\\d+)',
+        name: 'Server3dModelEdit',
+        component: () => import('@/views/server-admin/Server3dModelEditPage.vue'),
+        meta: { title: '3D模型编辑', perm: 'page.settings.admin' }
       },
 
       {
@@ -248,11 +301,18 @@ const router = createRouter({
   routes
 })
 
-// 登录守卫：未登录 → /login；已登录访问 /login → 首页
+// 登录守卫：未登录 → /login（根路径例外 → 公开目录，应用内重定向）；已登录访问 /login → 首页。
+// meta.public 路由匿名可访问（公开目录/详情/配置向导/提交需求）。
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
   await auth.ensureConfig()
   if (!auth.loaded) await auth.loadMe()
+  // 根路径分流（to.path 精确等于 '/'——meta 会沿匹配链继承，不能用 meta 判）：
+  // 匿名 → 公开目录；登录用户 → 工作台。此时 loadMe 已恢复会话，判定可信。
+  if (to.path === '/') {
+    return auth.isAuthenticated ? { path: '/portal' } : { path: '/catalog' }
+  }
+  if (to.meta?.public) return true
   if (to.path === '/login') {
     return auth.isAuthenticated ? { path: '/' } : true
   }

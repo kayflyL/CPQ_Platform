@@ -73,6 +73,7 @@ from app.api import univer_templates
 from app.api import l6_chassis
 from app.api import parts as parts_api
 from app.api import server_catalog as server_catalog_api
+from app.api import server_3d_models as server_3d_models_api
 from app.api import base_configs as base_configs_api
 from app.api import fields as fields_api
 from app.api import system_config as system_config_api
@@ -143,6 +144,7 @@ app.include_router(univer_templates.router)
 app.include_router(l6_chassis.router)
 app.include_router(parts_api.router)
 app.include_router(server_catalog_api.router)
+app.include_router(server_3d_models_api.router)
 app.include_router(base_configs_api.router)
 app.include_router(fields_api.router)
 app.include_router(system_config_api.router)
@@ -165,6 +167,12 @@ app.include_router(portal_api.router)
 app.include_router(artifact_share.router)
 app.include_router(notifications_api.router)
 app.include_router(artifact_templates_api.router)
+
+# 公开线索汇聚（免登录：目录白名单 DTO + 线索提交，蜜罐/限流；详见 api/public_intake.py）
+from app.api import public_intake as public_intake_api
+from app.api import leads as leads_api
+app.include_router(public_intake_api.router)
+app.include_router(leads_api.router)
 
 # 注册后面板配置 API
 from app.api import rear_io

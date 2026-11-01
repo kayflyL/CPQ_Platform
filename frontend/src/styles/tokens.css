@@ -105,13 +105,10 @@
   --cpq-num-feature: 'tnum' 1, 'lnum' 1;
 
 
-  /* ============ 白玻璃卡片配方（统一由主题管理，页面禁止硬编码） ============ */
-  /* 对齐策略中心模块卡：斜向高光渐变（白 6%→白 3%→黑 20%）+ 磨砂 + 内顶部高光 + 柔和外投影 */
-  --cpq-glass-card-bg: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
-  --cpq-glass-card-blur: 14px;
-  --cpq-glass-card-shadow: 0 10px 30px var(--cpq-shadow-color-soft), inset 0 1px 0 var(--cpq-overlay-w15);
-  --cpq-glass-card-shadow-hover: 0 16px 40px var(--cpq-shadow-color-strong), inset 0 1px 0 var(--cpq-overlay-w15);
-  --cpq-glass-card-shadow-glow: 0 10px 30px var(--cpq-shadow-color-soft), 0 0 16px var(--cpq-overlay-a15), inset 0 1px 0 var(--cpq-overlay-w15);
+  /* ============ 白玻璃卡片配方 ============
+     值按主题分块定义（见下方 data-theme 块）：浅色=Soft Glassmorphism 斜向高光渐变，
+     暗色=暗色原生配方（对齐 ServerModelCard.is-dark 机型卡，2026-10-30 定调）。
+     页面禁止硬编码，一律引用这组变量 */
 
   color-scheme: light;
 }
@@ -199,6 +196,14 @@
   --cpq-glass-blur-1: 12px;
   --cpq-glass-blur-2: 16px;
   --cpq-glass-blur-3: 22px;
+
+  /* 卡片配方 —— 暗色原生（对齐机型卡 is-dark：平涂 2% 白 + 发丝边 + 静息零投影零模糊；
+     hover 同向强化由 glass.css 暗色规则接管，不切蓝边） */
+  --cpq-glass-card-bg: rgba(255, 255, 255, 0.02);
+  --cpq-glass-card-blur: 0px;
+  --cpq-glass-card-shadow: none;
+  --cpq-glass-card-shadow-hover: 0 14px 40px rgba(0, 0, 0, 0.45);
+  --cpq-glass-card-shadow-glow: 0 14px 40px rgba(0, 0, 0, 0.45);
 
   /* 数字读数发光（暗色专属） */
   --cpq-reading-glow: 0 0 24px rgba(22, 119, 255, 0.35);
@@ -309,6 +314,13 @@
   --cpq-glass-blur-1: 10px;
   --cpq-glass-blur-2: 12px;
   --cpq-glass-blur-3: 16px;
+
+  /* 卡片配方 —— 浅色 Soft Glassmorphism：斜向高光渐变（白6%→白3%→黑20%）+ 磨砂 + 内顶高光 + 柔和投影 */
+  --cpq-glass-card-bg: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
+  --cpq-glass-card-blur: 14px;
+  --cpq-glass-card-shadow: 0 10px 30px var(--cpq-shadow-color-soft), inset 0 1px 0 var(--cpq-overlay-w15);
+  --cpq-glass-card-shadow-hover: 0 16px 40px var(--cpq-shadow-color-strong), inset 0 1px 0 var(--cpq-overlay-w15);
+  --cpq-glass-card-shadow-glow: 0 10px 30px var(--cpq-shadow-color-soft), 0 0 16px var(--cpq-overlay-a15), inset 0 1px 0 var(--cpq-overlay-w15);
 
   /* 浅色读数：无发光，保持干净 */
   --cpq-reading-glow: none;

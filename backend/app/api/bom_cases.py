@@ -29,7 +29,7 @@ def _mask_case(d, user):
     return d
 
 
-@router.get("")
+@router.get("/")
 def list_cases(tag: Optional[str] = None, q: Optional[str] = None,
                enabled: Optional[bool] = None, with_parts: bool = False,
                server_type: Optional[str] = None, series: Optional[str] = None,
@@ -72,7 +72,7 @@ def get_case(case_key: str, user: dict = Depends(get_current_user)):
         repo.close()
 
 
-@router.post("", dependencies=[Depends(require_perms("page.strategies"))])
+@router.post("/", dependencies=[Depends(require_perms("page.strategies"))])
 def create_case(data: dict):
     repo = BomCaseRepository()
     try:

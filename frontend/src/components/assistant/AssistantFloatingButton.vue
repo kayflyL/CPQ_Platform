@@ -439,10 +439,10 @@ body.office-fullscreen-open .pet-collapsed {
   justify-content: center;
   border-radius: var(--cpq-radius-full);
   border: 1px solid var(--cpq-glass-border);
-  background: var(--cpq-glass-card-bg);
-  backdrop-filter: blur(var(--cpq-glass-card-blur));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
-  box-shadow: var(--cpq-glass-card-shadow);
+  background: var(--cpq-glass-3-bg);
+  backdrop-filter: blur(var(--cpq-glass-blur-3));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3));
+  box-shadow: var(--cpq-shadow-lg);
   color: var(--cpq-accent-primary);
   font-size: 18px;
   cursor: pointer;
@@ -450,7 +450,7 @@ body.office-fullscreen-open .pet-collapsed {
   z-index: 1550;
 }
 .pet-collapsed:active { transform: scale(0.94); }
-.pet-collapsed.streaming { border-color: var(--cpq-glass-border-strong); box-shadow: var(--cpq-glass-card-shadow-glow); }
+.pet-collapsed.streaming { border-color: var(--cpq-glass-border-strong); box-shadow: var(--cpq-shadow-lg); }
 .pet-collapsed-dot {
   position: absolute;
   top: -2px;
@@ -513,9 +513,9 @@ body.office-fullscreen-open .pet-collapsed {
   max-width: 240px;
   padding: 7px 11px;
   border-radius: var(--cpq-radius-md) var(--cpq-radius-md) var(--cpq-radius-md) var(--cpq-radius-xs);
-  background: var(--cpq-glass-card-bg, rgba(255, 255, 255, .88));
+  background: var(--cpq-glass-3-bg);
   border: 1px solid var(--cpq-glass-border, rgba(0, 0, 0, .08));
-  box-shadow: var(--cpq-glass-card-shadow, 0 8px 24px rgba(0, 0, 0, .12));
+  box-shadow: var(--cpq-shadow-md);
   backdrop-filter: blur(10px);
   font-size: var(--cpq-font-size-sm);
   line-height: 1.5;
@@ -538,9 +538,9 @@ body.office-fullscreen-open .pet-collapsed {
   min-width: 172px;
   padding: 6px;
   border-radius: var(--cpq-radius-lg);
-  background: var(--cpq-glass-card-bg, rgba(255, 255, 255, .92));
+  background: var(--cpq-glass-3-bg);
   border: 1px solid var(--cpq-glass-border, rgba(0, 0, 0, .08));
-  box-shadow: var(--cpq-glass-card-shadow, 0 12px 32px rgba(0, 0, 0, .16));
+  box-shadow: var(--cpq-shadow-lg);
   backdrop-filter: blur(14px);
   user-select: none;
 }
@@ -574,8 +574,9 @@ body.office-fullscreen-open .pet-collapsed {
   justify-content: center;
   border-radius: var(--cpq-radius-full);
   border: 1px solid var(--cpq-glass-border);
-  background: var(--cpq-glass-card-bg);
+  background: var(--cpq-glass-3-bg);
   backdrop-filter: blur(8px);
+  box-shadow: var(--cpq-shadow-sm);
   color: var(--cpq-text-secondary);
   font-size: var(--cpq-font-size-sm);
   cursor: pointer;

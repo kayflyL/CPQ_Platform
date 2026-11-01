@@ -66,6 +66,21 @@ def get_current_user(authorization: Optional[str] = Header(default=None, alias="
     return u
 
 
+def get_optional_user(authorization: Optional[str] = Header(default=None, alias="Authorization")) -> Optional[dict]:
+    """宽松版：有合法 token 给用户，无 token 给 None（不 401）——公开配置向导的只读端点专用。
+
+    价格遮蔽不受影响：field_visible/user_has_permission 对 None 一律 fail-closed，
+    匿名拿到的配件/KP 数据自动剥价（与登录无价角色同一出口）。
+    """
+    settings = get_settings()
+    if not settings.AUTH_ENABLED:
+        return _anonymous()
+    token = _extract_bearer(authorization)
+    if not token:
+        return None
+    return _user_from_token(token)
+
+
 def require_admin(user: dict = Depends(get_current_user)) -> dict:
     """管理端依赖：仅 admin 角色可访问。"""
     if (user.get("role") or "") != "admin":

@@ -74,14 +74,15 @@ export function rmbToBasePrice(
   return factor > 0 ? rmb / factor : 0
 }
 
-export function safeServerModelFilename(model?: string | null): string {
-  const cleaned = String(model || '')
+/** 文件名片段消毒：非法字符→'-'、压缩连字符/空白、去首尾；空值回落占位词。 */
+export function safeFilenamePart(value: string | null | undefined, fallback: string): string {
+  const cleaned = String(value || '')
     .trim()
     .replace(/[\\/:*?"<>|]/g, '-')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
-  return cleaned || '未选机型'
+  return cleaned || fallback
 }
 
 export function dbPriceOf(item: { db_price?: unknown }): number | null {

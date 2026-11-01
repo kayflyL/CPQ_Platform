@@ -7,15 +7,15 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from typing import List, Optional
 from app.models.base import kp_engine
-from app.api.deps import get_current_user, require_admin, field_visible
+from app.api.deps import get_current_user, get_optional_user, require_admin, field_visible
 from app.utils.price_mask import mask_part_price_fields
 
-# 默认登录门槛；搜索别名配置无页面入口，仅管理员。
-# 价格：unit_price 等库价字段按 field.parts.price 遮罩——配置向导/方案编辑的
-# 选件下拉对技术/业务角色只出规格不出价；引擎/derive 走仓储层不经此处，不受影响。
+# 读端点匿名可达（公开配置向导选件用，get_optional_user）；价格 unit_price 等库价字段
+# 按 field.parts.price 遮罩 fail-closed——匿名与登录无价角色同一出口，只出规格不出价；
+# 引擎/derive 走仓储层不经此处，不受影响。搜索别名配置无页面入口，仅管理员。
 _PRICE_VIEW = "field.parts.price"
 router = APIRouter(prefix="/api/kp", tags=["kp"],
-                   dependencies=[Depends(get_current_user)])
+                   dependencies=[Depends(get_optional_user)])
 
 
 @router.get("/categories")
@@ -50,8 +50,8 @@ def list_spec_keys():
 @router.get("/parts")
 def list_parts(category_id: Optional[int] = Query(None, description="分类ID"),
                series: Optional[str] = Query(None, description="机型系列，按 applicable.series 过滤"),
-               user: dict = Depends(get_current_user)):
-    """返回 KP 配件列表，可按 category_id / series 筛选。
+               user: dict = Depends(get_optional_user)):
+    """返回 KP 配件列表，可按 category_id / series 筛选。匿名可读，价格 fail-closed 遮蔽。
 
     series 过滤语义：applicable 为 null 或无 series 键 = 全系列通用（返回）；
     applicable.series 含该系列 = 返回；applicable.series=[] = 隐藏。

@@ -26,7 +26,7 @@ _DEFAULT_ROLES = [
     ("te", "技术支持工程师", "商机线索 + 服务器 + 配件", ["page.opportunities", "page.servers", "page.parts", "field.flow.bom", "action.flow.submit.boming", "action.flow.return.boming", "action.opportunity.result"]),
     ("quote", "市场报价专员", "商机线索 + 报价工作台（含价格）", ["page.opportunities", "field.quote.price", "field.parts.price", "field.opportunity.quote_price", "field.flow.bom", "field.flow.cost", "action.opportunity.result", "action.flow.return.quoting", "action.flow.submit.quoting"]),
     ("cost", "成本核算", "商机线索 + 报价/配件价格", ["page.opportunities", "field.quote.price", "field.opportunity.quote_price", "field.parts.price", "action.parts.price.manage", "field.flow.bom", "field.flow.cost", "action.flow.submit.costing", "action.flow.return.costing"]),
-    ("director", "总监", "看全量页面 + 价格 + 中间交付物 + 报价外发审批/免审批", ["page.opportunities_all", "page.opportunities", "page.servers", "page.parts", "page.strategies", "field.quote.price", "field.opportunity.quote_price", "field.parts.price", "action.parts.price.manage", "field.flow.bom", "field.flow.cost", "action.flow.approve.pricing", "action.quote.export_bypass_approval", "action.opportunity.create"]),
+    ("director", "总监", "看全量页面 + 价格 + 中间交付物 + 报价外发审批/免审批 + 线索池", ["page.opportunities_all", "page.opportunities", "page.leads", "page.servers", "page.parts", "page.strategies", "field.quote.price", "field.opportunity.quote_price", "field.parts.price", "action.parts.price.manage", "field.flow.bom", "field.flow.cost", "action.flow.approve.pricing", "action.quote.export_bypass_approval", "action.opportunity.create", "action.lead.manage"]),
 ]
 
 

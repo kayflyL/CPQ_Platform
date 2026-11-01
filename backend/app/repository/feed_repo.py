@@ -354,36 +354,6 @@ class FeedRepository:
         self.session.refresh(a)
         return a.to_dict()
 
-    def update_storage_key_prefix(self, opportunity_id: str, old_prefix: str, new_prefix: str) -> int:
-        """Update storage_key prefix when customer name changes.
-
-        Args:
-            opportunity_id: The opportunity whose attachments need updating
-            old_prefix: Old folder prefix, e.g. "opportunities/华为_OPP-xxx"
-            new_prefix: New folder prefix, e.g. "opportunities/华为科技_OPP-xxx"
-
-        Returns:
-            Number of rows updated
-        """
-        # 获取该商机的所有附件
-        attachments = self.session.execute(
-            select(FeedAttachment).where(
-                FeedAttachment.opportunity_id == opportunity_id,
-                FeedAttachment.deleted_at.is_(None),
-            )
-        ).scalars().all()
-
-        updated_count = 0
-        for att in attachments:
-            old_key = att.storage_key
-            if old_key and old_key.startswith(old_prefix):
-                new_key = old_key.replace(old_prefix, new_prefix, 1)
-                att.storage_key = new_key
-                updated_count += 1
-
-        self.session.commit()
-        return updated_count
-
     def list_versions(self, version_group: str) -> List[dict]:
         rows = self.session.execute(
             select(FeedAttachment)

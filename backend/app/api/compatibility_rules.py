@@ -6,11 +6,11 @@ body: {when:{all/any:[{field,op,value}]}, then:{action,...}, desc}
 """
 from fastapi import APIRouter, Depends, HTTPException
 from app.repository.compatibility_rule_repo import CompatibilityRuleRepository
-from app.api.deps import get_current_user, require_perms
+from app.api.deps import get_current_user, get_optional_user, require_perms
 
-# 默认登录门槛；规则 CRUD 收「解决方案」页权限（选型配置所在域）。
+# 规则读匿名可达（公开配置向导兼容性校验用，get_optional_user）；CRUD 仍收「解决方案」页权限。
 router = APIRouter(prefix="/api/compatibility-rules", tags=["compatibility-rules"],
-                   dependencies=[Depends(get_current_user)])
+                   dependencies=[Depends(get_optional_user)])
 
 _VALID_STATUS = {"draft", "testing", "active", "archived"}
 _VALID_TYPE = {"require", "exclude", "derive", "filter", "recommend"}

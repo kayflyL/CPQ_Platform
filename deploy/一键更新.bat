@@ -9,7 +9,7 @@ call npm run build || (echo 前端构建失败,先在本地把报错修掉 & pause & exit /b 1)
 echo [2/4] 打包...
 if not exist D:\CPQ_Archive mkdir D:\CPQ_Archive
 tar czf D:\CPQ_Archive\dist.tgz -C dist .
-tar czf D:\CPQ_Archive\backend.tgz --exclude=.venv --exclude=.env --exclude=__pycache__ --exclude=tmp --exclude=*.db --exclude=storage --exclude=_backups --exclude=_backup* -C .. backend
+tar czf D:\CPQ_Archive\backend.tgz --exclude=.venv --exclude=.env --exclude=__pycache__ --exclude=tmp --exclude=*.db --exclude=storage --exclude=_backups --exclude=_backup* -C .. backend ai-office
 
 echo [3/4] 上传(免密)...
 scp D:\CPQ_Archive\backend.tgz D:\CPQ_Archive\dist.tgz 192.168.20.4:cpq/ || (echo 上传失败:检查网络与服务器可达 & pause & exit /b 1)

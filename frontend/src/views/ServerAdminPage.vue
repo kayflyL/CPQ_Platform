@@ -11,10 +11,11 @@ import BaseConfigBuilder from '@/components/server-admin/BaseConfigBuilder.vue'
 import BomTemplateManager from '@/components/server-admin/BomTemplateManager.vue'
 import ModelManager from '@/components/server-admin/ModelManager.vue'
 import ServerDrawingPortal from '@/components/server-admin/ServerDrawingPortal.vue'
+import Server3dModelManager from '@/components/server-admin/Server3dModelManager.vue'
 import PortalBannerSettings from '@/components/server-admin/PortalBannerSettings.vue'
 
 const route = useRoute()
-const adminTab = ref<'models' | 'series' | 'base' | 'parts' | 'drawing' | 'portal'>('models')
+const adminTab = ref<'models' | 'series' | 'base' | 'parts' | 'drawing' | 'model3d' | 'portal'>('models')
 
 /** Tab 注册表 —— 分段导航与面板挂载共用 */
 const TABS = [
@@ -23,36 +24,34 @@ const TABS = [
   { key: 'base',    label: '基准配置' },
   { key: 'parts',   label: '料号库' },
   { key: 'drawing', label: '图纸配置' },
+  { key: 'model3d', label: '3D模型管理' },
   { key: 'portal',  label: '门户设置' },
 ] as const
 
-/** 子页返回/外链入口切 tab：图纸编辑器返回用 ?tab=drawing；机型/基准编辑器保存后带 ?refresh= 回来。 */
+/** 子页返回/外链入口切 tab:图纸编辑器返回用 ?tab=drawing;3D模型页返回用 refresh=model3d;机型/基准编辑器保存后带 ?refresh= 回来。 */
 watch(() => [route.query.tab, route.query.refresh], ([tab, refresh]) => {
   const t = tab || refresh
   if (t === 'models') adminTab.value = 'models'
   else if (t === 'drawing') adminTab.value = 'drawing'
+  else if (t === 'model3d') adminTab.value = 'model3d'
   else if (t === 'base-config') adminTab.value = 'base'
 }, { immediate: true })
 
 const adminLayout = ref<HTMLElement | null>(null)
 /** 切区滚动归顶 —— v-show 七区共用滚动容器，不归顶会残留上一区滚动深度（短区被钳位、回切跳回深处）。
- *  页面导航可折叠：料号库双栏信息密（库内大类栏+子类条），进入时自动收起导航让位、离开恢复；
- *  在料号库里手动展开/收起后以手动态为准（离开时不再压回自动态）。 */
+ *  页面导航可折叠：料号库双栏信息密（库内大类栏+子类条），每次进入自动收起让位；
+ *  折叠钮记全局偏好，其余六区回到偏好态。不记「进库前状态」——塌缩时六个 tab 整体隐藏，
+ *  离开料号库必先点折叠钮展开，把这次展开记成库前状态会让塌缩在所有区永久复现。 */
 const railCollapsed = ref(false)
-const railStateBeforeParts = ref(false)
+const railPrefCollapsed = ref(false)
 function toggleRail() {
   railCollapsed.value = !railCollapsed.value
-  if (adminTab.value === 'parts') railStateBeforeParts.value = !railCollapsed.value
+  railPrefCollapsed.value = railCollapsed.value
 }
 watch(adminTab, (tab) => {
   const sc = adminLayout.value?.closest('.main-scroll') as HTMLElement | null
   sc?.scrollTo({ top: 0 })
-  if (tab === 'parts') {
-    railStateBeforeParts.value = railCollapsed.value
-    railCollapsed.value = true
-  } else {
-    railCollapsed.value = railStateBeforeParts.value
-  }
+  railCollapsed.value = tab === 'parts' ? true : railPrefCollapsed.value
 }, { immediate: true })
 </script>
 
@@ -75,6 +74,7 @@ watch(adminTab, (tab) => {
           <BomTemplateManager v-show="adminTab === 'base'" />
           <PartsLibrary v-show="adminTab === 'parts'" />
           <ServerDrawingPortal v-show="adminTab === 'drawing'" />
+          <Server3dModelManager v-show="adminTab === 'model3d'" />
           <PortalBannerSettings v-show="adminTab === 'portal'" />
         </main>
       </div>

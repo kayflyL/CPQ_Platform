@@ -56,7 +56,6 @@ class UpdateOpportunityRequest(BaseModel):
     customer_name: Optional[str] = None
     sales_person: Optional[str] = None
     fae: Optional[str] = None
-    quotation_person: Optional[str] = None
     created_at: Optional[str] = None  # 允许管理员调整创建日期
 
     class Config:
@@ -464,14 +463,13 @@ def update_opportunity(opportunity_id: str, req: UpdateOpportunityRequest,
             updates.pop(key, None)
 
         # 商机级角色字段锁定：对应角色登录时该字段强制为当前登录人，不可修改。
+        # quotation_person 不在此列——它是 quoting 节点处理人的同步镜像，只由 flow_repo 回写。
         role = user.get("role")
         current_name = user.get("name") or ""
         if role == "business":
             updates["sales_person"] = current_name
         elif role == "te":
             updates["fae"] = current_name
-        elif role == "quote":
-            updates["quotation_person"] = current_name
 
         if not user_has_permission(user, "page.opportunities_all"):
             updates.pop("owner_user_id", None)
@@ -480,6 +478,9 @@ def update_opportunity(opportunity_id: str, req: UpdateOpportunityRequest,
         # 静默会让旧前端包的乐观更新+成功提示变成假象（库里没写，界面却显示已改）
         if "created_at" in updates and not user_has_permission(user, "action.opportunity.edit_created_at"):
             raise HTTPException(status_code=403, detail="无权修改商机创建日期")
+        if "result" in updates:
+            # 同 /meta：result 只能走 /result-change，动态字段通道不放行
+            raise HTTPException(status_code=400, detail="商机状态变更请走 result-change 接口（需填写一句话说明）")
         if "sales_person" in updates and user_has_permission(user, "page.opportunities_all"):
             target = next(
                 (u for u in _active_business_accounts() if u["name"] == str(updates.get("sales_person") or "").strip()),
@@ -491,36 +492,8 @@ def update_opportunity(opportunity_id: str, req: UpdateOpportunityRequest,
         if not updates:
             return {"status": "success", "message": "No fields to update"}
 
-        # 如果客户名变更，需要重命名存储文件夹
-        if "customer_name" in updates:
-            # 获取旧的商机信息
-            old_opp = repo.get_opportunity(opportunity_id)
-            old_customer = old_opp.get("customer_name", "") if old_opp else ""
-
-            new_customer = updates["customer_name"] or ""
-
-            # 如果客户名确实变更了
-            if old_customer != new_customer:
-                from app.services.storage_adapter import get_storage
-                from app.repository.feed_repo import FeedRepository
-
-                storage = get_storage()
-                success, prefixes = storage.rename_opportunity_folder(
-                    opportunity_id, old_customer, new_customer
-                )
-
-                if success and prefixes.get("old_prefix") and prefixes.get("new_prefix"):
-                    # 更新 feed_attachments 中的 storage_key
-                    feed_repo = FeedRepository()
-                    try:
-                        feed_repo.update_storage_key_prefix(
-                            opportunity_id,
-                            prefixes["old_prefix"],
-                            prefixes["new_prefix"]
-                        )
-                    finally:
-                        feed_repo.close()
-
+        # 客户名变更只改 DB 字段：存储文件夹名在首次落盘时冻结，定位按商机号匹配，
+        # 改名不做任何文件系统/存储键联动（目录名里的客户名仅是装饰，允许随时间变旧）。
         success = repo.update_meta(opportunity_id, updates)
         if not success:
             raise HTTPException(status_code=404, detail="Project not found")
@@ -558,8 +531,6 @@ def save_opportunity(data: dict, user: dict = Depends(get_current_user)):
             opportunity_info["sales_person"] = current_name
         elif role == "te":
             opportunity_info["fae"] = current_name
-        elif role == "quote":
-            opportunity_info["quotation_person"] = current_name
         if opportunity_id:
             ensure_opportunity_access(opportunity_id, user)
             opportunity_info.pop("owner_user_id", None)
@@ -598,7 +569,6 @@ def get_field_history(field_key: str, q: str = None, limit: int = 20,
         # Core columns that are actual DB columns
         core_columns = {
             "customer_name", "sales_person", "fae",
-            "quotation_person",
             "industry", "order_type",
         }
         view_all = user_has_permission(user, "page.opportunities_all")
@@ -712,8 +682,9 @@ def update_opportunity_meta(opportunity_id: str, updates: dict,
             updates.pop("owner_user_id", None)
         if "created_at" in updates and not user_has_permission(user, "action.opportunity.edit_created_at"):
             raise HTTPException(status_code=403, detail="无权修改商机创建日期")
-        if "result" in updates and not user_has_permission(user, "action.opportunity.result"):
-            raise HTTPException(status_code=403, detail="无权修改商机状态")
+        if "result" in updates:
+            # result 只能走 /result-change（必填说明+归因+自动评论的原子入口）；meta 通道一律拒绝
+            raise HTTPException(status_code=400, detail="商机状态变更请走 result-change 接口（需填写一句话说明）")
         repo.update_meta(opportunity_id, updates)
         return {"status": "success"}
     except HTTPException:

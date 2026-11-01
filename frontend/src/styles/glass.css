@@ -90,3 +90,10 @@
   border-radius: var(--cpq-radius-xl);
   box-shadow: var(--cpq-shadow-lg), inset 0 1px 0 var(--cpq-glass-highlight);
 }
+
+/* 暗色主题：卡片 hover 同向强化（边框/底各提亮一档），不切蓝边 —— 对齐机型卡暗色配方（2026-10-30） */
+[data-theme='dark'] .glass:hover,
+[data-theme='dark'] .glass-light:hover {
+  border-color: var(--cpq-overlay-w20) !important;
+  background: var(--cpq-overlay-w4) !important;
+}

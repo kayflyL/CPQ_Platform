@@ -16,8 +16,13 @@
         <img :src="url" :alt="attachment?.original_filename" class="preview-img" />
       </div>
 
-      <!-- pdf (native viewer via iframe) -->
-      <iframe v-else-if="kind === 'pdf'" :src="url" class="preview-iframe" title="pdf"></iframe>
+      <!-- pdf (native viewer via iframe)；预览内放「下载」兜底 -->
+      <div v-else-if="kind === 'pdf'" class="pdf-wrap">
+        <div class="pdf-toolbar">
+          <a-button size="small" @click="download">下载</a-button>
+        </div>
+        <iframe :src="url" class="preview-iframe" title="pdf"></iframe>
+      </div>
 
       <!-- excel: in-browser Univer editor -->
       <div v-else-if="kind === 'excel'" class="excel-wrap">
@@ -25,7 +30,7 @@
           <span class="excel-hint">在线编辑 · 保存会作为新版本（保留历史）</span>
           <a-space>
             <a-button :loading="saving" @click="download">下载当前版本</a-button>
-            <a-button type="primary" :loading="saving" :disabled="!snapshot" @click="saveVersion">保存为新版本</a-button>
+            <a-button v-if="editable" type="primary" :loading="saving" :disabled="!snapshot" @click="saveVersion">保存为新版本</a-button>
           </a-space>
         </div>
         <div class="excel-canvas">
@@ -56,7 +61,11 @@ import type { FeedAttachment } from '@/api/feed'
 import { univerTemplateApi } from '@/api/univerTemplate'
 import { fetchAuthedBlob, downloadOfficeFile, previewOfficeFileUrl } from '@/utils/fileDownload'
 
-const props = defineProps<{ attachment: FeedAttachment | null; open: boolean }>()
+/** 预览源二选一：feed 附件（attachment_id 在 → Excel 可在线编辑/存版本）或裸文件引用（仅预览+下载，如机型资料 PDF） */
+const props = defineProps<{
+  attachment: FeedAttachment | { original_filename: string; url: string } | null
+  open: boolean
+}>()
 const emit = defineEmits<{
   (e: 'update:open', v: boolean): void
   (e: 'saved', att: FeedAttachment): void
@@ -69,7 +78,14 @@ const univerRef = ref<InstanceType<typeof UniverSheet> | null>(null)
 
 // 下载端点挂了 current_user 鉴权，img/iframe/fetch 直链都会 401：
 // 统一走带 Authorization 的 blob 拉取；image/pdf 用 objectURL 展示
-const rawUrl = computed(() => (props.attachment ? feedApi.attachments.downloadUrl(props.attachment.attachment_id) : ''))
+const rawUrl = computed(() => {
+  if (!props.attachment) return ''
+  return 'attachment_id' in props.attachment
+    ? feedApi.attachments.downloadUrl(props.attachment.attachment_id)
+    : props.attachment.url
+})
+// 裸文件引用没有 attachment_id：Excel 只看不存版本
+const editable = computed(() => !!props.attachment && 'attachment_id' in props.attachment)
 const url = ref('')
 
 function revokeUrl() {
@@ -97,7 +113,7 @@ async function loadExcel() {
   try {
     const blob = await fetchAuthedBlob(rawUrl.value)
     const file = new File([blob], props.attachment.original_filename, {
-      type: props.attachment.mime_type || 'application/vnd.ms-excel',
+      type: ('mime_type' in props.attachment ? props.attachment.mime_type : '') || 'application/vnd.ms-excel',
     })
     const result = await univerTemplateApi.uploadExcel(file)
     snapshot.value = result.workbook_snapshot
@@ -110,7 +126,7 @@ async function loadExcel() {
 }
 
 async function saveVersion() {
-  if (!props.attachment || !univerRef.value) return
+  if (!props.attachment || !('attachment_id' in props.attachment) || !univerRef.value) return
   saving.value = true
   try {
     const resolved = univerRef.value.getResolvedWorkbook()
@@ -143,7 +159,7 @@ async function download() {
 
 // when opening a new attachment, reset + load excel snapshot / objectURL
 watch(
-  () => [props.open, props.attachment?.attachment_id],
+  () => [props.open, props.attachment],
   async ([isOpen]) => {
     revokeUrl()
     snapshot.value = null
@@ -189,11 +205,22 @@ watch(
   max-height: 100%;
   object-fit: contain;
 }
+.pdf-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.pdf-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 4px;
+}
 .preview-iframe {
   flex: 1;
   width: 100%;
   border: none;
-  min-height: 70vh;
+  min-height: 0;
 }
 .unsupported {
   color: var(--cpq-text-muted);

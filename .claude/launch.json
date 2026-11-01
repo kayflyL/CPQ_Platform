@@ -109,6 +109,18 @@
       "port": 5176
     },
     {
+      "name": "proto-desk",
+      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8895",
+        "--directory",
+        "docs/prototypes"
+      ],
+      "port": 8895
+    },
+    {
       "name": "backend-verify",
       "runtimeExecutable": "backend/.venv/Scripts/python.exe",
       "runtimeArgs": [
@@ -128,6 +140,27 @@
       ],
       "port": 5175,
       "autoPort": true
+    },
+    {
+      "name": "leads-verify",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_API_TARGET=http://127.0.0.1:8000&& npm --prefix frontend run dev -- --port 5177 --strictPort"
+      ],
+      "port": 5177
+    },
+    {
+      "name": "neural-dashboard",
+      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8899",
+        "--directory",
+        "D:/neural-creator-dashboard/dist"
+      ],
+      "port": 8899
     }
   ]
 }
