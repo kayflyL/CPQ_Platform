@@ -219,13 +219,13 @@ const petModel = usePetModelStore()
 type NavItem = { key: string; label: string; perm?: string }
 
 const topItems = computed<NavItem[]>(() => {
-  // 公开路由（目录/详情/配置向导/提交需求）下导航合并公开项：
-  // 匿名访客只看公开两项；登录用户公开 + 内部都可见（点内部照常回系统）。
-  const publicItems: NavItem[] = [
-    { key: '/catalog', label: '产品目录' },
-    { key: '/lead', label: '提交需求' },
-  ]
-  const internalItems: NavItem[] = [
+  // 匿名访客（只可能停留在公开路由，其余被守卫重定向）：顶栏只给产品目录。
+  // 「提交需求」是表单不是导航目的地（2026-11-01 定调），入口在目录页 CTA 条，不进顶栏；
+  // 登录用户一律内部导航——公开路由不再合并公开项（曾致登录态首屏闪现公开导航）。
+  if (!auth.isAuthenticated) {
+    return [{ key: '/catalog', label: '产品目录' }]
+  }
+  const items: NavItem[] = [
     { key: '/galaxy', label: '首页' },
     { key: '/portal', label: '工作台' },
     { key: '/opportunities', label: '商机线索', perm: 'page.opportunities_all' },
@@ -233,10 +233,7 @@ const topItems = computed<NavItem[]>(() => {
     { key: '/parts', label: '配件', perm: 'page.parts' },
     { key: '/strategies', label: '解决方案', perm: 'page.strategies' },
   ]
-  if (route.path.startsWith('/catalog') || route.path === '/lead') {
-    return auth.isAuthenticated ? [...publicItems, ...internalItems.filter((i) => !i.perm || auth.can(i.perm))] : publicItems
-  }
-  return internalItems.filter((i) => !i.perm || auth.can(i.perm))
+  return items.filter((i) => !i.perm || auth.can(i.perm))
 })
 
 const settingsItems = computed<NavItem[]>(() => {
