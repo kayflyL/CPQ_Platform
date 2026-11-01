@@ -5,9 +5,10 @@ set -euo pipefail
 cd "$HOME/cpq"
 [ -f backend.tgz ] && { tar xzf backend.tgz && rm backend.tgz; }
 [ -f dist.tgz ] && { tar xzf dist.tgz -C frontend-dist && rm dist.tgz; }
-ps -ef | grep "uvicorn app" | grep -v grep | awk '{print $2}' | xargs -r kill
+# 只杀占用自家端口的进程(共享机上有邻居同名/同名前缀服务,按名字模糊匹配曾误伤别人进程)
+ss -tlnp 2>/dev/null | grep ':5174 ' | grep -oP 'pid=\K[0-9]+' | sort -u | xargs -r kill
 # 前端进程也随发版重启(静态文件本身即改即生效,这里是让 web.js/start.sh 的改动生效);start.sh 会拉起
-ps -ef | grep "node web.js" | grep -v grep | awk '{print $2}' | xargs -r kill
+ss -tlnp 2>/dev/null | grep ':5173 ' | grep -oP 'pid=\K[0-9]+' | sort -u | xargs -r kill
 sleep 1
 bash "$HOME/cpq/start.sh"
 sleep 8
