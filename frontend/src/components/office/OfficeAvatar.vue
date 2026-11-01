@@ -1,5 +1,15 @@
 <template>
-  <span class="oa" :style="{ width: size + 'px', height: size + 'px', fontSize: Math.round(props.size * 0.42) + 'px' }">
+  <span
+    class="oa"
+    :class="{ 'is-photo': !!url }"
+    :style="{
+      width: size + 'px',
+      height: size + 'px',
+      fontSize: Math.round(props.size * 0.42) + 'px',
+      '--oa-ring': accent || undefined,
+      '--oa-tint': accent ? accent + '29' : undefined,
+    }"
+  >
     <img v-if="url" :src="url" alt="" />
     <span v-else class="oa-fb" :style="{ background: color }">{{ initial }}</span>
   </span>
@@ -20,6 +30,7 @@ const snap = ref<string | null>(null)
 
 const url = computed(() => props.colleague?.avatar_url || snap.value || '')
 const color = computed(() => props.colleague?.color || '#1677ff')
+const accent = computed(() => props.colleague?.color || '')
 const initial = computed(() => {
   const text = (props.colleague?.name || 'AI').trim()
   return Array.from(text)[0] || 'AI'
@@ -40,6 +51,11 @@ onMounted(async () => {
   border-radius: 50%;
   overflow: hidden;
   background: var(--cpq-glass-2-bg, rgba(255, 255, 255, 0.09));
+}
+/* 快照模式 = 档案页设计：主题色描边 + 淡主题色底 */
+.oa.is-photo {
+  border: 2px solid var(--oa-ring, var(--cpq-glass-border, rgba(255, 255, 255, 0.11)));
+  background: var(--oa-tint, var(--cpq-glass-2-bg, rgba(255, 255, 255, 0.09)));
 }
 .oa img {
   width: 100%;

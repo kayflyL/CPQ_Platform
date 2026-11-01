@@ -92,7 +92,8 @@
               title="查看名片"
               @click.stop="openHeadPersona($event)"
             >
-              {{ view === 'group' ? '群' : avatarInitial(activeColleagueName) }}
+              <OfficeAvatar v-if="view === 'dm'" :colleague="activeColleague" :size="34" />
+              <span v-else>群</span>
               <i class="ap-presence" :class="{ on: isPresenceOn(view === 'group' ? 'assistant' : (activeRoleKey || '')) }"></i>
             </span>
             <div class="ap-head-main">
@@ -146,14 +147,7 @@
               <!-- 真实业务产出（需求单/BOM 方案草稿）：文本气泡 + 产出物卡片 -->
               <div v-else-if="m.kind === 'business_artifact'" class="ap-msg role-assistant ap-msg-result">
                 <div class="ap-msg-head">
-                  <div
-                    class="ap-avatar"
-                    :class="{ 'ap-avatar-has-img': !!colleagueForRole(m.colleague_role_key).avatar_url }"
-                    :style="{ background: colleagueForRole(m.colleague_role_key).color || 'var(--cpq-accent-primary, #1677ff)' }"
-                  >
-                    <img v-if="colleagueForRole(m.colleague_role_key).avatar_url" :src="colleagueForRole(m.colleague_role_key).avatar_url" alt="" />
-                    <span v-else class="ap-avatar-initial">{{ avatarInitial(colleagueForRole(m.colleague_role_key).name) }}</span>
-                  </div>
+                  <OfficeAvatar :colleague="colleagueForRole(m.colleague_role_key)" :size="30" />
                   <span class="ap-author">{{ colleagueForRole(m.colleague_role_key).name }}</span>
                 </div>
                 <div v-if="m.content" class="ap-bubble">{{ m.content }}</div>
@@ -169,14 +163,7 @@
               <!-- 文件产物（输出节点 artifacts 渲染的 PDF 报告等）：文件卡 -->
               <div v-else-if="m.kind === 'file'" class="ap-msg role-assistant ap-msg-result">
                 <div class="ap-msg-head">
-                  <div
-                    class="ap-avatar"
-                    :class="{ 'ap-avatar-has-img': !!colleagueForRole(m.colleague_role_key).avatar_url }"
-                    :style="{ background: colleagueForRole(m.colleague_role_key).color || 'var(--cpq-accent-primary, #1677ff)' }"
-                  >
-                    <img v-if="colleagueForRole(m.colleague_role_key).avatar_url" :src="colleagueForRole(m.colleague_role_key).avatar_url" alt="" />
-                    <span v-else class="ap-avatar-initial">{{ avatarInitial(colleagueForRole(m.colleague_role_key).name) }}</span>
-                  </div>
+                  <OfficeAvatar :colleague="colleagueForRole(m.colleague_role_key)" :size="30" />
                   <span class="ap-author">{{ colleagueForRole(m.colleague_role_key).name }}</span>
                 </div>
                 <div class="ap-file-card">
@@ -194,14 +181,7 @@
               <!-- 工作流发起确认卡（suggest_workflow 产物）：一键以需求原文发起工作流 -->
               <div v-else-if="m.kind === 'workflow_suggestion'" class="ap-msg role-assistant ap-msg-result">
                 <div class="ap-msg-head">
-                  <div
-                    class="ap-avatar"
-                    :class="{ 'ap-avatar-has-img': !!colleagueForRole(m.colleague_role_key).avatar_url }"
-                    :style="{ background: colleagueForRole(m.colleague_role_key).color || 'var(--cpq-accent-primary, #1677ff)' }"
-                  >
-                    <img v-if="colleagueForRole(m.colleague_role_key).avatar_url" :src="colleagueForRole(m.colleague_role_key).avatar_url" alt="" />
-                    <span v-else class="ap-avatar-initial">{{ avatarInitial(colleagueForRole(m.colleague_role_key).name) }}</span>
-                  </div>
+                  <OfficeAvatar :colleague="colleagueForRole(m.colleague_role_key)" :size="30" />
                   <span class="ap-author">{{ colleagueForRole(m.colleague_role_key).name }}</span>
                 </div>
                 <div v-if="m.content" class="ap-bubble">{{ m.content }}</div>
@@ -775,10 +755,6 @@ function colleagueForRole(roleKey?: string): {
   const found = colleaguePool.value.find((c) => c?.role_key === roleKey)
   if (found) return found
   return { name: roleKey, avatar_url: '', color: '' }
-}
-function avatarInitial(name?: string): string {
-  const text = (name || 'AI').trim()
-  return Array.from(text)[0] || 'AI'
 }
 function colleagueDescription(c?: any): string {
   if (!c) return 'AI 同事'
@@ -2377,30 +2353,6 @@ async function onQuickAction(action: QuickAction) {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.ap-avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: var(--cpq-accent-primary, #1677ff);
-  border: 1px solid transparent;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  overflow: hidden;
-  color: #fff;
-  font-size: var(--cpq-font-size-base);
-  font-weight: 600;
-  line-height: 1;
-}
-.ap-avatar-initial {
-  line-height: 1;
-}
-.ap-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 .ap-author {
   font-size: var(--cpq-font-size-sm);
