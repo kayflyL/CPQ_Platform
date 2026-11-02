@@ -12,6 +12,7 @@ export interface Solution {
   title: string
   sub?: string
   features: string[]
+  cover_url?: string
   intro?: string
   content_md?: string
   platforms: SolutionPlatform[]

@@ -27,7 +27,8 @@ import type { GpuArch } from '@/composables/useServerConfig'
 import { useSelectionRulesStore, type RuleContext } from '@/stores/selectionRules'
 import { normalizeDriveKind } from '@/stores/selectionEngine'
 
-const props = defineProps<{ model: ServerModel }>()
+const props = defineProps<{ model: ServerModel; /** 公开模式：右栏完成动作=「提交配置」（emit submit-config），登录版保持规格书行为 */ leadMode?: boolean }>()
+const emit = defineEmits<{ (e: 'submit-config'): void }>()
 const selectionRulesStore = useSelectionRulesStore()
 
 // ---- KP 核心配件（扁平 kpLines；卡片是 groupBy 视图）----
@@ -754,22 +755,43 @@ onBeforeUnmount(() => {
 
 // 公开模式快照：把当前选型导出成线索登记表的 slots 片段（只含品类/名称/规格/数量，无价格）。
 // 公开向导完成页用它预填线索登记表——选了什么就登记什么，业务零重填。
+// meta 携带机型/平台/机箱形态/建议电源，供「提交配置」面板自动带出（用户不用手填）。
 function getPublicSnapshot() {
-  const kp_rows = kpLines.value.map((l) => {
-    const kp = kpPart(l.pn)
-    const specText = Object.entries(kp?.specs || {}).slice(0, 3).map(([k, v]) => `${k}:${v}`).join(' ')
-    return {
-      category: 'Key Parts',
-      part_category: l.cat,
-      catalogue: kp?.name || l.pn,
-      description: [kp?.brand, specText].filter(Boolean).join(' · '),
-      qty: l.qty || 1,
-      note: '',
-    }
-  })
-  return { kp_rows }
+  const kp_rows = kpLines.value
+    .filter((l) => l.pn && (l.qty || 0) > 0)
+    .map((l) => {
+      const kp = kpPart(l.pn)
+      const specText = Object.entries(kp?.specs || {}).slice(0, 3).map(([k, v]) => `${k}:${v}`).join(' ')
+      return {
+        category: 'Key Parts',
+        part_category: l.cat,
+        catalogue: kp?.name || l.pn,
+        description: [kp?.brand, specText].filter(Boolean).join(' · '),
+        qty: l.qty || 1,
+        note: '',
+      }
+    })
+  return {
+    kp_rows,
+    meta: {
+      server_model: props.model?.name || '',
+      platform_type: (props.model?.base_config as any)?.series || series.value || '',
+      chassis_form: props.model?.base_config?.form || '',
+      chassis_bays: props.model?.base_config?.bays || 0,
+      base_config_name: baseConfigName.value,
+      psu_text: powerSummary.value.psuText,
+      load_text: powerSummary.value.loadText,
+    },
+  }
 }
-defineExpose({ getPublicSnapshot })
+// 公开「提交配置」面板的「查看规格书」入口：走组件内既有规格书 overlay（复用模板/打印/PDF 链路）
+async function openSpecSheet() {
+  if (!l6Apply.value) { message.warning('请先完成机箱选配'); return }
+  const blocking = selectionActions.value.filter(a => isBlockingSeverity(a.severity))
+  if (blocking.length && !(await confirmBlocking(blocking))) return
+  specVisible.value = true
+}
+defineExpose({ getPublicSnapshot, openSpecSheet })
 </script>
 
 <template>
@@ -911,7 +933,8 @@ defineExpose({ getPublicSnapshot })
             </div>
           </section>
 
-          <button class="sc-save" :disabled="saving" @click="generateSpec">{{ saving ? '生成中…' : '生成 / 打印规格书' }}</button>
+          <button v-if="leadMode" class="sc-save" type="button" @click="emit('submit-config')">提交配置</button>
+          <button v-else class="sc-save" :disabled="saving" @click="generateSpec">{{ saving ? '生成中…' : '生成 / 打印规格书' }}</button>
         </div>
       </div>
     </div>
@@ -1025,7 +1048,8 @@ defineExpose({ getPublicSnapshot })
             </div>
           </section>
 
-          <button class="sc-save" :disabled="saving" @click="generateSpec">{{ saving ? '生成中…' : '生成 / 打印规格书' }}</button>
+          <button v-if="leadMode" class="sc-save" type="button" @click="emit('submit-config')">提交配置</button>
+          <button v-else class="sc-save" :disabled="saving" @click="generateSpec">{{ saving ? '生成中…' : '生成 / 打印规格书' }}</button>
         </div>
       </div>
     </a-drawer>

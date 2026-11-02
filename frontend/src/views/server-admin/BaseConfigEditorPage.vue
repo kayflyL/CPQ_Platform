@@ -4,8 +4,9 @@
  *  ⑦供电=电源槽位/PSU 档位/默认型号；⑨扩展=GPU 槽上限/架构），固定件（底盘件）按料号库大类（major_category=解剖分组）归类。 */
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
-import { UpOutlined } from '@ant-design/icons-vue'
+import { message, Modal } from 'ant-design-vue'
+import { UpOutlined, DownloadOutlined, UploadOutlined, ExportOutlined } from '@ant-design/icons-vue'
+import ExcelJS from 'exceljs'
 import { catalogApi, baseConfigApi, partsApi, kpPartsApi, bomTemplateApi, rearIOApi, type BomTemplate, type PartMaster, type RearIOSlotOption, type RearIOItem, type ServerType } from '@/api/serverConfig'
 import { systemConfigApi, type OptionItem } from '@/api/systemConfig'
 import { useSeriesStore } from '@/stores/series'
@@ -370,6 +371,336 @@ watch(() => form.value.form, (nf, of) => {
   message.info(`已切换为 ${nf} 标准布局：后面板/电源/GPU 已重置`)
 })
 onMounted(async () => { await Promise.all([init(), loadOptions(), loadKpGpu()]) })
+
+// ==================== 清单视图（编辑器内存态的平铺只读表 + 模板/导入/导出，全前端 ExcelJS）====================
+// 口径 = CostAnalysisPanel.rows 同源：底盘件 + 后面板默认卡 + 前面板线缆 + 默认PSU×槽位（缺价行显式标记，合计为下限）。
+// 导入只改内存编辑态（底盘件整单替换 / 结构选料智能归位 / KP 件忽略），仍走「保存」按钮持久化——不绕过保存语义。
+const viewMode = ref<'edit' | 'list'>('edit')
+const listSearch = ref('')
+const listGroupFilter = ref<string | undefined>(undefined)
+
+interface FlatRow {
+  pn: string; name: string; spec: string
+  qty: number
+  unit: number | null            // null=缺价（料号库单价缺失/库外）
+  group: string                  // 解剖分组（分组筛选列）
+  src: 'chassis' | 'rear' | 'cable' | 'psu'
+  srcLabel: string               // 来源列展示：底盘件 / 后面板·IO1 / 线缆·SAS / PSU×槽位
+  fixed: boolean                 // true=结构选料（数量由机箱结构决定，编辑视图维护，清单只读）
+  kind?: string                  // 线缆盘类 / PSU 归位用
+  slotName?: string              // rear 行的槽位名（归位用）
+}
+/** 平铺清单（与成本面板同口径）；底盘件保持 commonLines 行序，结构选料按 后面板→线缆→PSU 尾随 */
+const flatRows = computed<FlatRow[]>(() => {
+  const out: FlatRow[] = []
+  const seen = new Set<string>()
+  const groupOf = (major?: string | null) => major || '未分组'
+  for (const l of commonLines.value) {
+    if (!l.pn || seen.has(l.pn)) continue
+    seen.add(l.pn)
+    const p = partByPn(l.pn)
+    out.push({
+      pn: l.pn, name: p?.name || l.pn, spec: p?.spec_text || '', qty: Number(l.qty) || 0,
+      unit: p?.unit_price ?? null, group: groupOf(p?.major_category), src: 'chassis',
+      srcLabel: '底盘件', fixed: false,
+    })
+  }
+  for (const s of form.value.rear_slots || []) {
+    for (const t of optionTypes(s.name)) {
+      for (const pn of cardPns(s, t)) {
+        if (seen.has(pn)) continue
+        seen.add(pn)
+        out.push({
+          pn, name: pnName(pn), spec: '', qty: 1, unit: rearItemMap.value[pn]?.price ?? null,
+          group: '后面板', src: 'rear', srcLabel: `后面板 · ${s.name}`, fixed: true, slotName: s.name,
+        })
+      }
+    }
+  }
+  for (const k of CORE_DRIVE_KINDS) {
+    const pn = cablePickedPn(k)
+    if (!pn || seen.has(pn)) continue
+    seen.add(pn)
+    out.push({
+      pn, name: cableName(pn), spec: '', qty: 1, unit: cablePrice(pn) || null,
+      group: '前面板', src: 'cable', srcLabel: `线缆 · ${k}`, fixed: true, kind: k,
+    })
+  }
+  const psu = psuPickedPn()
+  if (psu && !seen.has(psu)) {
+    out.push({
+      pn: psu, name: psuName(psu), spec: '', qty: Math.max(0, Number(form.value.psu_bays) || 0),
+      unit: psuPrice(psu) || null, group: '供电', src: 'psu', srcLabel: 'PSU×槽位', fixed: true,
+    })
+  }
+  return out
+})
+const flatGroups = computed(() => [...new Set(flatRows.value.map(r => r.group))])
+const filteredFlatRows = computed(() => {
+  const kw = listSearch.value.trim().toLowerCase()
+  return flatRows.value.filter(r =>
+    (!listGroupFilter.value || r.group === listGroupFilter.value) &&
+    (!kw || r.pn.toLowerCase().includes(kw) || r.name.toLowerCase().includes(kw)))
+})
+const flatTotal = computed(() => flatRows.value.reduce((s, r) => s + (r.unit != null ? r.unit * r.qty : 0), 0))
+const flatMissing = computed(() => flatRows.value.filter(r => r.unit == null))
+const money = (n: number) => '¥' + Math.round(n).toLocaleString('zh-CN')
+
+// ---- 导出：全量清单（含结构选料，BOM 完整可外部核对；缺价行单价留空） ----
+const exporting = ref(false)
+async function exportList() {
+  exporting.value = true
+  try {
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('基准配置清单')
+    ws.columns = [
+      { header: '分组', key: 'group', width: 12 },
+      { header: '来源', key: 'srcLabel', width: 16 },
+      { header: '料号PN', key: 'pn', width: 22 },
+      { header: '名称', key: 'name', width: 28 },
+      { header: '规格', key: 'spec', width: 24 },
+      { header: '数量', key: 'qty', width: 8 },
+      { header: '单价', key: 'unit', width: 12 },
+      { header: '小计', key: 'amount', width: 12 },
+    ]
+    ws.getRow(1).font = { bold: true }
+    ws.views = [{ state: 'frozen', ySplit: 1 }]
+    for (const r of flatRows.value) {
+      ws.addRow({ group: r.group, srcLabel: r.fixed ? r.srcLabel : '底盘件', pn: r.pn, name: r.name,
+        spec: r.spec, qty: r.qty, unit: r.unit ?? undefined, amount: r.unit != null ? r.unit * r.qty : undefined })
+    }
+    const buf = await wb.xlsx.writeBuffer()
+    downloadBlob(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+      `基准配置清单_${form.value.name || editingId || '未命名'}.xlsx`)
+  } finally { exporting.value = false }
+}
+/** 导入模板（只含底盘件列；结构选料在编辑视图维护，模板不放其行） */
+async function downloadTemplate() {
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('底盘件清单')
+  ws.columns = [
+    { header: '料号PN', key: 'pn', width: 22 },
+    { header: '数量', key: 'qty', width: 8 },
+    { header: '分组(可选)', key: 'group', width: 12 },
+  ]
+  ws.getRow(1).font = { bold: true }
+  ws.views = [{ state: 'frozen', ySplit: 1 }]
+  ws.addRow({ pn: 'L6-CH-2524', qty: 1, group: '机箱主体' })
+  ws.addRow({ pn: 'L6-MB-C621A', qty: 1, group: '主板' })
+  downloadBlob(new Blob([await wb.xlsx.writeBuffer()], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    '基准配置清单_导入模板.xlsx')
+}
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ---- 导入：整机 BOM 智能归位（预览→确认，只改内存编辑态） ----
+const importOpen = ref(false)
+const importParsing = ref(false)
+const importCommitting = ref(false)
+const importFile = ref<File | null>(null)
+interface ImportRow {
+  pn: string; name: string; qty: number
+  region: string                  // 归属区展示
+  act: 'new' | 'update' | 'keep' | 'del' | 'assign' | 'ignore' | 'invalid' | 'ambiguous'
+  note: string
+}
+const importPreview = ref<ImportRow[]>([])
+const importSummary = ref({ chassis: 0, assigned: 0, ignored: 0, invalid: 0 })
+function actLabel(a: ImportRow['act']): string {
+  return { new: '新增', update: '更新', keep: '保留', del: '将删除', assign: '归位', ignore: '忽略', invalid: '无效', ambiguous: '需人工' }[a]
+}
+
+/** KP 配置件（CPU/内存/盘体/GPU/网卡）——不入基准（成本口径注释同 CostAnalysisPanel），导入时忽略 */
+function isKpPart(p?: PartMaster): boolean {
+  if (!p) return false
+  const c = p.category || ''
+  return /CPU|处理器|内存|硬盘|SSD|HDD|GPU|网卡/.test(c)
+}
+
+function onImportFile(f: File) {
+  importFile.value = f
+  importPreview.value = []
+  importSummary.value = { chassis: 0, assigned: 0, ignored: 0, invalid: 0 }
+  return false
+}
+async function parseImport() {
+  if (!importFile.value) return message.warning('请先选择文件')
+  importParsing.value = true
+  try {
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(await importFile.value.arrayBuffer())
+    const ws = wb.worksheets[0]
+    const header: string[] = []
+    ws.getRow(1).eachCell((c, col) => { header[col] = String(c.value || '').trim() })
+    const colOf = (...names: string[]) => header.findIndex(h => names.some(n => h === n || h.includes(n)))
+    const pnCol = colOf('料号', 'PN')
+    const qtyCol = colOf('数量')
+    const grpCol = colOf('分组')
+    if (!pnCol) { message.error('未找到「料号PN」列'); return }
+
+    // 文件行收集
+    type FRow = { pn: string; qty: number; group?: string }
+    const frows: FRow[] = []
+    ws.eachRow((row, rn) => {
+      if (rn === 1) return
+      const pn = String(row.getCell(pnCol).value ?? '').trim()
+      if (!pn) return
+      const qv = qtyCol ? Number(row.getCell(qtyCol).value) : NaN
+      const gv = grpCol ? String(row.getCell(grpCol).value ?? '').trim() : ''
+      frows.push({ pn, qty: Number.isFinite(qv) && qv > 0 ? Math.round(qv) : 1, group: gv || undefined })
+    })
+    if (!frows.length) { message.info('未解析到任何数据行'); return }
+
+    // 索引：料号库 / 后面板槽位目录（pn→[{slot,option_type}]，跨槽位=ambiguous）
+    const partMap: Record<string, PartMaster> = {}
+    for (const p of allParts.value) if (p.pn) partMap[p.pn] = p
+    const rearIndex: Record<string, { slot: string; type: string }[]> = {}
+    for (const [slot, opts] of Object.entries(rearOptions.value)) {
+      for (const o of opts || []) for (const it of o.items || []) {
+        if (it.pn) (rearIndex[it.pn] = rearIndex[it.pn] || []).push({ slot, type: o.option_type })
+      }
+    }
+    const cableMap: Record<string, string> = {}
+    for (const p of frontCableParts.value) cableMap[p.pn] = driveKindOf(p) || ''
+
+    const existing = new Map<string, number>()   // 现有底盘件 pn→qty
+    for (const l of commonLines.value) if (l.pn) existing.set(l.pn, Number(l.qty) || 0)
+
+    const out: ImportRow[] = []
+    const sum = { chassis: 0, assigned: 0, ignored: 0, invalid: 0 }
+    const seenInFile = new Set<string>()
+    for (const fr of frows) {
+      if (seenInFile.has(fr.pn)) { sum.invalid++; out.push({ pn: fr.pn, name: '—', qty: fr.qty, region: '—', act: 'invalid', note: '文件内料号重复' }); continue }
+      seenInFile.add(fr.pn)
+      const p = partMap[fr.pn]
+      if (!p) {
+        // 库外料号：若是现有底盘件行（库回显过），仍按底盘件替换处理
+        if (existing.has(fr.pn)) { sum.chassis++; out.push({ pn: fr.pn, name: '（库外·保留原行）', qty: fr.qty, region: '底盘件', act: 'update', note: `数量 ${existing.get(fr.pn)}→${fr.qty}` }); continue }
+        sum.invalid++; out.push({ pn: fr.pn, name: '—', qty: fr.qty, region: '—', act: 'invalid', note: '料号不在料号库' }); continue
+      }
+      if (isKpPart(p)) { sum.ignored++; out.push({ pn: fr.pn, name: p.name, qty: fr.qty, region: 'KP 配置件', act: 'ignore', note: 'CPU/内存/盘体/GPU/网卡在机型配置页选，不入基准' }); continue }
+      const rearHits = rearIndex[fr.pn]
+      if (rearHits?.length) {
+        const uniq = [...new Set(rearHits.map(h => h.slot))]
+        if (uniq.length > 1) { sum.invalid++; out.push({ pn: fr.pn, name: p.name, qty: fr.qty, region: '后面板', act: 'ambiguous', note: `该料在多个槽位目录（${uniq.join('/')}），请到编辑视图指定` }); continue }
+        const hit = rearHits[0]
+        const cur = form.value.rear_slots.find((s: any) => s.name === hit.slot)
+        const has = cur?.defaults?.includes(fr.pn)
+        sum.assigned++; out.push({ pn: fr.pn, name: p.name, qty: fr.qty, region: `后面板 · ${hit.slot}`, act: has ? 'update' : 'assign', note: has ? '该槽已装此卡（数量由槽位结构决定）' : `归位到 ${hit.slot} 的 ${hit.type.toUpperCase()} 类型卡` }); continue
+      }
+      if (p.category === '高速存储信号线' && p.major_category === '前面板') {
+        const k = driveKindOf(p)
+        const cur = cablePickedPn(k || '')
+        sum.assigned++; out.push({ pn: fr.pn, name: p.name, qty: fr.qty, region: '前面板 · 线缆', act: cur === fr.pn ? 'update' : 'assign', note: cur === fr.pn ? '已是该盘类默认线缆' : `设为 ${k} 盘类默认线缆` }); continue
+      }
+      if (p.category === '电源模块') {
+        const cur = psuPickedPn()
+        sum.assigned++; out.push({ pn: fr.pn, name: p.name, qty: fr.qty, region: '供电 · PSU', act: cur === fr.pn ? 'update' : 'assign', note: cur === fr.pn ? `已是默认 PSU（×${form.value.psu_bays} 槽）` : `设为默认 PSU（装配数量=电源槽位 ×${form.value.psu_bays}）` }); continue
+      }
+      // 底盘件：整单替换区
+      const cur = existing.get(fr.pn)
+      sum.chassis++
+      if (cur == null) { out.push({ pn: fr.pn, name: p.name, qty: fr.qty, region: fr.group || p.major_category || '底盘件', act: 'new', note: '新增行' }) }
+      else { out.push({ pn: fr.pn, name: p.name, qty: fr.qty, region: fr.group || p.major_category || '底盘件', act: cur !== fr.qty ? 'update' : 'keep', note: cur !== fr.qty ? `数量 ${cur}→${fr.qty}` : '' }) }
+    }
+    // 删除语义：底盘件整单替换——现有行文件里没有的标「将删除」
+    for (const l of commonLines.value) {
+      if (!l.pn) continue
+      const p = partMap[l.pn]
+      const isStruct = p && (rearIndex[l.pn]?.length || cableMap[l.pn] || p.category === '电源模块')
+      if (!seenInFile.has(l.pn) && !isStruct) {
+        out.push({ pn: l.pn, name: p?.name || l.pn, qty: Number(l.qty) || 0, region: p?.major_category || '底盘件', act: 'del', note: '文件中未出现，确认后将删除' })
+      }
+    }
+    importPreview.value = out
+    importSummary.value = sum
+  } catch (e: any) {
+    message.error('解析失败：' + (e.message || '文件格式错误'))
+  } finally { importParsing.value = false }
+}
+function confirmImport() {
+  const p = importFile.value
+  if (!p) return
+  importCommitting.value = true
+  Modal.confirm({
+    title: '确认导入？',
+    content: `底盘件清单将整单替换（含删除红线行）；IO卡/线缆/PSU 按预览归位；KP 件忽略。导入后仍需点「保存」落库。`,
+    okText: '确认导入', cancelText: '再看看',
+    onOk: async () => {
+      try {
+        // 重新解析并直接应用（parseImport 已校验过格式；此处仅写内存态）
+        await applyImport(p)
+        message.success('已应用到编辑视图，点「保存」后落库')
+        importOpen.value = false
+        viewMode.value = 'edit'
+      } finally { importCommitting.value = false }
+    },
+    onCancel: () => { importCommitting.value = false },
+  })
+}
+async function applyImport(file: File) {
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(await file.arrayBuffer())
+  const ws = wb.worksheets[0]
+  const header: string[] = []
+  ws.getRow(1).eachCell((c, col) => { header[col] = String(c.value || '').trim() })
+  const colOf = (...names: string[]) => header.findIndex(h => names.some(n => h === n || h.includes(n)))
+  const pnCol = colOf('料号', 'PN')
+  const qtyCol = colOf('数量')
+  const grpCol = colOf('分组')
+  const partMap: Record<string, PartMaster> = {}
+  for (const p of allParts.value) if (p.pn) partMap[p.pn] = p
+  const rearIndex: Record<string, { slot: string; type: string }[]> = {}
+  for (const [slot, opts] of Object.entries(rearOptions.value)) {
+    for (const o of opts || []) for (const it of o.items || []) {
+      if (it.pn) (rearIndex[it.pn] = rearIndex[it.pn] || []).push({ slot, type: o.option_type })
+    }
+  }
+  type FRow = { pn: string; qty: number; group?: string }
+  const frows: FRow[] = []
+  const seen = new Set<string>()
+  ws.eachRow((row, rn) => {
+    if (rn === 1) return
+    const pn = String(row.getCell(pnCol).value ?? '').trim()
+    if (!pn || seen.has(pn)) return
+    seen.add(pn)
+    const qv = qtyCol ? Number(row.getCell(qtyCol).value) : NaN
+    const gv = grpCol ? String(row.getCell(grpCol).value ?? '').trim() : ''
+    frows.push({ pn, qty: Number.isFinite(qv) && qv > 0 ? Math.round(qv) : 1, group: gv || undefined })
+  })
+  // 1) 底盘件整单替换：重建 commonLines（保序：文件序；major 用文件分组 > 料号库大类）
+  const chassis: Line[] = []
+  const appliedRear = new Set<string>()
+  const appliedCable: Record<string, string> = {}
+  let appliedPsu = ''
+  for (const fr of frows) {
+    const p = partMap[fr.pn]
+    if (!p || isKpPart(p)) continue
+    const hits = rearIndex[fr.pn]
+    if (hits?.length) {
+      const slots = [...new Set(hits.map(h => h.slot))]
+      if (slots.length === 1) {
+        const slot = form.value.rear_slots.find((s: any) => s.name === slots[0])
+        if (slot) { const d = slot.defaults || (slot.defaults = []); if (!d.includes(fr.pn)) d.push(fr.pn); appliedRear.add(fr.pn) }
+        continue
+      }
+      continue  // ambiguous：预览已提示，跳过
+    }
+    if (p.category === '高速存储信号线' && p.major_category === '前面板') {
+      const k = driveKindOf(p); if (k) appliedCable[k] = fr.pn
+      continue
+    }
+    if (p.category === '电源模块') { appliedPsu = fr.pn; continue }
+    chassis.push({ uid: uidSeq++, major: fr.group || p.major_category || '', pn: fr.pn, qty: fr.qty })
+  }
+  commonLines.value = chassis
+  if (Object.keys(appliedCable).length) form.value.configContent.front_cables = { ...form.value.configContent.front_cables, ...appliedCable }
+  if (appliedPsu) form.value.configContent.default_psu_pn = appliedPsu
+}
 </script>
 
 <template>
@@ -379,6 +710,10 @@ onMounted(async () => { await Promise.all([init(), loadOptions(), loadKpGpu()]) 
         <div class="cfg-bar-left">
           <a-button class="btn-ghost" @click="cancel">← 返回列表</a-button>
           <h2 class="cfg-title">{{ editingId ? '编辑基准配置' : '新建基准配置' }}</h2>
+          <div class="view-seg">
+            <button type="button" :class="{ on: viewMode === 'edit' }" @click="viewMode = 'edit'">编辑视图</button>
+            <button type="button" :class="{ on: viewMode === 'list' }" @click="viewMode = 'list'">清单视图</button>
+          </div>
         </div>
         <div class="cfg-bar-right">
           <a-button @click="cancel">取消</a-button>
@@ -388,6 +723,49 @@ onMounted(async () => { await Promise.all([init(), loadOptions(), loadKpGpu()]) 
 
       <div class="two-col">
         <div class="col-left">
+
+          <!-- ===== 清单视图：平铺只读表 + 模板/导入/导出（口径与右栏成本面板一致）===== -->
+          <div v-if="viewMode === 'list'" class="list-view">
+            <div class="lv-ctrl glass">
+              <a-select v-model:value="listGroupFilter" allow-clear placeholder="全部分组" style="width: 150px" size="small">
+                <a-select-option v-for="g in flatGroups" :key="g" :value="g">{{ g }}</a-select-option>
+              </a-select>
+              <a-input-search v-model:value="listSearch" placeholder="搜料号 / 名称" size="small" style="width: 220px" allow-clear />
+              <a-space :size="6" style="margin-left: auto">
+                <a-button size="small" @click="downloadTemplate"><DownloadOutlined /> 模板</a-button>
+                <a-button size="small" @click="importOpen = true"><UploadOutlined /> 导入</a-button>
+                <a-button size="small" :loading="exporting" @click="exportList"><ExportOutlined /> 导出</a-button>
+              </a-space>
+            </div>
+            <div class="lv-table glass">
+              <table>
+                <thead><tr>
+                  <th>分组</th><th>来源</th><th>料号</th><th>名称</th><th>规格</th>
+                  <th class="num">数量</th><th class="num">单价</th><th class="num">小计</th>
+                </tr></thead>
+                <tbody>
+                  <tr v-if="!filteredFlatRows.length"><td colspan="8" class="lv-empty">{{ flatRows.length ? '无匹配行' : '清单为空：先在编辑视图添加底盘件，或导入整机 BOM' }}</td></tr>
+                  <tr v-for="(r, i) in filteredFlatRows" :key="r.pn" :class="{ grouped: i > 0 && filteredFlatRows[i - 1].group !== r.group, fixed: r.fixed }">
+                    <td class="lv-group">{{ r.group }}</td>
+                    <td><span class="lv-src" :title="r.fixed ? '结构选料：数量由机箱结构决定，在编辑视图维护' : ''">{{ r.srcLabel }}<i v-if="r.fixed"> 🔒</i></span></td>
+                    <td class="mono">{{ r.pn }}</td>
+                    <td>{{ r.name }}</td>
+                    <td class="lv-spec">{{ r.spec || '—' }}</td>
+                    <td class="num">×{{ r.qty }}</td>
+                    <td class="num">{{ r.unit != null ? money(r.unit) : '—' }}</td>
+                    <td class="num">{{ r.unit != null ? money(r.unit * r.qty) : '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="lv-foot glass">
+              <span><b class="num">{{ filteredFlatRows.length }}</b> 行</span>
+              <span>合计 <b class="num">{{ money(flatTotal) }}</b><template v-if="flatMissing.length"> <em class="lv-miss">⚠ {{ flatMissing.length }} 项缺价未计入（下限）</em></template></span>
+              <span class="lv-note">导入 = 底盘件整单替换 · IO卡/线缆/PSU 智能归位 · KP 件自动忽略 · 改动需点「保存」落库</span>
+            </div>
+          </div>
+
+          <template v-else>
 
           <!-- ① 基准信息卡：头部可折叠（收起时头部即摘要）；BOM 模板并入首行字段行 -->
           <div class="bc-card">
@@ -645,6 +1023,8 @@ onMounted(async () => { await Promise.all([init(), loadOptions(), loadKpGpu()]) 
             </div>
           </div>
 
+        </template>
+
         </div>
 
         <div class="col-right">
@@ -661,11 +1041,112 @@ onMounted(async () => { await Promise.all([init(), loadOptions(), loadKpGpu()]) 
         </div>
       </div>
     </div>
+
+    <!-- 导入弹窗：选文件 → 解析预览（分区统计 + 行级动作）→ 确认应用内存态 -->
+    <a-modal v-model:open="importOpen" title="导入清单（支持整机 BOM）" :width="860" :footer="null" destroy-on-close>
+      <div class="imp-body">
+        <a-upload :before-upload="onImportFile" :max-count="1" accept=".xlsx">
+          <a-button><UploadOutlined /> 选择 xlsx 文件</a-button>
+        </a-upload>
+        <span v-if="importFile" class="imp-file">{{ importFile.name }}</span>
+        <a-button type="primary" size="small" style="margin-left: auto" :loading="importParsing" :disabled="!importFile" @click="parseImport">解析预览</a-button>
+
+        <div v-if="importPreview.length" class="imp-preview">
+          <div class="imp-warn">⚠ 分区语义：底盘件按文件整单替换（未出现的行删除）；IO卡/线缆/PSU 仅归位文件中出现的料，未提及保持不变；KP 配置件自动忽略。</div>
+          <div class="imp-stats">
+            <div class="imp-stat"><b>{{ importSummary.chassis }}</b><span>底盘件变更</span></div>
+            <div class="imp-stat ok"><b>{{ importSummary.assigned }}</b><span>结构选料归位</span></div>
+            <div class="imp-stat mut"><b>{{ importSummary.ignored }}</b><span>KP 件忽略</span></div>
+            <div class="imp-stat err"><b>{{ importSummary.invalid }}</b><span>无效/需人工</span></div>
+          </div>
+          <div class="lv-table">
+            <table>
+              <thead><tr><th>料号</th><th>名称</th><th class="num">数量</th><th>归属</th><th>动作</th><th>说明</th></tr></thead>
+              <tbody>
+                <tr v-for="(r, i) in importPreview" :key="r.pn + i" :class="{ del: r.act === 'del', dim: r.act === 'ignore' || r.act === 'invalid' }">
+                  <td class="mono">{{ r.pn }}</td>
+                  <td>{{ r.name }}</td>
+                  <td class="num">{{ r.qty }}</td>
+                  <td class="imp-region">{{ r.region }}</td>
+                  <td><span class="imp-tag" :class="r.act">{{ actLabel(r.act) }}</span></td>
+                  <td class="imp-note">{{ r.note || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="imp-actions">
+            <a-button :disabled="importCommitting" @click="importPreview = []">重选</a-button>
+            <a-button type="primary" :loading="importCommitting" @click="confirmImport">确认导入（改内存编辑态，保存后落库）</a-button>
+          </div>
+        </div>
+      </div>
+    </a-modal>
   </div>
 </template>
 
 <style scoped>
 .editor-page { min-height: calc(100vh - var(--cpq-header-clearance, 0px)); }
+
+/* —— 视图切换分段控件（清单视图提案 2026-11）—— */
+.view-seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: var(--cpq-radius-sm);
+  background: var(--cpq-overlay-w8); border: 1px solid var(--cpq-overlay-w10); }
+.view-seg button { border: 0; background: transparent; color: var(--cpq-text-secondary);
+  font-size: 12.5px; padding: 3px 12px; border-radius: calc(var(--cpq-radius-sm) - 2px); cursor: pointer; transition: all .18s; }
+.view-seg button:hover { color: var(--cpq-text-primary); }
+.view-seg button.on { background: var(--cpq-accent-primary); color: #fff; font-weight: 600;
+  box-shadow: 0 1px 4px rgba(22, 119, 255, .35); }
+
+/* —— 清单视图 —— */
+.list-view { display: flex; flex-direction: column; gap: 10px; animation: lvIn .22s ease; }
+@keyframes lvIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.lv-ctrl { display: flex; align-items: center; gap: 8px; padding: 10px 14px; }
+.lv-table { padding: 0; overflow: hidden; }
+.lv-table table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.lv-table th { text-align: left; font-weight: 600; color: var(--cpq-text-secondary);
+  padding: 9px 14px; border-bottom: 1px solid var(--cpq-overlay-w10); white-space: nowrap; }
+.lv-table td { padding: 8px 14px; border-bottom: 1px solid var(--cpq-overlay-w6); vertical-align: top; }
+.lv-table tbody tr:last-child td { border-bottom: 0; }
+.lv-table tbody tr:hover td { background: var(--cpq-overlay-w4); }
+.lv-table .num { text-align: right; white-space: nowrap; }
+.lv-table th.num { text-align: right; }
+.lv-table .mono { font-family: var(--cpq-font-mono, monospace); font-size: 12px; }
+.lv-group { color: var(--cpq-text-secondary); font-weight: 600; white-space: nowrap; }
+.lv-src { color: var(--cpq-text-muted); font-size: 12px; white-space: nowrap; }
+.lv-spec { color: var(--cpq-text-muted); }
+tr.grouped td { border-top: 2px solid var(--cpq-overlay-w15); }
+tr.fixed td { color: var(--cpq-text-secondary); }
+.lv-empty { text-align: center; color: var(--cpq-text-muted); padding: 28px 0 !important; }
+.lv-foot { display: flex; align-items: center; gap: 18px; padding: 9px 14px; font-size: 12.5px;
+  color: var(--cpq-text-secondary); flex-wrap: wrap; }
+.lv-foot b.num { color: var(--cpq-text-primary); }
+.lv-miss { font-style: normal; color: var(--cpq-color-warning); }
+.lv-note { margin-left: auto; color: var(--cpq-text-muted); font-size: 12px; }
+
+/* —— 导入弹窗 —— */
+.imp-body { display: flex; flex-direction: column; gap: 12px; }
+.imp-file { color: var(--cpq-text-secondary); font-size: 12.5px; }
+.imp-preview { display: flex; flex-direction: column; gap: 10px; }
+.imp-warn { font-size: 12.5px; color: var(--cpq-color-warning); background: var(--cpq-warn-surface);
+  border: 1px solid var(--cpq-warn-border); border-radius: var(--cpq-radius-sm); padding: 8px 12px; }
+.imp-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.imp-stat { border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-sm);
+  padding: 8px 12px; background: var(--cpq-overlay-w4); }
+.imp-stat b { display: block; font-size: 18px; color: var(--cpq-accent-primary); }
+.imp-stat span { font-size: 12px; color: var(--cpq-text-muted); }
+.imp-stat.ok b { color: var(--cpq-color-success); }
+.imp-stat.mut b { color: var(--cpq-text-secondary); }
+.imp-stat.err b { color: var(--cpq-accent-danger); }
+.imp-region { color: var(--cpq-text-secondary); font-size: 12px; white-space: nowrap; }
+.imp-note { color: var(--cpq-text-muted); font-size: 12px; }
+.imp-tag { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.imp-tag.new, .imp-tag.assign { background: var(--cpq-overlay-success15); color: var(--cpq-color-success); }
+.imp-tag.update { background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary); }
+.imp-tag.del { background: var(--cpq-overlay-danger15); color: var(--cpq-accent-danger); }
+.imp-tag.ignore, .imp-tag.invalid, .imp-tag.ambiguous, .imp-tag.keep { background: var(--cpq-overlay-w8); color: var(--cpq-text-muted); }
+tr.del td { background: var(--cpq-overlay-danger10); }
+tr.dim td { opacity: .55; }
+.imp-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
 .content-inner { width: 100%; margin: 0 auto; padding: 24px; }
 .cfg-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; margin-bottom: 16px; }
 .cfg-bar-left { display: flex; align-items: center; gap: 16px; }

@@ -4,7 +4,7 @@
  *  STEP(section) 已于 2026-08-09 退役：报价/配置流取料改按 major_category。 */
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { UnorderedListOutlined, MenuFoldOutlined, UploadOutlined, DownloadOutlined, InboxOutlined, DownOutlined, RightOutlined } from '@ant-design/icons-vue'
+import { LeftOutlined, UploadOutlined, DownloadOutlined, InboxOutlined, DownOutlined, RightOutlined } from '@ant-design/icons-vue'
 import { partsApi, type PartMaster, type PartMajorCategory } from '@/api/serverConfig'
 import { specSummary, attrType, attrOptions, attrSchema, ATTR_KEY_OPTIONS, SUGGESTED_KEYS_BY_CATEGORY } from '@/constants/partSpecFields'
 import { useSeriesStore } from '@/stores/series'
@@ -412,10 +412,6 @@ onMounted(load)
   <div class="parts-library">
     <div class="lib-head">
       <div class="lib-head-left">
-        <button class="sidebar-toggle" @click="toggleSidebar" title="折叠/展开分类导航">
-          <UnorderedListOutlined v-if="sidebarCollapsed" />
-          <MenuFoldOutlined v-else />
-        </button>
         <h3>料号库 <span class="lib-count">{{ total }} 项</span></h3>
       </div>
       <a-space wrap>
@@ -442,6 +438,9 @@ onMounted(load)
       </a-space>
     </div>
     <div class="lib-body">
+      <button :class="['sidebar-toggle', { 'collapsed-toggle': sidebarCollapsed }]" :title="sidebarCollapsed ? '展开分类导航' : '收起分类导航'" @click="toggleSidebar">
+        <LeftOutlined />
+      </button>
       <aside :class="['cat-nav', { collapsed: sidebarCollapsed }]">
         <div class="cat-section">
           <div class="cat-section-label"><span>大类</span><button class="tax-add" @click="openAddTax('major')" title="新增大类">+</button></div>
@@ -640,11 +639,32 @@ onMounted(load)
 <style scoped>
 .lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
 .lib-head-left { display: flex; align-items: center; gap: 8px; }
-.sidebar-toggle { width: 32px; height: 32px; border: 1px solid var(--cpq-glass-border); background: transparent; color: var(--cpq-text-secondary); border-radius: var(--cpq-radius-sm); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; }
-.sidebar-toggle:hover { background: var(--cpq-overlay-w10); color: var(--cpq-text-primary); }
+/* 折叠把手：跨在分类导航右缘，不占布局（与商机详情页看板 rail-toggle 同款）；
+   cat-nav 收起时 width:0 + overflow 裁剪会吞掉把手 → 把手挂在 lib-body 上定位。
+   cat-nav 高度短视口下可能超 max-height，故定位基准用 lib-body 第一列高度（= cat-nav 高度）。 */
+.sidebar-toggle {
+  position: absolute;
+  top: 50%;
+  left: 160px;
+  z-index: 4;
+  width: 24px; height: 48px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  border: 1px solid var(--cpq-glass-border);
+  border-left: 0;
+  border-radius: 0 var(--cpq-radius-sm) var(--cpq-radius-sm) 0;
+  background: var(--cpq-bg-card);
+  color: var(--cpq-text-muted); font-size: 12px; cursor: pointer;
+  transform: translateY(-50%);
+  box-shadow: var(--cpq-shadow-sm);
+  transition: left .2s, transform .2s, color .15s, box-shadow .15s;
+}
+.sidebar-toggle:hover { color: var(--cpq-accent-primary); box-shadow: var(--cpq-shadow-md); }
+.sidebar-toggle.collapsed-toggle { transform: translateY(-50%) rotate(180deg); }
+.lib-body:has(.cat-nav.collapsed) .sidebar-toggle { left: 0; }
 .lib-head h3 { margin: 0; font-size: 17px; font-weight: 700; }
 .lib-count { font-size: var(--cpq-font-size-sm); font-weight: 400; color: var(--cpq-text-muted, #6E7582); margin-left: 6px; }
-.lib-body { display: grid; grid-template-columns: 160px 1fr; gap: 14px; transition: grid-template-columns .2s; }
+.lib-body { position: relative; display: grid; grid-template-columns: 160px 1fr; gap: 14px; transition: grid-template-columns .2s; }
 .lib-body:has(.cat-nav.collapsed) { grid-template-columns: 0px 1fr; }
 .cat-nav { display: flex; flex-direction: column; gap: 2px; overflow-x: hidden; overflow-y: auto; max-height: calc(100vh - var(--cpq-sticky-top, 60px) - 24px); position: sticky; top: calc(var(--cpq-sticky-top, 60px) + 12px); align-self: start; padding-right: 2px; transition: width .2s, opacity .2s; }
 .cat-nav::-webkit-scrollbar { width: 5px; }
@@ -709,6 +729,9 @@ onMounted(load)
 /* 响应式适配 */
 @media (max-width: 768px) {
   .lib-body { grid-template-columns: 1fr; }
+  /* 手机端分类导航是 fixed 抽屉，把手贴在屏幕左缘（抽屉滑出时把手指向左） */
+  .sidebar-toggle { position: fixed; left: 0; top: 40%; z-index: 101; border-radius: 0 var(--cpq-radius-sm) var(--cpq-radius-sm) 0; }
+  .lib-body:has(.cat-nav.collapsed) .sidebar-toggle { left: 0; }
   .cat-nav { position: fixed; left: 0; top: 0; bottom: 0; width: 200px; background: var(--cpq-glass-3-bg); backdrop-filter: blur(var(--cpq-glass-blur-3)); -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3)); z-index: 100; box-shadow: 2px 0 12px var(--cpq-shadow-color-strong); transform: translateX(-100%); transition: transform .2s; }
   .cat-nav:not(.collapsed) { transform: translateX(0); }
   .cat-nav.collapsed { transform: translateX(-100%); }

@@ -4,7 +4,7 @@
  *  配件适配 tab 已移除（2026-08-03）：specs.chassis 声明未被任何装配逻辑消费，纯参考视图 → 删除。 */
 import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { UnorderedListOutlined, MenuFoldOutlined } from '@ant-design/icons-vue'
+import { LeftOutlined } from '@ant-design/icons-vue'
 import SeriesManager from '@/components/server-admin/SeriesManager.vue'
 import PartsLibrary from '@/components/server-admin/PartsLibrary.vue'
 import BaseConfigBuilder from '@/components/server-admin/BaseConfigBuilder.vue'
@@ -60,9 +60,13 @@ watch(adminTab, (tab) => {
     <div class="page-inner">
       <div class="admin-layout" ref="adminLayout">
         <aside :class="['admin-rail', { collapsed: railCollapsed }]">
-          <button type="button" class="rail-fold" :title="railCollapsed ? '展开导航' : '收起导航'" @click="toggleRail">
-            <UnorderedListOutlined v-if="railCollapsed" />
-            <MenuFoldOutlined v-else />
+          <button
+            type="button"
+            class="rail-fold"
+            :title="railCollapsed ? '展开导航' : '收起导航'"
+            @click="toggleRail"
+          >
+            <LeftOutlined />
           </button>
           <div class="rail-brand">CPQ · 服务器管理</div>
           <button v-for="t in TABS" :key="t.key" type="button" class="rail-item" :class="{ active: adminTab === t.key }" @click="adminTab = t.key">{{ t.label }}</button>
@@ -86,28 +90,39 @@ watch(adminTab, (tab) => {
 .server-admin-page { padding: 4px 0 80px; }
 .page-inner { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
 .admin-layout { display: flex; }
-/* 左栏配方与解决方案页（StrategyPortal.side）同款 */
+/* 左栏配方与解决方案页（StrategyPortal.side）同款；overflow 放弃 auto：
+   折叠把手绝对定位跨在右缘，不能被裁剪（tab 总高固定 ~350px，短视口极端场景才可能截断） */
 .admin-rail {
   width: 216px; flex-shrink: 0; padding: 14px 12px;
   border-right: 1px solid var(--cpq-glass-border);
   position: sticky; top: var(--cpq-sticky-top, 0px);
   max-height: calc(100vh - var(--cpq-sticky-top, 0px));
-  overflow: auto;
   align-self: flex-start;
   transition: width .2s;
 }
+/* 折叠把手：跨在左栏右缘，不占布局（与商机详情页看板 rail-toggle 同款） */
 .rail-fold {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  z-index: 3;
+  width: 24px; height: 48px;
   display: flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; margin-bottom: 10px;
-  border: 1px solid var(--cpq-glass-border); background: transparent;
-  color: var(--cpq-text-secondary); border-radius: var(--cpq-radius-sm); cursor: pointer;
-  transition: all .15s;
+  padding: 0;
+  border: 1px solid var(--cpq-glass-border);
+  border-left: 0;
+  border-radius: 0 var(--cpq-radius-sm) var(--cpq-radius-sm) 0;
+  background: var(--cpq-bg-card);
+  color: var(--cpq-text-muted); font-size: 12px; cursor: pointer;
+  transform: translateY(-50%);
+  box-shadow: var(--cpq-shadow-sm);
+  transition: left .2s, transform .2s, color .15s, box-shadow .15s;
 }
-.rail-fold:hover { background: var(--cpq-overlay-w6); color: var(--cpq-text-primary); }
-/* 桌面端收起=细条只留按钮；手机端导航是顶部长条，折叠不生效 */
+.rail-fold:hover { color: var(--cpq-accent-primary); box-shadow: var(--cpq-shadow-md); }
+.admin-rail.collapsed .rail-fold { transform: translateY(-50%) rotate(180deg); }
+/* 桌面端收起=细条只留把手；手机端导航是顶部长条，折叠不生效 */
 @media (min-width: 769px) {
   .admin-rail.collapsed { width: 50px; padding: 14px 10px; }
-  .admin-rail.collapsed .rail-fold { margin: 0 auto; }
   .admin-rail.collapsed .rail-brand, .admin-rail.collapsed .rail-item { display: none; }
 }
 .rail-brand { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; letter-spacing: .18em; color: var(--cpq-text-muted); padding: 0 10px 16px; }

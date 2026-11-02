@@ -17,13 +17,46 @@
       <!-- 模型与连接 -->
       <a-tab-pane v-if="showModel" key="api" tab="模型与连接">
         <a-spin :spinning="loading">
+          <!-- 供应商列表：多供应商管理，点「启用」切换 active -->
           <div class="form-section">
-            <h4 class="section-title">LLM API 配置</h4>
+            <h4 class="section-title">
+              大模型供应商
+              <span class="section-hint">可配置多个供应商，同一时刻只有一个生效；切换即时保存</span>
+            </h4>
+            <div class="provider-list">
+              <div v-for="p in providers" :key="p.id" class="provider-card" :class="{ 'provider-active': p.id === activeProviderId }">
+                <div class="provider-head">
+                  <span class="provider-name">{{ p.name || p.id }}</span>
+                  <a-tag v-if="p.id === activeProviderId" color="green">使用中</a-tag>
+                  <a-tag>{{ p.upstream_format === 'anthropic' ? 'Anthropic Messages' : 'OpenAI 兼容' }}</a-tag>
+                  <span class="provider-model">{{ p.model || '未配置模型' }}</span>
+                </div>
+                <div class="provider-endpoint">{{ p.base_url || '（未配置端点）' }}</div>
+                <div class="provider-actions">
+                  <a-button v-if="p.id !== activeProviderId" size="small" type="primary" :loading="switchingId === p.id" @click="handleActivateProvider(p)">启用</a-button>
+                  <a-button size="small" @click="handleEditProvider(p)">编辑</a-button>
+                  <a-button v-if="p.id !== activeProviderId" size="small" danger :disabled="providers.length <= 1" @click="handleRemoveProvider(p)">删除</a-button>
+                </div>
+              </div>
+            </div>
+            <a-button size="small" @click="handleAddProvider">+ 新增供应商</a-button>
+          </div>
+
+          <!-- 供应商编辑器（新增/编辑共用） -->
+          <div v-if="editingProvider" class="form-section">
+            <h4 class="section-title">{{ editingProvider.isNew ? '新增供应商' : `编辑供应商 · ${editingProvider.data.name || editingProvider.data.id}` }}</h4>
+
+            <div class="form-row">
+              <label class="form-label">名称</label>
+              <div class="form-control" style="flex-direction: column; align-items: flex-start;">
+                <a-input v-model:value="editingProvider.data.name" placeholder="如：智谱官方 / CloudPrime" style="width: 280px" />
+              </div>
+            </div>
 
             <div class="form-row">
               <label class="form-label">API 端点</label>
               <div class="form-control" style="flex-direction: column; align-items: flex-start;">
-                <a-input v-model:value="llmConfig.base_url" placeholder="留空使用 .env 配置" style="width: 100%" />
+                <a-input v-model:value="editingProvider.data.base_url" placeholder="留空使用 .env 配置" style="width: 100%" />
                 <span class="form-hint">OpenAI 兼容如 https://dashscope.aliyuncs.com/compatible-mode/v1；Anthropic 如 https://api.z.ai/api/anthropic（贴入端点后自动识别协议）</span>
               </div>
             </div>
@@ -31,19 +64,19 @@
             <div class="form-row">
               <label class="form-label">API Key</label>
               <div class="form-control" style="flex-direction: column; align-items: flex-start;">
-                <a-input-password v-model:value="llmConfig.api_key"
-                  :placeholder="llmConfig.api_key_configured ? '已配置（输入新密钥可更换）' : '留空使用 .env 配置'"
+                <a-input-password v-model:value="editingProvider.data.api_key"
+                  :placeholder="editingProvider.data.api_key_configured ? '已配置（输入新密钥可更换）' : '输入密钥'"
                   style="width: 100%" />
-                <span class="form-hint">{{ llmConfig.api_key_configured
-                  ? '密钥已配置，仅显示尾4位；保持原样=不修改，清空保存=改用 .env'
-                  : '留空则从 .env 的 LLM_API_KEY 读取' }}</span>
+                <span class="form-hint">{{ editingProvider.data.api_key_configured
+                  ? '密钥已配置，仅显示尾4位；保持原样=不修改，清空保存=清除该供应商密钥'
+                  : '该供应商的 API Key' }}</span>
               </div>
             </div>
 
             <div class="form-row">
               <label class="form-label">上游格式</label>
               <div class="form-control" style="flex-direction: column; align-items: flex-start;">
-                <a-select v-model:value="llmConfig.upstream_format" style="width: 280px">
+                <a-select v-model:value="editingProvider.data.upstream_format" style="width: 280px">
                   <a-select-option value="openai">OpenAI Chat Completions</a-select-option>
                   <a-select-option value="anthropic">Anthropic Messages</a-select-option>
                 </a-select>
@@ -56,7 +89,7 @@
               <div class="form-control" style="flex-direction: column; align-items: flex-start; gap: 6px;">
                 <div style="display: flex; gap: 8px; width: 100%; flex-wrap: wrap; align-items: center;">
                   <a-auto-complete
-                    v-model:value="llmConfig.model"
+                    v-model:value="editingProvider.data.model"
                     :options="modelOptions"
                     :filter-option="filterModel"
                     placeholder="模型 id，可点「拉取模型列表」选取"
@@ -66,7 +99,7 @@
                 </div>
                 <span class="form-hint">
                   <template v-if="modelOptions.length">已拉取 {{ modelOptions.length }} 个可用模型，可在下拉中选择或直接输入 id</template>
-                  <template v-else>留空使用 .env 的 LLM_MODEL；点「拉取模型列表」从当前端点获取可选 id</template>
+                  <template v-else>点「拉取模型列表」从当前端点获取可选 id</template>
                 </span>
               </div>
             </div>
@@ -74,15 +107,15 @@
             <div class="form-row">
               <label class="form-label">温度</label>
               <div class="form-control">
-                <a-slider v-model:value="llmConfig.temperature" :min="0" :max="2" :step="0.1" style="width: 160px" />
-                <span class="form-hint">{{ llmConfig.temperature }} · 控制随机性:低更稳准(数据/报告建议 0.3~0.5),高越发散(头脑风暴用)</span>
+                <a-slider v-model:value="editingProvider.data.temperature" :min="0" :max="2" :step="0.1" style="width: 160px" />
+                <span class="form-hint">{{ editingProvider.data.temperature }} · 控制随机性:低更稳准(数据/报告建议 0.3~0.5),高越发散(头脑风暴用)</span>
               </div>
             </div>
 
             <div class="form-row">
               <label class="form-label">最大 Tokens</label>
               <div class="form-control">
-                <a-input-number v-model:value="llmConfig.max_tokens" :min="16000" :max="64000" :step="100" style="width: 140px" />
+                <a-input-number v-model:value="editingProvider.data.max_tokens" :min="16000" :max="64000" :step="100" style="width: 140px" />
                 <span class="form-hint">reasoning(思考)类模型的思考也占此预算,重节点建议 ≥ 16000</span>
               </div>
             </div>
@@ -106,10 +139,10 @@
             </div>
           </div>
 
-          <div class="form-actions">
-            <a-button type="primary" :loading="saving" @click="handleSaveLlm">保存设置</a-button>
+          <div class="form-actions" v-if="editingProvider">
+            <a-button type="primary" :loading="saving" @click="handleSaveProvider">保存供应商</a-button>
             <a-button :loading="testing" @click="handleTestConnection">测试连接</a-button>
-            <a-button @click="handleResetLlm">恢复默认</a-button>
+            <a-button @click="editingProvider = null">取消</a-button>
             <span v-if="testResult" class="test-result" :class="testResult.success ? 'test-ok' : 'test-fail'">
               {{ testResult.success ? '✅' : '❌' }} {{ testResult.message }}
             </span>
@@ -127,8 +160,9 @@
             <div class="form-row">
               <label class="form-label">模型</label>
               <div class="form-control" style="gap: 8px; align-items: center;">
-                <a-tag color="blue">{{ llmConfig.model || '未配置' }}</a-tag>
-                <a-tag>{{ llmConfig.upstream_format === 'anthropic' ? 'Anthropic Messages' : 'OpenAI 兼容' }}</a-tag>
+                <a-tag color="blue">{{ activeProvider?.model || '未配置' }}</a-tag>
+                <a-tag>{{ activeProvider?.upstream_format === 'anthropic' ? 'Anthropic Messages' : 'OpenAI 兼容' }}</a-tag>
+                <a-tag v-if="activeProvider">{{ activeProvider.name || activeProvider.id }}</a-tag>
               </div>
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
@@ -613,14 +647,33 @@ const showAccess = computed(() => section.value === 'all' || section.value === '
 const showThreads = computed(() => section.value === 'all' || section.value === 'threads')
 const showAudit = computed(() => section.value === 'all' || section.value === 'audit')
 
-const DEFAULT_LLM_CONFIG = {
-  base_url: '',
-  api_key: '',
-  api_key_configured: false,
-  model: '',
-  upstream_format: 'openai',
-  temperature: 0.7,
-  max_tokens: 16000,
+// ── 多供应商模型配置 ──
+// llm_config 存 {active_id, providers:[...]}：卡片列表管理多个供应商，同一时刻只有
+// 一个生效；api_key 出站是掩码（****尾4），回传掩码=后端保留库内原值（write-only）。
+interface ProviderItem {
+  id: string
+  name: string
+  base_url: string
+  api_key: string
+  api_key_configured?: boolean
+  model: string
+  upstream_format: string
+  temperature: number
+  max_tokens: number
+  thinking?: { type: string; budget_tokens?: number } | null
+}
+
+function emptyProvider(): ProviderItem {
+  return {
+    id: `provider_${Date.now().toString(36)}`,
+    name: '',
+    base_url: '',
+    api_key: '',
+    model: '',
+    upstream_format: 'openai',
+    temperature: 0.7,
+    max_tokens: 16000,
+  }
 }
 
 const activeTab = ref(section.value === 'access' ? 'access' : section.value === 'threads' ? 'threads' : section.value === 'audit' ? 'audit' : 'public')
@@ -662,29 +715,36 @@ async function onAiManageChange(role: RoleItem, checked: boolean) {
 const publicTab = ref(section.value === 'tools' ? 'tools' : 'api')
 const loading = ref(true)
 const saving = ref(false)
-const llmConfig = ref({ ...DEFAULT_LLM_CONFIG })
+const providers = ref<ProviderItem[]>([])
+const activeProviderId = ref('')
+const activeProvider = computed<ProviderItem | null>(
+  () => providers.value.find((p) => p.id === activeProviderId.value) || null,
+)
+const editingProvider = ref<{ isNew: boolean; data: ProviderItem } | null>(null)
+const switchingId = ref('')
 
-// 思考模式（llm_config.thinking ⇄ 单选控件）：页面是模型行为设置的唯一出口，
-// 不留「只存在 DB 里」的隐藏键
+// 思考模式（editingProvider.data.thinking ⇄ 单选控件）：页面是模型行为设置的唯一出口，
+// 不留「只存在 DB 里」的隐藏键。作用于正在编辑的供应商，随保存入库。
 const thinkingBudget = computed<number>({
   get() {
-    const t = (llmConfig.value as any).thinking
+    const t = editingProvider.value?.data.thinking
     return typeof t?.budget_tokens === 'number' ? t.budget_tokens : 8000
   },
   set(v) {
-    const t = (llmConfig.value as any).thinking
+    const t = editingProvider.value?.data.thinking
     if (t && t.type === 'enabled') t.budget_tokens = v
   },
 })
 const thinkingMode = computed<'default' | 'disabled' | 'enabled'>({
   get() {
-    const t = (llmConfig.value as any).thinking
+    const t = editingProvider.value?.data.thinking
     if (t?.type === 'disabled') return 'disabled'
     if (t?.type === 'enabled') return 'enabled'
     return 'default'
   },
   set(mode) {
-    const cfg = llmConfig.value as any
+    const cfg = editingProvider.value?.data as ProviderItem | undefined
+    if (!cfg) return
     if (mode === 'default') delete cfg.thinking
     else if (mode === 'disabled') cfg.thinking = { type: 'disabled' }
     else cfg.thinking = { type: 'enabled', budget_tokens: thinkingBudget.value }
@@ -754,37 +814,44 @@ async function loadProbeHistory() {
 const filterModel = (input: string, option: { value: string }) =>
   option.value.toLowerCase().includes(input.toLowerCase())
 
-function normalizeLlmConfig() {
-  delete (llmConfig.value as any).system_prompt
-  delete (llmConfig.value as any).enabled
-}
-
 // 上游格式自动识别（2026-09-14）：贴入端点 URL 时按特征自动切协议，杜绝「换供应商忘切
-// 上游格式 → 全链路打错协议 → 静默空回复」。仅在 base_url 变化时触发；存库配置回显时
-// 若已一致则静默。
-watch(() => llmConfig.value.base_url, (url) => {
+// 上游格式 → 全链路打错协议 → 静默空回复」。编辑器里 base_url 变化时触发。
+watch(() => editingProvider.value?.data.base_url, (url) => {
+  const cfg = editingProvider.value?.data
+  if (!cfg) return
   const u = (url || '').toLowerCase()
   let detected: 'openai' | 'anthropic' | null = null
   if (u.includes('/anthropic')) detected = 'anthropic'
   else if (u.includes('/compatible-mode') || u.includes('/paas/v') || u.includes('/v1')) detected = 'openai'
-  if (detected && detected !== llmConfig.value.upstream_format) {
-    llmConfig.value.upstream_format = detected
+  if (detected && detected !== cfg.upstream_format) {
+    cfg.upstream_format = detected
     message.info(`已按端点特征自动切换上游格式：${detected === 'anthropic' ? 'Anthropic Messages' : 'OpenAI Chat Completions'}`)
   }
 })
 
 // 模型/协议变化 → 生效能力徽标实时刷新（读的是后端 get_model_capabilities，单一事实源）
-watch([() => llmConfig.value.model, () => llmConfig.value.upstream_format], () => {
-  if (llmConfig.value.model) loadCapabilities()
+watch([() => editingProvider.value?.data.model, () => editingProvider.value?.data.upstream_format], () => {
+  if (editingProvider.value?.data.model) loadCapabilities()
 })
+
+// ── 供应商 CRUD（多供应商管理）──
+function normalizeProvider(p: ProviderItem) {
+  delete (p as any).system_prompt
+  delete (p as any).enabled
+}
 
 async function loadConfig() {
   loading.value = true
   try {
     const llmRes = await axios.get('/api/system-config/llm_config/value')
-    if (llmRes.data.value) {
-      llmConfig.value = { ...DEFAULT_LLM_CONFIG, ...llmRes.data.value }
-      normalizeLlmConfig()
+    const v = llmRes.data?.value
+    if (v && Array.isArray(v.providers)) {
+      providers.value = v.providers.map((p: any) => ({ ...emptyProvider(), ...p }))
+      activeProviderId.value = v.active_id || providers.value[0]?.id || ''
+    } else if (v && v.base_url !== undefined) {
+      // 历史单层形状（理论上后端已归一化，兜底）：迁移为单供应商视图
+      providers.value = [{ ...emptyProvider(), ...v, id: 'default', name: '默认' }]
+      activeProviderId.value = 'default'
     }
   } catch (err) {
     console.error('加载 AI 设置失败:', err)
@@ -794,35 +861,101 @@ async function loadConfig() {
   }
 }
 
-async function handleSaveLlm() {
+// PUT 全量 providers（后端按 id 对位保留掩码密钥）
+async function putProviders(value: { active_id: string; providers: ProviderItem[] }) {
+  await axios.put('/api/system-config/llm_config', { value, type: 'json' })
+}
+
+// 启用切换：立即落库，active_id 改指向目标供应商
+async function handleActivateProvider(p: ProviderItem) {
+  switchingId.value = p.id
+  try {
+    await putProviders({ active_id: p.id, providers: providers.value })
+    activeProviderId.value = p.id
+    message.success(`已启用「${p.name || p.id}」，后续 LLM 调用走该供应商`)
+    loadCapabilities()
+  } catch (err) {
+    console.error('启用供应商失败:', err)
+    message.error('启用失败')
+  } finally {
+    switchingId.value = ''
+  }
+}
+
+function handleEditProvider(p: ProviderItem) {
+  modelOptions.value = []
+  testResult.value = null
+  editingProvider.value = { isNew: false, data: { ...p } }
+}
+
+function handleAddProvider() {
+  modelOptions.value = []
+  testResult.value = null
+  editingProvider.value = { isNew: true, data: emptyProvider() }
+}
+
+async function handleRemoveProvider(p: ProviderItem) {
+  if (providers.value.length <= 1) {
+    message.warning('至少保留一个供应商')
+    return
+  }
+  if (p.id === activeProviderId.value) {
+    message.warning('使用中的供应商不能删除，请先启用其他供应商')
+    return
+  }
+  try {
+    await putProviders({ active_id: activeProviderId.value, providers: providers.value.filter((x) => x.id !== p.id) })
+    providers.value = providers.value.filter((x) => x.id !== p.id)
+    if (editingProvider.value?.data.id === p.id) editingProvider.value = null
+    message.success(`已删除「${p.name || p.id}」`)
+  } catch (err) {
+    console.error('删除供应商失败:', err)
+    message.error('删除失败')
+  }
+}
+
+// 保存编辑器：新增=追加进列表并启用；编辑=按 id 替换；掩码密钥原样回传（后端保留原值）
+async function handleSaveProvider() {
+  const data = editingProvider.value?.data
+  if (!data) return
+  if (!data.name.trim()) {
+    message.warning('请填写供应商名称')
+    return
+  }
+  if (!data.model.trim()) {
+    message.warning('请填写模型 id')
+    return
+  }
+  normalizeProvider(data)
   saving.value = true
   try {
-    normalizeLlmConfig()
-    await axios.put('/api/system-config/llm_config', {
-      value: llmConfig.value,
-      type: 'json',
-    })
+    let next: ProviderItem[]
+    let nextActive = activeProviderId.value
+    if (editingProvider.value?.isNew) {
+      next = [...providers.value, { ...data }]
+      nextActive = data.id  // 新增即启用，避免「配完还要再点一次启用」
+    } else {
+      next = providers.value.map((p) => (p.id === data.id ? { ...data } : p))
+    }
+    await putProviders({ active_id: nextActive, providers: next })
+    providers.value = next
+    activeProviderId.value = nextActive
+    editingProvider.value = null
     message.success('保存成功')
+    loadCapabilities()
   } catch (err) {
-    console.error('保存失败:', err)
+    console.error('保存供应商失败:', err)
     message.error('保存失败')
   } finally {
     saving.value = false
   }
 }
 
-function handleResetLlm() {
-  llmConfig.value = { ...DEFAULT_LLM_CONFIG }
-  modelOptions.value = []
-  testResult.value = null
-  message.info('已恢复默认，请点击保存生效')
-}
-
 async function loadCapabilities() {
   capabilityLoading.value = true
   try {
     const { data } = await axios.get('/api/system-config/llm_config/capabilities', {
-      params: { model: llmConfig.value.model || undefined },
+      params: { model: activeProvider.value?.model || undefined },
     })
     if (data.success) {
       capabilityBuiltin.value = data.builtin || null
@@ -840,18 +973,24 @@ async function loadCapabilities() {
 }
 
 async function handleProbeCapabilities() {
-  if (!llmConfig.value.api_key || !llmConfig.value.model) {
-    message.warning('请先填写 API Key 和模型')
+  const cfg = editingProvider.value?.data
+  if (!cfg?.api_key && !cfg?.api_key_configured) {
+    message.warning('请先填写 API Key')
+    return
+  }
+  if (!cfg.model) {
+    message.warning('请先填写模型')
     return
   }
   capabilityProbing.value = true
   capabilityProbeResult.value = null
   try {
     const { data } = await axios.post('/api/system-config/llm_config/probe', {
-      base_url: llmConfig.value.base_url,
-      api_key: llmConfig.value.api_key,
-      model: llmConfig.value.model,
-      upstream_format: llmConfig.value.upstream_format,
+      provider_id: cfg.id,
+      base_url: cfg.base_url,
+      api_key: cfg.api_key,
+      model: cfg.model,
+      upstream_format: cfg.upstream_format,
     })
     capabilityProbeResult.value = data
     if (data.success) {
@@ -870,9 +1009,10 @@ async function handleProbeCapabilities() {
   }
 }
 
-// 拉取当前端点（base_url + api_key）下的可用模型 id 列表，填入下拉
+// 拉取当前编辑供应商端点（base_url + api_key）下的可用模型 id 列表，填入下拉
 async function handleFetchModels() {
-  if (!llmConfig.value.api_key) {
+  const cfg = editingProvider.value?.data
+  if (!cfg?.api_key && !cfg?.api_key_configured) {
     message.warning('请先填写 API Key')
     return
   }
@@ -880,10 +1020,11 @@ async function handleFetchModels() {
   testResult.value = null
   try {
     const { data } = await axios.post('/api/system-config/llm_config/models', {
-      base_url: llmConfig.value.base_url,
-      api_key: llmConfig.value.api_key,
-      model: llmConfig.value.model,
-      upstream_format: llmConfig.value.upstream_format,
+      provider_id: cfg.id,
+      base_url: cfg.base_url,
+      api_key: cfg.api_key,
+      model: cfg.model,
+      upstream_format: cfg.upstream_format,
     })
     if (data.success) {
       modelOptions.value = data.models.map((id: string) => ({ value: id, label: id }))
@@ -900,15 +1041,18 @@ async function handleFetchModels() {
   }
 }
 
-// 用表单当前值（含未保存）实测一次 chat，展示真实成功/失败与错误
+// 用编辑器当前值（含未保存）实测一次 chat，展示真实成功/失败与错误
 async function handleTestConnection() {
+  const cfg = editingProvider.value?.data
+  if (!cfg) return
   testing.value = true
   try {
     const { data } = await axios.post('/api/system-config/llm_config/test', {
-      base_url: llmConfig.value.base_url,
-      api_key: llmConfig.value.api_key,
-      model: llmConfig.value.model,
-      upstream_format: llmConfig.value.upstream_format,
+      provider_id: cfg.id,
+      base_url: cfg.base_url,
+      api_key: cfg.api_key,
+      model: cfg.model,
+      upstream_format: cfg.upstream_format,
     })
     testResult.value = { success: data.success, message: data.message }
     if (data.success) message.success(data.message)
@@ -1454,6 +1598,29 @@ onMounted(loadAccessRoles)
 .test-result.test-fail {
   color: var(--cpq-error, #ff4d4f);
 }
+
+/* ── 多供应商卡片列表 ── */
+.provider-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.provider-card {
+  border: 1px solid var(--cpq-border-secondary);
+  border-radius: var(--cpq-radius-md);
+  padding: 10px 14px;
+}
+.provider-card.provider-active {
+  border-color: var(--cpq-success, #52c41a);
+  background: color-mix(in srgb, var(--cpq-success, #52c41a) 6%, transparent);
+}
+.provider-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.provider-name { font-weight: 600; font-size: 14px; }
+.provider-model { color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); }
+.provider-endpoint {
+  margin-top: 4px;
+  color: var(--cpq-text-muted);
+  font-size: var(--cpq-font-size-sm);
+  font-family: var(--cpq-font-mono, monospace);
+  word-break: break-all;
+}
+.provider-actions { display: flex; gap: 8px; margin-top: 8px; }
 
 .threads-wrap { width: 100%; }
 .threads-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

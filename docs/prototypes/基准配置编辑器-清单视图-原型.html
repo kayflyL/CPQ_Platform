@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>原型 · 基准配置编辑器 清单视图切换</title>
+<style>
+/* ===== CPQ tokens（暗色，与截图一致）===== */
+:root {
+  --cpq-accent-primary: #1677FF;
+  --cpq-accent-danger: #FF6B6B;
+  --cpq-bg-primary: #08090B;
+  --cpq-bg-card: #101217;
+  --cpq-bg-selected: rgba(22, 119, 255, 0.10);
+  --cpq-border-primary: rgba(255, 255, 255, 0.08);
+  --cpq-text-primary: #E8ECEF;
+  --cpq-text-secondary: #9BA1AA;
+  --cpq-text-muted: #6E7582;
+  --cpq-overlay-a4: rgba(22, 119, 255, 0.04);
+  --cpq-overlay-a8: rgba(22, 119, 255, 0.08);
+  --cpq-overlay-a15: rgba(22, 119, 255, 0.15);
+  --cpq-overlay-w4: rgba(255, 255, 255, 0.06);
+  --cpq-overlay-w8: rgba(255, 255, 255, 0.10);
+  --cpq-overlay-w10: rgba(255, 255, 255, 0.12);
+  --cpq-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.40);
+  --cpq-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.50);
+  --cpq-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.60);
+  --cpq-radius-sm: 4px;
+  --cpq-radius-md: 6px;
+  --cpq-radius-lg: 8px;
+  --cpq-radius-xl: 12px;
+  --cpq-font-size-sm: 12px;
+  --cpq-font-size-base: 14px;
+  --cpq-font-size-lg: 16px;
+  --cpq-accent-gradient: linear-gradient(135deg, #1677FF 0%, #5B8FF9 100%);
+  --cpq-glass-card-bg: rgba(255, 255, 255, 0.02);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #050608;
+  color: var(--cpq-text-primary);
+  font-size: var(--cpq-font-size-base);
+  min-height: 100vh;
+}
+button { font-family: inherit; }
+
+.editor-page { min-height: 100vh; }
+.content-inner { max-width: 1440px; margin: 0 auto; padding: 20px 24px 60px; }
+
+/* ===== 顶栏 ===== */
+.cfg-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; margin-bottom: 16px;
+  background: var(--cpq-glass-card-bg); backdrop-filter: blur(16px); border: 1px solid var(--cpq-overlay-a15); box-shadow: var(--cpq-shadow-md); border-radius: var(--cpq-radius-lg); }
+.cfg-bar-left { display: flex; align-items: center; gap: 16px; }
+.cfg-title { margin: 0; font-size: var(--cpq-font-size-lg); }
+.cfg-bar-right { display: flex; gap: 8px; align-items: center; }
+.btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 14px; border-radius: var(--cpq-radius-md);
+  border: 1px solid var(--cpq-overlay-w10); background: transparent; color: var(--cpq-text-secondary);
+  font-size: 13px; cursor: pointer; transition: all .15s; }
+.btn:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
+.btn.primary { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); color: #fff; }
+.btn.primary:hover { background: #4096ff; }
+
+/* ===== 双栏 ===== */
+.two-col { display: flex; gap: 16px; align-items: flex-start; }
+.col-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.col-right { flex: 0 0 400px; position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+
+/* ===== 视图切换（cfg-bar 内 seg2）===== */
+.seg2 { display: inline-flex; gap: 2px; padding: 3px; background: var(--cpq-overlay-a8); border-radius: var(--cpq-radius-sm); }
+.seg2-item { padding: 4px 14px; border-radius: var(--cpq-radius-sm); font-size: 12.5px; cursor: pointer;
+  color: var(--cpq-text-secondary); transition: all 0.15s; user-select: none; white-space: nowrap; }
+.seg2-item:hover { color: var(--cpq-accent-primary); }
+.seg2-item.active { background: var(--cpq-bg-card); color: var(--cpq-accent-primary); font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+
+/* ===== 左栏：解剖分组卡片（现状复刻）===== */
+.anatomy-card { border-radius: var(--cpq-radius-lg); overflow: hidden;
+  background: var(--cpq-glass-card-bg); backdrop-filter: blur(16px); border: 1px solid var(--cpq-overlay-w10); }
+.anatomy-head { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+  border-bottom: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w4); }
+.anatomy-num { width: 26px; height: 26px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a15);
+  color: var(--cpq-accent-primary); display: flex; align-items: center; justify-content: center;
+  font-size: var(--cpq-font-size-sm); font-weight: 600; flex-shrink: 0; }
+.anatomy-title { font-size: var(--cpq-font-size-base); font-weight: 600; margin: 0; color: var(--cpq-text-primary); flex-shrink: 0; }
+.anatomy-sum { flex: 1; min-width: 0; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-chevron { margin-left: auto; flex-shrink: 0; width: 26px; height: 26px; border: none; border-radius: var(--cpq-radius-sm);
+  background: var(--cpq-overlay-a15); color: var(--cpq-text-muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: var(--cpq-font-size-sm);
+  transition: transform .25s ease, background .2s, color .2s; }
+.card-chevron.collapsed { transform: rotate(180deg); }
+.card-collapse { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .25s ease; overflow: hidden; }
+.card-collapse.collapsed { grid-template-rows: 0fr; }
+.card-collapse-inner { overflow: hidden; min-height: 0; }
+.anatomy-body { padding: 12px 16px; font-size: 12.5px; color: var(--cpq-text-muted); }
+.line-row { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--cpq-border-primary); }
+.line-row:last-child { border-bottom: none; }
+.line-row .pn { font-family: monospace; font-size: 11px; color: var(--cpq-text-muted); flex-shrink: 0; width: 130px; }
+.line-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cpq-text-secondary); }
+.line-row .qty { color: var(--cpq-text-secondary); flex-shrink: 0; }
+.line-row .pr { color: var(--cpq-accent-primary); font-weight: 600; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.anatomy-hint-in { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); margin-bottom: 8px; }
+.add-line { margin-top: 8px; padding: 4px 12px; border: 1px dashed var(--cpq-overlay-w10); background: none;
+  color: var(--cpq-text-muted); border-radius: var(--cpq-radius-sm); font-size: 12px; cursor: pointer; }
+.group-label-row { display: flex; align-items: center; justify-content: space-between; margin: 4px 2px -2px; }
+.group-label { font-size: var(--cpq-font-size-sm); font-weight: 600; letter-spacing: .5px; color: var(--cpq-text-muted); }
+
+/* ===== 清单视图（新提案）===== */
+.flat-wrap { border-radius: var(--cpq-radius-lg); background: var(--cpq-glass-card-bg); backdrop-filter: blur(16px);
+  border: 1px solid var(--cpq-overlay-w10); overflow: hidden; }
+.flat-toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--cpq-overlay-w10);
+  background: var(--cpq-overlay-w4); flex-wrap: wrap; }
+.flat-toolbar select, .flat-toolbar input { padding: 4px 10px; border-radius: var(--cpq-radius-md);
+  border: 1px solid var(--cpq-overlay-w10); background: var(--cpq-bg-card); color: var(--cpq-text-primary); font-size: 12.5px; }
+.flat-toolbar input { width: 200px; }
+.flat-toolbar .spacer { flex: 1; }
+.sa-table-wrap { overflow-x: auto; max-height: calc(100vh - 260px); overflow-y: auto; }
+table.sa-table { width: 100%; border-collapse: collapse; }
+.sa-table th { position: sticky; top: 0; z-index: 1; text-align: left; padding: 9px 12px; white-space: nowrap;
+  color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); font-weight: 600;
+  background: #14161c; border-bottom: 1px solid var(--cpq-overlay-w10); }
+.sa-table td { padding: 8px 12px; font-size: 13px; border-bottom: 1px solid var(--cpq-border-primary); white-space: nowrap; }
+.sa-table tbody tr:hover td { background: var(--cpq-overlay-a4); }
+.sa-table tbody tr:last-child td { border-bottom: none; }
+.cell-num { font-variant-numeric: tabular-nums; color: var(--cpq-text-secondary); }
+.cell-price { font-weight: 600; color: var(--cpq-accent-primary); font-variant-numeric: tabular-nums; }
+.pn-mono { font-family: monospace; font-size: 11.5px; color: var(--cpq-text-muted); }
+tr.group-start td { border-top: 1px solid var(--cpq-overlay-w10); }
+.gname { font-weight: 600; }
+.chip { display: inline-block; padding: 1px 8px; font-size: 11px; border-radius: 999px;
+  background: var(--cpq-bg-selected); color: var(--cpq-accent-primary); }
+.chip.muted { background: var(--cpq-overlay-w8); color: var(--cpq-text-muted); }
+.chip.warn { background: rgba(250,173,20,.15); color: #d48806; }
+.summary-bar { display: flex; align-items: center; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--cpq-overlay-w10);
+  font-size: 12.5px; color: var(--cpq-text-muted); background: var(--cpq-overlay-w4); flex-wrap: wrap; }
+.summary-bar b { color: var(--cpq-text-primary); font-variant-numeric: tabular-nums; }
+.miss-note { color: #d48806; }
+
+/* ===== 右栏成本面板（现状简化复刻）===== */
+.ca-card { padding: 14px 16px; border-radius: var(--cpq-radius-lg);
+  background: var(--cpq-glass-card-bg); backdrop-filter: blur(16px);
+  border: 1px solid var(--cpq-overlay-a15); box-shadow: var(--cpq-shadow-md); }
+.ca-card.hero { border-color: rgba(22,119,255,.45); }
+.ca-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.ca-tag { font-size: var(--cpq-font-size-sm); font-weight: 600; color: var(--cpq-text-primary);
+  padding: 2px 9px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a15); }
+.ca-sub { font-size: 11px; color: var(--cpq-text-muted); }
+.ca-total { font-size: 30px; font-weight: 750;
+  background: var(--cpq-accent-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.ca-cur { font-size: 15px; color: var(--cpq-text-secondary); font-weight: 600; margin-right: 4px; }
+.ca-badge { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 2px; margin-left: 6px; }
+.ca-badge.ok { color: #1a7f5e; background: rgba(82,201,160,.15); border: 1px solid rgba(82,201,160,.4); }
+.ca-strip { display: flex; height: 10px; border-radius: 2px; overflow: hidden; margin: 10px 0 8px; }
+.ca-strip i { display: block; height: 100%; }
+.ca-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 10.5px; color: var(--cpq-text-secondary); }
+.ca-legend .dot { display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 4px; }
+.ca-subm { display: flex; gap: 8px; margin-top: 11px; }
+.ca-subm > div { flex: 1; background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-sm); padding: 6px 9px; }
+.ca-subm .lab { font-size: 10.5px; color: var(--cpq-text-muted); }
+.ca-subm .val { font-size: var(--cpq-font-size-base); font-weight: 650; margin-top: 1px; }
+.ca-note { margin-top: 9px; font-size: 10.5px; color: var(--cpq-text-muted); line-height: 1.5; }
+.grp { display: grid; grid-template-columns: 20px 66px 1fr 62px 42px; gap: 0 8px; align-items: center; padding: 3.5px 0; }
+.grp-no { width: 17px; height: 17px; border-radius: 2px; background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary);
+  display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 650; }
+.grp-name { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grp-track { height: 8px; background: var(--cpq-overlay-w10); border-radius: 2px; overflow: hidden; }
+.grp-bar { height: 100%; background: var(--cpq-accent-gradient); }
+.grp-amt { font-size: var(--cpq-font-size-sm); font-weight: 650; text-align: right; }
+.grp-pct { font-size: 10.5px; color: var(--cpq-text-muted); text-align: right; }
+
+/* ===== 视图切换动画 ===== */
+.view-panel { animation: fadeSlide .22s ease; }
+@keyframes fadeSlide { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 900px) {
+  .two-col { flex-direction: column; }
+  .col-right { position: static; max-height: none; width: 100%; flex: 1; }
+}
+</style>
+</head>
+<body>
+<div class="editor-page">
+  <div class="content-inner">
+    <!-- 顶栏：新增 编辑视图 / 清单视图 切换 -->
+    <div class="cfg-bar">
+      <div class="cfg-bar-left">
+        <button class="btn">← 返回列表</button>
+        <h2 class="cfg-title">编辑基准配置</h2>
+      </div>
+      <div class="cfg-bar-right">
+        <div class="seg2">
+          <div class="seg2-item active" id="segEdit" onclick="switchView('edit')">编辑视图</div>
+          <div class="seg2-item" id="segList" onclick="switchView('list')">清单视图</div>
+        </div>
+        <button class="btn">取消</button>
+        <button class="btn primary">保存</button>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="col-left">
+        <!-- ====== 视图 A：编辑视图（现状：解剖分组折叠卡）====== -->
+        <div id="viewEdit" class="view-panel">
+          <div class="group-label-row" style="margin-bottom:8px;">
+            <div class="group-label">整机配置 · 按解剖分组</div>
+            <span style="font-size:11px;color:var(--cpq-text-muted);">全部展开 / 全部收起</span>
+          </div>
+          <div id="anatomyList"></div>
+        </div>
+
+        <!-- ====== 视图 B：清单视图（新提案）====== -->
+        <div id="viewList" class="view-panel" style="display:none;">
+          <div class="flat-wrap">
+            <div class="flat-toolbar">
+              <select id="grpFilter" onchange="renderFlat()">
+                <option value="all">全部分组</option>
+              </select>
+              <input id="kw" placeholder="搜料号 / 名称" oninput="renderFlat()">
+              <span class="spacer"></span>
+              <button class="btn" onclick="alert('原型：下载 xlsx 模板')">模板</button>
+              <button class="btn" onclick="openImport()">⬆ 导入</button>
+              <button class="btn" onclick="alert('原型：导出当前清单 xlsx')">⬇ 导出</button>
+            </div>
+            <div class="sa-table-wrap">
+              <table class="sa-table">
+                <thead><tr>
+                  <th>分组</th><th>来源</th><th>料号</th><th>名称</th><th>规格</th><th>数量</th><th>单价</th><th>小计</th>
+                </tr></thead>
+                <tbody id="flatBody"></tbody>
+              </table>
+            </div>
+            <div class="summary-bar">
+              <span>共 <b id="sumRows">0</b> 行</span>
+              <span>合计 <b id="sumPrice">¥0</b></span>
+              <span id="missNote" class="miss-note"></span>
+              <span style="margin-left:auto;">🔒 结构选料（IO卡/线缆/PSU）数量由机箱结构决定 · 导入支持整机 BOM：底盘件整单替换 · 结构选料智能归位 · KP 件自动忽略</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 右栏：成本面板（两个视图都常驻）====== -->
+      <div class="col-right">
+        <section class="ca-card hero">
+          <header class="ca-head"><span class="ca-tag">成本合计</span><span class="ca-sub">裸机口径 · 编辑实时</span></header>
+          <div><span class="ca-cur">¥</span><span class="ca-total" id="caTotal">17,757</span><span class="ca-badge warn">下限</span></div>
+          <div class="ca-strip">
+            <i style="width:53.2%;background:linear-gradient(90deg,#1677FF,#4096ff)"></i>
+            <i style="width:42.1%;background:#5B8FF9"></i>
+            <i style="width:3.5%;background:#85B0FA"></i>
+            <i style="width:1.3%;background:#B9CFFB"></i>
+          </div>
+          <div class="ca-legend">
+            <span><i class="dot" style="background:linear-gradient(90deg,#1677FF,#4096ff)"></i>底盘件 <b>¥9,440</b></span>
+            <span><i class="dot" style="background:#5B8FF9"></i>PSU×槽位 <b>¥7,470</b></span>
+            <span><i class="dot" style="background:#85B0FA"></i>后板默认卡 <b>¥620</b></span>
+            <span><i class="dot" style="background:#B9CFFB"></i>线缆 <b>¥227</b></span>
+          </div>
+          <div class="ca-subm">
+            <div><div class="lab">料件数（含默认装配）</div><div class="val">12 件</div></div>
+            <div><div class="lab">估算功耗</div><div class="val">≈ 0 W</div></div>
+          </div>
+          <div class="ca-miss" style="margin-top:9px;font-size:11px;color:#d48806;">⚠ <b>1</b> 项缺价未计入合计：散热器 SC-SILVER</div>
+          <div class="ca-note">计价基准：料号库单价（实时查询，非快照）。CPU/内存/硬盘盘体/GPU/网卡为 KP 配置件，不在基准成本内。</div>
+        </section>
+        <section class="ca-card">
+          <header class="ca-head"><span class="ca-tag">成本构成</span><span class="ca-sub">按整机解剖分组</span></header>
+          <div id="grpBars"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 导入弹窗 -->
+<div id="mask" style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:1000;">
+  <div style="width:820px;max-width:calc(100vw - 48px);max-height:82vh;overflow:auto;background:#14161c;border:1px solid var(--cpq-overlay-w10);border-radius:12px;box-shadow:var(--cpq-shadow-lg);">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px 10px;">
+      <h4 style="font-size:16px;">导入配件清单 · ZS25V2-P</h4>
+      <button class="btn" onclick="closeImport()" style="border:none;">✕</button>
+    </div>
+    <div style="padding:0 20px 20px;">
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <div class="step-dot on" id="d1" style="flex:1;text-align:center;padding:6px 0;font-size:12px;background:var(--cpq-overlay-w8);color:var(--cpq-text-muted);border-radius:6px;">① 选文件</div>
+        <div class="step-dot" id="d2" style="flex:1;text-align:center;padding:6px 0;font-size:12px;background:var(--cpq-overlay-w8);color:var(--cpq-text-muted);border-radius:6px;">② 预览确认</div>
+        <div class="step-dot" id="d3" style="flex:1;text-align:center;padding:6px 0;font-size:12px;background:var(--cpq-overlay-w8);color:var(--cpq-text-muted);border-radius:6px;">③ 结果</div>
+        <button class="btn" onclick="goStep(2)">模拟解析</button>
+      </div>
+      <div id="s1">
+        <div style="border:1.5px dashed var(--cpq-overlay-w10);border-radius:8px;padding:34px;text-align:center;color:var(--cpq-text-muted);font-size:13px;margin-bottom:12px;">
+          点击或拖拽文件到此处上传 <b style="color:var(--cpq-accent-primary);cursor:pointer;">配件清单.xlsx</b><br>
+          <span style="font-size:12px;">列：料号 | 数量。支持整机 BOM：电源/IO卡/线缆自动归位，KP 配置件自动忽略</span>
+        </div>
+        <div style="display:flex;justify-content:flex-end;"><button class="btn" onclick="closeImport()">取消</button></div>
+      </div>
+      <div id="s2" style="display:none;">
+        <div style="display:flex;gap:10px;margin-bottom:12px;">
+          <div style="flex:1;border:1px solid var(--cpq-overlay-w10);border-radius:6px;padding:10px 14px;background:var(--cpq-overlay-w4);"><div style="font-size:20px;font-weight:700;color:var(--cpq-accent-primary);">8</div><div style="font-size:12px;color:var(--cpq-text-muted);">底盘件（新增1·更新1·删除2）</div></div>
+          <div style="flex:1;border:1px solid var(--cpq-overlay-w10);border-radius:6px;padding:10px 14px;background:var(--cpq-overlay-w4);"><div style="font-size:20px;font-weight:700;color:#52C9A0;">3</div><div style="font-size:12px;color:var(--cpq-text-muted);">结构选料归位（PSU·IO卡·线缆）</div></div>
+          <div style="flex:1;border:1px solid var(--cpq-overlay-w10);border-radius:6px;padding:10px 14px;background:var(--cpq-overlay-w4);"><div style="font-size:20px;font-weight:700;color:var(--cpq-text-muted);">2</div><div style="font-size:12px;color:var(--cpq-text-muted);">KP 配置件自动忽略</div></div>
+          <div style="flex:1;border:1px solid var(--cpq-overlay-w10);border-radius:6px;padding:10px 14px;background:var(--cpq-overlay-w4);"><div style="font-size:20px;font-weight:700;color:var(--cpq-accent-danger);">1</div><div style="font-size:12px;color:var(--cpq-text-muted);">无效行</div></div>
+        </div>
+        <div style="background:rgba(250,173,20,.10);border:1px solid rgba(250,173,20,.30);border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:12.5px;color:#d48806;">
+          ⚠ 分区语义：底盘件按文件整单替换（未出现的行删除，红字标出）；IO卡/电源/线缆仅归位文件中出现的料，未提及的保持不变；KP 配置件不属于基准配置，自动忽略。
+        </div>
+        <div style="max-height:280px;overflow:auto;border:1px solid var(--cpq-overlay-w10);border-radius:6px;">
+          <table class="sa-table">
+            <thead><tr><th>料号</th><th>名称</th><th>数量</th><th>归属</th><th>动作</th><th>说明</th></tr></thead>
+            <tbody id="prevBody"></tbody>
+          </table>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+          <button class="btn" onclick="goStep(1)">上一步</button>
+          <button class="btn primary" onclick="goStep(3)">确认导入（替换清单）</button>
+        </div>
+      </div>
+      <div id="s3" style="display:none;text-align:center;padding:30px 0 12px;">
+        <div style="font-size:38px;">✅</div>
+        <div style="font-size:15px;font-weight:600;margin-top:8px;">导入完成</div>
+        <div style="font-size:12.5px;color:var(--cpq-text-muted);margin-top:4px;">底盘件：新增1 · 更新1 · 删除2　｜　归位：PSU 1 · IO卡 1 · 线缆 1　｜　忽略 KP 件 2 · 无效 1</div>
+        <div style="display:flex;justify-content:flex-end;margin-top:16px;"><button class="btn primary" onclick="closeImport()">完成</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== 假数据（截图 ZS25V2-P 的量级）=====
+const GROUPS = [
+  { n: 1, title: '机箱主体', hint: '机箱 / 辅料 / 线缆固定件' },
+  { n: 2, title: '前面板', hint: '硬盘背板连线（默认线缆）' },
+  { n: 3, title: '后面板', hint: 'PCIe IO + OCP 网络' },
+  { n: 4, title: '主板', hint: '主板 / 托盘 / BMC / 后IO板' },
+  { n: 5, title: '处理器', hint: 'CPU 颗数 / TDP 上限 + 散热器固定件' },
+  { n: 6, title: '内存', hint: '条数上限 / 通道数 / 标准速率' },
+  { n: 7, title: '供电', hint: '电源槽位 / PSU 档位 / 默认型号' },
+  { n: 8, title: '硬盘', hint: '硬盘背板（固定件）' },
+  { n: 9, title: '扩展', hint: 'GPU 槽上限 / 架构 + Riser 固定件' },
+  { n: 10, title: '散热', hint: '风扇 / 导风罩（固定件）' },
+]
+// 底盘件清单：major=解剖分组；src=导入归属区（底盘件/后面板·IO/前面板·线缆/供电·默认PSU）；
+// fixed=true 表示结构选料（数量由机箱结构决定，导入时智能归位、不整单替换）
+const ROWS = [
+  { major: '机箱主体', src: '底盘件', pn: 'L6-CH-2524', name: '2U12 机箱 C621-A', spec: '2U · 12盘位', qty: 1, price: 2360 },
+  { major: '机箱主体', src: '底盘件', pn: 'L6-AUX-Screw', name: '辅助紧固件包', spec: '螺丝/垫片', qty: 1, price: 18 },
+  { major: '主板', src: '底盘件', pn: 'L6-MB-C621A', name: 'C621 主板 ATX', spec: 'LGA4189', qty: 1, price: 3960 },
+  { major: '主板', src: '底盘件', pn: 'L6-TRY-2U12', name: '2U 托盘', spec: '带BMC', qty: 1, price: 1180 },
+  { major: '主板', src: '底盘件', pn: 'L6-BMC-AST', name: 'BMC 模块', spec: 'AST2600', qty: 1, price: 442 },
+  { major: '处理器', src: '底盘件', pn: 'L6-HS-SILVER', name: '散热器 SC-SILVER', spec: 'TDP≤150W', qty: 2, price: 0, miss: true },
+  { major: '硬盘', src: '底盘件', pn: 'L6-BP-SAS12', name: 'SAS/NVMe 背板', spec: '12盘', qty: 1, price: 1480 },
+  { major: '后面板', src: '后面板 · IO1', pn: 'L6-IO-X16', name: 'PCIe X16 IO 卡', spec: 'X16', qty: 1, price: 620, fixed: true },
+  { major: '前面板', src: '前面板 · 线缆', pn: 'L6-CBL-SAS', name: 'SAS 线缆 85cm', spec: 'SAS · 12盘', qty: 1, price: 227, fixed: true },
+  { major: '供电', src: '供电 · 默认PSU', pn: 'L6-PSU-1300', name: '1300W 铂金电源', spec: 'CRPS', qty: 2, price: 3735, fixed: true },
+]
+const typeNames = { 1: '存储服务器', 2: '2U 双路', 3: '通用计算' }
+const money = (n) => '¥' + Math.round(n).toLocaleString('zh-CN')
+
+// ===== 编辑视图（解剖分组折叠卡，复刻现状）=====
+const OPEN_DEFAULT = { 1: true }   // 进页默认第一组展开，其余收起（现状行为）
+document.getElementById('anatomyList').innerHTML = GROUPS.map(g => {
+  const lines = ROWS.filter(r => r.major === g.title)
+  const sum = lines.length ? `${lines.length} 件 · ${money(lines.reduce((s, r) => s + r.price * r.qty, 0))}` : (g.n === 6 ? '24 条上限 · 12 通道' : g.n === 3 ? 'IO1 X16 · OCP 空' : '')
+  const open = !!OPEN_DEFAULT[g.n]
+  return `<div class="anatomy-card">
+    <div class="anatomy-head" onclick="this.nextElementSibling.classList.toggle('collapsed');this.querySelector('.card-chevron').classList.toggle('collapsed')">
+      <span class="anatomy-num">${g.n}</span>
+      <h3 class="anatomy-title">${g.title}</h3>
+      <span class="anatomy-sum">${sum}${lines.length ? '' : ' · 点击展开'}</span>
+      <button class="card-chevron ${open ? '' : 'collapsed'}">⌃</button>
+    </div>
+    <div class="card-collapse ${open ? '' : 'collapsed'}">
+      <div class="card-collapse-inner"><div class="anatomy-body">
+        <div class="anatomy-hint-in">${g.hint}</div>
+        ${lines.map(r => `<div class="line-row">
+          <span class="pn">${r.pn}</span>
+          <span class="nm">${r.name}${r.miss ? ' <span class="chip warn">缺价</span>' : ''}</span>
+          <span class="qty">×${r.qty}</span>
+          <span class="pr">${r.miss ? '<span class="miss-note">缺价</span>' : money(r.price)}</span>
+        </div>`).join('')}
+        ${g.n === 6 ? '<div style="padding:6px 0;color:var(--cpq-text-secondary);">内存条是 KP 配置件（配置页选），这里只存物理边界与标准</div>' : ''}
+        ${[1,4,5,8,10].includes(g.n) ? `<button class="add-line" onclick="alert('原型：PartPicker 选件弹层')">+ 添加${g.title}件</button>` : ''}
+      </div></div>
+    </div>
+  </div>`}).join('')
+
+// ===== 清单视图 =====
+const grpSel = document.getElementById('grpFilter')
+GROUPS.forEach(g => grpSel.insertAdjacentHTML('beforeend', `<option value="${g.title}">${g.title}</option>`))
+function renderFlat() {
+  const f = grpSel.value, kw = document.getElementById('kw').value.trim().toLowerCase()
+  const rows = ROWS.filter(r => (f === 'all' || r.major === f) && (!kw || r.pn.toLowerCase().includes(kw) || r.name.toLowerCase().includes(kw)))
+  let lastG = null
+  document.getElementById('flatBody').innerHTML = rows.map(r => {
+    const gs = r.major !== lastG ? ' class="group-start"' : ''; lastG = r.major
+    return `<tr${gs}>
+      <td><span class="gname">${r.major}</span></td>
+      <td>${r.fixed ? `<span class="chip muted" title="结构选料：数量由机箱结构决定，在编辑视图维护">${r.src}</span>` : '<span style="color:var(--cpq-text-muted);font-size:12px;">底盘件</span>'}</td>
+      <td class="pn-mono">${r.pn}</td>
+      <td>${r.name}</td>
+      <td style="color:var(--cpq-text-muted)">${r.spec}</td>
+      <td class="cell-num">${r.fixed ? `×${r.qty} 🔒` : r.qty}</td>
+      <td class="cell-price">${r.miss ? '<span class="miss-note">缺价</span>' : money(r.price)}</td>
+      <td class="cell-price">${r.miss ? '—' : money(r.price * r.qty)}</td>
+    </tr>`}).join('')
+  const priced = rows.filter(r => !r.miss)
+  document.getElementById('sumRows').textContent = rows.length
+  document.getElementById('sumPrice').textContent = money(priced.reduce((s, r) => s + r.price * r.qty, 0))
+  document.getElementById('missNote').textContent = rows.some(r => r.miss) ? '⚠ 1 项缺价未计入' : ''
+}
+renderFlat()
+
+// ===== 视图切换 =====
+function switchView(v) {
+  const list = v === 'list'
+  document.getElementById('viewEdit').style.display = list ? 'none' : ''
+  document.getElementById('viewList').style.display = list ? '' : 'none'
+  document.getElementById('segEdit').classList.toggle('active', !list)
+  document.getElementById('segList').classList.toggle('active', list)
+  const panel = document.getElementById(list ? 'viewList' : 'viewEdit')
+  panel.style.animation = 'none'; panel.offsetHeight; panel.style.animation = ''
+}
+
+// 右栏成本构成假数据
+document.getElementById('grpBars').innerHTML = [
+  ['7', '供电', 7470, 42.1], ['4', '主板', 5582, 31.4], ['1', '机箱主体', 2378, 13.4],
+  ['8', '硬盘', 1480, 8.3], ['3', '后面板', 620, 3.5], ['2', '前面板', 227, 1.3],
+].map(([n, t, a, p]) => `<div class="grp">
+  <span class="grp-no">${n}</span><span class="grp-name">${t}</span>
+  <div class="grp-track"><div class="grp-bar" style="width:${p}%"></div></div>
+  <span class="grp-amt">${money(a)}</span><span class="grp-pct">${p}%</span>
+</div>`).join('')
+
+// ===== 导入弹窗 =====
+function openImport() { document.getElementById('mask').style.display = 'flex'; goStep(1) }
+function closeImport() { document.getElementById('mask').style.display = 'none' }
+function goStep(n) {
+  for (const i of [1, 2, 3]) {
+    document.getElementById('s' + i).style.display = i === n ? '' : 'none'
+    document.getElementById('d' + i).classList.toggle('on', i <= n)
+    document.getElementById('d' + i).style.background = i <= n ? 'var(--cpq-bg-selected)' : ''
+    document.getElementById('d' + i).style.color = i <= n ? 'var(--cpq-accent-primary)' : ''
+    document.getElementById('d' + i).style.fontWeight = i <= n ? '600' : ''
+  }
+  if (n === 2) renderPreview()
+}
+function renderPreview() {
+  const rows = [
+    { pn: 'L6-CH-2524', name: '2U12 机箱 C621-A', qty: 1, region: '底盘件', act: 'keep', note: '' },
+    { pn: 'L6-MB-C621A', name: 'C621 主板 ATX', qty: 1, region: '底盘件', act: 'keep', note: '' },
+    { pn: 'L6-HS-SILVER', name: '散热器 SC-SILVER', qty: 3, region: '底盘件', act: 'update', note: '数量 2→3' },
+    { pn: 'L6-PSU-1300', name: '1300W 铂金电源', qty: 2, region: '供电', act: 'assign', note: '设为默认 PSU（数量按电源槽位 ×2 装配）' },
+    { pn: 'L6-IO-X16', name: 'PCIe X16 IO 卡', qty: 1, region: '后面板 · IO1', act: 'assign', note: '归位到 IO1 的 X16 类型卡' },
+    { pn: 'L6-CBL-SAS', name: 'SAS 线缆 85cm', qty: 1, region: '前面板 · 线缆', act: 'assign', note: '设为 SAS 盘类默认线缆' },
+    { pn: 'L6-TRY-2U12', name: '2U 托盘', qty: 1, region: '底盘件', act: 'del', note: '文件中未出现' },
+    { pn: 'L6-BMC-AST', name: 'BMC 模块', qty: 1, region: '底盘件', act: 'del', note: '文件中未出现' },
+    { pn: 'L6-CPU-6330', name: 'Xeon 6330', qty: 2, region: 'KP 配置件', act: 'ignore', note: 'CPU 在机型配置页选，不入基准' },
+    { pn: 'L6-DIMM-32G', name: 'DDR5 32G 内存条', qty: 8, region: 'KP 配置件', act: 'ignore', note: '内存是 KP 配置件，不入基准' },
+    { pn: 'L6-XXXX', name: '—', qty: 2, region: '—', act: 'invalid', note: '料号不在料号库' },
+  ]
+  const tag = {
+    new: ['新增', 'background:rgba(82,201,160,.15);color:#52C9A0'],
+    update: ['更新', 'background:var(--cpq-bg-selected);color:var(--cpq-accent-primary)'],
+    assign: ['归位', 'background:rgba(82,201,160,.15);color:#52C9A0'],
+    del: ['将删除', 'background:rgba(255,107,107,.12);color:var(--cpq-accent-danger)'],
+    ignore: ['忽略', 'background:var(--cpq-overlay-w8);color:var(--cpq-text-muted)'],
+    invalid: ['无效', 'background:var(--cpq-overlay-w8);color:var(--cpq-text-muted)'],
+    keep: ['保留', 'background:var(--cpq-overlay-w8);color:var(--cpq-text-muted)'],
+  }
+  document.getElementById('prevBody').innerHTML = rows.map(r => {
+    const [lbl, style] = tag[r.act]
+    const tr = r.act === 'del' ? ' style="background:rgba(255,107,107,.05)"' : (r.act === 'ignore' ? ' style="opacity:.55"' : '')
+    return `<tr${tr}>
+      <td class="pn-mono">${r.pn}</td><td>${r.name}</td>
+      <td class="cell-num">${r.qty}</td>
+      <td style="font-size:12px;color:var(--cpq-text-secondary);">${r.region}</td>
+      <td><span class="chip" style="${style}">${lbl}</span></td>
+      <td>${r.act === 'invalid' ? '<span class="miss-note">✕ 料号不在料号库</span>' : (r.note || '—')}</td>
+    </tr>`}).join('')
+}
+document.getElementById('mask').addEventListener('click', e => { if (e.target === e.currentTarget) closeImport() })
+</script>
+</body>
+</html>

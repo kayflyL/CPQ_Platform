@@ -74,7 +74,11 @@ def _write_only_wecom_secret(repo: SystemConfigRepository, value: dict) -> dict:
 
 
 def _mask_value(value: Any) -> Any:
-    """llm_config 的 value 掩码出站：value 可能是 dict（get_value 已解析）或 JSON 串（行原始值）。"""
+    """llm_config 的 value 掩码出站：每个供应商的 api_key 独立掩码。
+
+    value 形状兼容两代：单层 dict（历史）或 {active_id, providers:[...]}（当前，
+    多供应商）。value 可能是 dict（get_value 已解析）或 JSON 串（行原始值）。
+    """
     if isinstance(value, str):
         try:
             value = json.loads(value)
@@ -83,9 +87,18 @@ def _mask_value(value: Any) -> Any:
     if not isinstance(value, dict):
         return value
     out = dict(value)
-    stored = str(out.get("api_key") or "")
-    out["api_key"] = (_MASK_TOKEN + stored[-4:]) if stored else ""
-    out["api_key_configured"] = bool(stored or get_settings().LLM_API_KEY)
+
+    def _mask_one(cfg: dict) -> dict:
+        item = dict(cfg)
+        stored = str(item.get("api_key") or "")
+        item["api_key"] = (_MASK_TOKEN + stored[-4:]) if stored else ""
+        item["api_key_configured"] = bool(stored or get_settings().LLM_API_KEY)
+        return item
+
+    if isinstance(out.get("providers"), list):
+        out["providers"] = [_mask_one(p) if isinstance(p, dict) else p for p in out["providers"]]
+    else:
+        out = _mask_one(out)
     return out
 
 
@@ -105,8 +118,35 @@ def _mask_row(key: Any, row: Any) -> Any:
 
 
 def _write_only_api_key(repo: SystemConfigRepository, value: dict) -> dict:
-    """api_key 是 write-only：客户端回传掩码=未修改，保留库内原值；显式空串才清除（回退 .env）。"""
+    """api_key 是 write-only：客户端回传掩码=未修改，保留库内原值；显式空串才清除（回退 .env）。
+
+    多供应商形状：按 id 逐个对位保留——回传掩码的供应商取库内同 id 的原 key，
+    库内没有该 id（新增供应商）则掩码视为无效置空。
+    """
     out = dict(value)
+    if isinstance(out.get("providers"), list):
+        stored = repo.get_value(_LLM_CONFIG_KEY, {})
+        stored = stored if isinstance(stored, dict) else {}
+        stored_by_id = {
+            str(p.get("id") or ""): p
+            for p in (stored.get("providers") or [])
+            if isinstance(p, dict)
+        } if isinstance(stored.get("providers"), list) else {}
+        new_providers = []
+        for p in out["providers"]:
+            if not isinstance(p, dict):
+                new_providers.append(p)
+                continue
+            item = dict(p)
+            item.pop("api_key_configured", None)
+            incoming = str(item.get("api_key") or "")
+            if _MASK_TOKEN in incoming:
+                orig = str((stored_by_id.get(str(item.get("id") or "")) or {}).get("api_key") or "")
+                item["api_key"] = orig
+            new_providers.append(item)
+        out["providers"] = new_providers
+        out.pop("api_key_configured", None)
+        return out
     out.pop("api_key_configured", None)  # 出站辅助标志，不入库
     incoming = str(out.get("api_key") or "")
     if _MASK_TOKEN in incoming:
@@ -116,10 +156,31 @@ def _write_only_api_key(repo: SystemConfigRepository, value: dict) -> dict:
 
 
 def _drop_masked_key(cfg: dict) -> dict:
-    """实测（test/models/probe）带着掩码值时丢弃该项，让 llm_client 回落库内/.env 已配置值。"""
-    if isinstance(cfg.get("api_key"), str) and _MASK_TOKEN in cfg["api_key"]:
-        return {k: v for k, v in cfg.items() if k != "api_key"}
-    return cfg
+    """实测（test/models/probe）带着掩码值时还原为库内该供应商的原 key。
+
+    多供应商（当前）：掩码 key 按 provider_id 对位取库内同 id 供应商的原值；
+    未给 provider_id（旧客户端/测未保存的新供应商）则丢弃该项，回落启用供应商配置。
+    历史单层形状：直接取 llm_config 根 api_key。
+    """
+    incoming = cfg.get("api_key")
+    if not (isinstance(incoming, str) and _MASK_TOKEN in incoming):
+        return cfg
+    repo = SystemConfigRepository()
+    try:
+        stored = repo.get_value(_LLM_CONFIG_KEY, {})
+    finally:
+        repo.close()
+    stored = stored if isinstance(stored, dict) else {}
+    orig = ""
+    if isinstance(stored.get("providers"), list):
+        by_id = {str(p.get("id") or ""): p for p in stored["providers"] if isinstance(p, dict)}
+        orig = str((by_id.get(str(cfg.get("provider_id") or "")) or {}).get("api_key") or "")
+    else:
+        orig = str(stored.get("api_key") or "")
+    out = {k: v for k, v in cfg.items() if k != "api_key"}
+    if orig:
+        out["api_key"] = orig
+    return out
 
 
 
@@ -325,6 +386,8 @@ def reset_requirement_slots(admin: dict = Depends(require_admin)):
 # 用表单当前值（未保存也行）实测，缺省字段回落 system_config.llm_config / .env。
 
 class LlmTestBody(BaseModel):
+
+    provider_id: Optional[str] = None
 
     base_url: Optional[str] = None
 

@@ -562,14 +562,16 @@ defineExpose({ saveDraft, submit, getConfigs })
   display: flex;
   flex-direction: column;
   gap: 14px;
-  --sheet-panel: var(--cpq-bg-secondary);
-  --sheet-surface: var(--cpq-bg-secondary);
-  --sheet-head: var(--cpq-bg-tertiary);
+  /* 表格调色板 —— 暗色用白半透明玻璃：透出宿主页/卡底色，与玻璃输入框（glass-2）同材质；
+     浅色主题实色白由下方 light 块给出 */
+  --sheet-panel: var(--cpq-overlay-w3);
+  --sheet-surface: var(--cpq-overlay-w3);
+  --sheet-head: var(--cpq-overlay-w8);
   --sheet-line: var(--cpq-border-secondary);
   --sheet-line-strong: var(--cpq-border-primary);
-  --sheet-hover: var(--cpq-overlay-w4);
+  --sheet-hover: var(--cpq-overlay-w6);
   --sheet-focus: var(--cpq-overlay-a10);
-  --sheet-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  --sheet-shadow: none;
 }
 :root[data-theme='light'] .flow-sheet {
   --sheet-panel: #ffffff;

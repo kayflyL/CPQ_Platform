@@ -23,6 +23,7 @@ class Solution(Base):
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     sub: Mapped[Optional[str]] = mapped_column(String(200), default=None)
     features: Mapped[Optional[str]] = mapped_column(Text, default=None)   # JSON list[str]
+    cover_url: Mapped[Optional[str]] = mapped_column(String(255), default=None)  # 卡片封面图（可选，空则前端自动生成）
     intro: Mapped[Optional[str]] = mapped_column(Text, default=None)      # hero 首段（Markdown）
     content_md: Mapped[Optional[str]] = mapped_column(Text, default=None) # 正文（Markdown）
     platforms: Mapped[Optional[str]] = mapped_column(Text, default=None)  # JSON list[{name,spec,link?}]
@@ -40,6 +41,7 @@ class Solution(Base):
             "title": self.title,
             "sub": self.sub,
             "features": j(self.features),
+            "cover_url": self.cover_url,
             "intro": self.intro,
             "content_md": self.content_md,
             "platforms": j(self.platforms),

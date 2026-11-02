@@ -99,3 +99,6 @@ docs/**/*.mp4
 
 # 第三方克隆 img2threejs（上游 github.com/img2threejs），不入库
 docs/claude-memory/skills/img2threejs/
+
+# 会话临时截图，不入库
+.screenshots/

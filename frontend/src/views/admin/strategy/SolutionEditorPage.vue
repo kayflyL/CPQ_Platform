@@ -54,11 +54,32 @@ const form = reactive({
   scene: '',
   title: '',
   sub: '',
+  cover_url: '',
   intro: '',
   content_md: '',
   features: [] as string[],
   platforms: [] as { name: string; spec: string; link?: string; model_id?: number }[],
 })
+
+// 封面（可选）：留空则列表页按场景色自动生成；上传走方案图片接口
+const coverUploading = ref(false)
+const coverInput = ref<HTMLInputElement | null>(null)
+function pickCover() { coverInput.value?.click() }
+async function onCoverChange(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  coverUploading.value = true
+  try {
+    form.cover_url = (await solutionApi.uploadImage(file)).url
+    message.success('封面上传成功')
+  } catch (err: any) {
+    message.error(err?.response?.data?.detail || '封面上传失败')
+  } finally {
+    coverUploading.value = false
+    ;(e.target as HTMLInputElement).value = ''
+  }
+}
+function removeCover() { form.cover_url = '' }
 
 watch(() => form.scene_key, (k) => { if (k) form.scene = labelOf(k) })
 
@@ -81,7 +102,7 @@ onMounted(async () => {
       const s = await solutionApi.get(key)
       Object.assign(form, {
         key: s.key, scene_key: s.scene_key, title: s.title,
-        sub: s.sub || '', intro: s.intro || '', content_md: s.content_md || '',
+        sub: s.sub || '', cover_url: s.cover_url || '', intro: s.intro || '', content_md: s.content_md || '',
         features: [...(s.features || [])],
         platforms: [...(s.platforms || [])],
       })
@@ -106,7 +127,7 @@ async function save() {
       scene_key: form.scene_key,
       scene: form.scene || labelOf(form.scene_key),
       title: form.title,
-      sub: form.sub, intro: form.intro, content_md: form.content_md,
+      sub: form.sub, cover_url: form.cover_url, intro: form.intro, content_md: form.content_md,
       features: form.features, platforms: form.platforms,
     }
     if (isEdit && key) {
@@ -152,6 +173,17 @@ async function save() {
           <a-form layout="vertical" class="ed-fields">
             <a-form-item label="一句话副标题"><a-input v-model:value="form.sub" placeholder="把模型装进显存，再谈吞吐" /></a-form-item>
             <a-form-item label="首段介绍（Markdown）"><a-textarea v-model:value="form.intro" :rows="3" placeholder="详情页 hero 首段，支持 **加粗**" /></a-form-item>
+            <a-form-item label="封面图（可选）">
+              <div class="ed-cover">
+                <img v-if="form.cover_url" :src="form.cover_url" class="ed-cover-img" alt="封面">
+                <div v-else class="ed-cover-empty">未设置 — 列表页将按场景色自动生成封面</div>
+                <div class="ed-cover-ops">
+                  <a-button size="small" :loading="coverUploading" @click="pickCover">{{ form.cover_url ? '更换封面' : '上传封面' }}</a-button>
+                  <a-button v-if="form.cover_url" size="small" danger type="text" @click="removeCover">移除</a-button>
+                </div>
+                <input ref="coverInput" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden @change="onCoverChange">
+              </div>
+            </a-form-item>
           </a-form>
         </div>
 
@@ -225,6 +257,10 @@ async function save() {
 .ed-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .ed-tag { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-primary); background: var(--cpq-overlay-w6); padding: 3px 10px; border-radius: var(--cpq-radius-md); }
 .ed-tag a { margin-left: 6px; color: var(--cpq-text-muted); cursor: pointer; }
+.ed-cover { display: flex; align-items: center; gap: var(--cpq-space-3); }
+.ed-cover-img { width: 160px; height: 90px; object-fit: cover; border-radius: var(--cpq-radius-md); border: 1px solid var(--cpq-glass-border); }
+.ed-cover-empty { flex: 1; padding: var(--cpq-space-3) var(--cpq-space-4); font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); background: var(--cpq-overlay-w6); border: 1px dashed var(--cpq-glass-border); border-radius: var(--cpq-radius-md); }
+.ed-cover-ops { display: flex; flex-direction: column; gap: var(--cpq-space-2); flex-shrink: 0; }
 .ed-body { display: flex; flex-direction: column; gap: 22px; }
 .ed-sub + .ed-sub { border-top: 1px solid var(--cpq-glass-border); padding-top: 22px; }
 .ed-editor { height: 560px; --md-bk-color: var(--cpq-overlay-w3); }

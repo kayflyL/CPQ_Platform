@@ -2,31 +2,37 @@
 /**
  * 公开版配置向导页（/catalog/config/:modelId）—— ConfigWizard 组件的公开宿主。
  * 复用同一向导组件（价格 fail-closed：匿名拿到的 KP/配件数据自动剥价，组件价格列本就 price-visible=false），
- * 页面级差异：无管理入口；完成动作=「提交需求，获取报价」展开公开线索登记表（选型快照预填）。
+ * 页面级差异：无管理入口；完成动作=向导 leadMode「提交配置」→ ConfigSubmitPanel overlay
+ * （机型/平台/机箱/电源/部件清单自动带出，用户只补数量/维保/联系方式）。
  */
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, watchEffect, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { catalogApi, type ServerModel } from '@/api/serverConfig'
 import ConfigWizard from '@/components/server-config/ConfigWizard.vue'
-import LeadSubmitForm from '@/components/public/LeadSubmitForm.vue'
-import { FileTextOutlined } from '@ant-design/icons-vue'
-import { message } from 'ant-design-vue'
+import ConfigSubmitPanel from '@/components/public/ConfigSubmitPanel.vue'
+import { useThemeStore } from '@/store/theme'
 
-// 固定暗色页垫在透明顶栏下：顶栏文字恒浅色（同内部 /servers 机制）
+const themeStore = useThemeStore()
+
+// 固定暗色页垫在透明顶栏下：顶栏文字恒浅色（同内部 /servers 机制）。
+// 浅色主题页顶是浅底，白字顶栏不可读，故只随暗色主题声明。
 function markHeroDark(on: boolean) {
   if (on) document.documentElement.dataset.heroDark = '1'
   else delete document.documentElement.dataset.heroDark
 }
+// watchEffect 立即执行一次：挂载即按当前主题声明；主题中途切换同步跟随
+const stopHero = watchEffect(() => markHeroDark(themeStore.isDark))
+onBeforeUnmount(() => { stopHero(); markHeroDark(false) })
 
 const route = useRoute()
 const router = useRouter()
-
 const modelId = computed(() => Number(route.params.modelId))
 const currentModel = ref<ServerModel | null>(null)
 const loading = ref(false)
 const wizardRef = ref<InstanceType<typeof ConfigWizard> | null>(null)
-const showLeadForm = ref(false)
-const initialSlots = ref<Record<string, any> | null>(null)
+const showSubmitPanel = ref(false)
+const submitMeta = ref<Record<string, any>>({})
+const submitKpRows = ref<Array<Record<string, any>>>([])
 
 async function loadModel() {
   loading.value = true
@@ -43,33 +49,27 @@ function goBack() {
   else router.push('/catalog')
 }
 
-/** 完成配置 → 展开登记表：机型/配置意向 + 向导选型快照（KP 行）预填 */
-function openLeadForm() {
+/** 向导「提交配置」→ 弹确认面板：机型元数据 + KP 行自动带出（无价格） */
+function openSubmitPanel() {
   const m = currentModel.value
   if (!m) return
-  const snap = wizardRef.value?.getPublicSnapshot?.() || { kp_rows: [] }
-  initialSlots.value = {
-    configs: [{
-      name: 'CFG1',
-      server_model: m.name || '',
-      platform_type: m.base_config?.series || '',
-      chassis_form: m.base_config?.form || '',
-      qty: 1,
-      warranty_years: '3',
-      kp_rows: snap.kp_rows || [],
-    }],
-    config_relation: 'compose',
+  const snap = wizardRef.value?.getPublicSnapshot?.() || { kp_rows: [] as Array<Record<string, any>>, meta: {} as Record<string, any> }
+  submitMeta.value = {
+    ...(snap.meta || {}),
+    server_model: snap.meta?.server_model || m.name || '',
+    platform_type: snap.meta?.platform_type || m.base_config?.series || '',
+    chassis_form: snap.meta?.chassis_form || m.base_config?.form || '',
+    chassis_bays: snap.meta?.chassis_bays || m.base_config?.bays || 0,
   }
-  showLeadForm.value = true
-  message.success('已按当前配置预填需求，请补全联系方式提交')
-  setTimeout(() => document.getElementById('public-lead-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
+  submitKpRows.value = snap.kp_rows || []
+  showSubmitPanel.value = true
 }
 
-onMounted(() => {
-  markHeroDark(true)
-  loadModel()
-})
-onBeforeUnmount(() => markHeroDark(false))
+function onViewSpec() {
+  wizardRef.value?.openSpecSheet?.()
+}
+
+onMounted(loadModel)
 </script>
 
 <template>
@@ -80,94 +80,50 @@ onBeforeUnmount(() => markHeroDark(false))
     </div>
 
     <a-spin :spinning="loading">
-      <ConfigWizard v-if="currentModel" ref="wizardRef" :model="currentModel" />
+      <ConfigWizard v-if="currentModel" ref="wizardRef" :model="currentModel" lead-mode @submit-config="openSubmitPanel" />
     </a-spin>
 
-    <!-- 公开完成动作：从选型直达线索登记 -->
-    <div class="pw-lead-cta">
-      <div>
-        <b>配置好了？</b>
-        <span>按你配置的这台实配报价，无任何约束 —— 1 个工作日内回复</span>
-      </div>
-      <button class="pw-cta-btn" type="button" @click="showLeadForm ? showLeadForm = false : openLeadForm()">
-        {{ showLeadForm ? '收起登记表' : '提交需求，获取报价 →' }}
-      </button>
-    </div>
-
-    <div v-if="showLeadForm" id="public-lead-anchor" class="pw-lead-panel">
-      <div class="rw-head">
-        <div class="rw-head-title">
-          <span class="rich-icon-badge"><FileTextOutlined /></span>
-          <div>
-            <span class="rw-eyebrow">线索登记</span>
-            <h3>需求登记</h3>
-          </div>
-        </div>
-      </div>
-      <div class="pw-lead-body">
-        <LeadSubmitForm source="catalog_model" :initial-slots="initialSlots" />
-      </div>
-    </div>
+    <!-- 提交配置 overlay：配置确认（自动带出）+ 数量/维保 + 查看规格书 + 联系信息 -->
+    <ConfigSubmitPanel
+      v-if="showSubmitPanel"
+      :meta="submitMeta"
+      :kp-rows="submitKpRows"
+      @close="showSubmitPanel = false"
+      @view-spec="onViewSpec"
+    />
   </div>
 </template>
 
 <style scoped>
+/* 暗色：海军蓝深空底（同 /catalog 银河链路）；浅色：主题渐变底，文字走主题 token */
 .pub-wizard {
   min-height: calc(100vh - 52px);
   background: linear-gradient(to bottom, #02050f 0%, #071226 45%, #030814 100%);
   color: #eef3fa;
   padding: 0 0 80px;
 }
+:root[data-theme='light'] .pub-wizard {
+  background: var(--cpq-bg-gradient);
+  color: var(--cpq-text-primary);
+}
 .pw-topbar {
   display: flex; align-items: center; gap: 14px;
+  /* 顶栏让位由布局层 .scroll-clearance 提供，这里不再重复让位（曾双重让位出 156px 空白带） */
   padding: 12px 24px;
-  padding-top: calc(var(--cpq-header-clearance, 0px) + 12px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   background: var(--cpq-overlay-b85);
+}
+:root[data-theme='light'] .pw-topbar {
+  border-bottom: 1px solid var(--cpq-border-secondary);
+  background: transparent;
 }
 .pw-back {
   background: none; border: none; cursor: pointer; font-family: inherit;
   color: rgba(238, 243, 250, 0.72); font-size: 14px; padding: 4px 8px;
 }
 .pw-back:hover { color: #fff; }
+:root[data-theme='light'] .pw-back { color: var(--cpq-text-secondary); }
+:root[data-theme='light'] .pw-back:hover { color: var(--cpq-accent-primary); }
 .pw-crumb { font-size: 15px; font-weight: 600; color: #f2f8ff; }
-.pw-lead-cta {
-  max-width: 1080px; margin: 26px auto 0; padding: 20px 28px;
-  display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;
-  border: 1px solid rgba(255, 255, 255, 0.2); border-radius: var(--cpq-radius-lg);
-  background: linear-gradient(135deg, var(--cpq-overlay-a10), var(--cpq-overlay-a4));
-}
-.pw-lead-cta b { font-size: var(--cpq-font-size-lg); color: #f2f8ff; display: block; }
-.pw-lead-cta span { font-size: 13px; color: rgba(238, 243, 250, 0.72); }
-.pw-cta-btn {
-  padding: 11px 26px; font-size: 14.5px; font-weight: 600; cursor: pointer; flex-shrink: 0;
-  background: var(--cpq-accent-primary); color: #fff; border: none; border-radius: var(--cpq-radius-md);
-}
-.pw-cta-btn:hover { background: var(--cpq-accent-primary-light); }
-.pw-lead-panel {
-  max-width: 1080px; margin: 20px auto 0;
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-lg);
-  background: var(--cpq-glass-card-bg);
-  backdrop-filter: blur(var(--cpq-glass-card-blur));
-  box-shadow: var(--cpq-glass-card-shadow);
-  overflow: hidden;
-}
-.pw-lead-panel .rw-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 14px; border-bottom: 1px solid var(--cpq-glass-border);
-  background: var(--cpq-overlay-w4);
-}
-.pw-lead-panel .rw-head-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.pw-lead-panel .rw-eyebrow { display: none; }
-.pw-lead-panel .rw-head h3 { margin: 0; color: var(--cpq-text-primary); font-size: 14px; }
-.pw-lead-panel .rich-icon-badge {
-  width: 40px; height: 40px; flex-shrink: 0;
-  display: inline-flex; align-items: center; justify-content: center;
-  border-radius: var(--cpq-radius-md);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.92), rgba(139, 92, 246, 0.88));
-  color: #fff; font-size: 18px;
-  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.28);
-}
-.pw-lead-body { padding: 18px 22px 22px; }
+:root[data-theme='light'] .pw-crumb { color: var(--cpq-text-primary); }
 </style>

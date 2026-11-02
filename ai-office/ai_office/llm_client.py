@@ -138,14 +138,61 @@ def _overall_timeout_msg(overall_timeout: float) -> str:
             f"（长时间持续输出思考、不产出结论），已主动断开")
 
 
+def _normalize_providers_value(raw: Any) -> dict:
+    """llm_config 存储值归一化 → {active_id, providers: [...]}（多供应商结构）。
+
+    兼容三代值形状：
+      - 单层 dict（历史）：{base_url, api_key, model, ...} → 迁移为单供应商
+      - {active_id, providers}（当前）：逐项补 id/name，去重，空列表给占位
+    active_id 失效（指向不存在的供应商）时回落第一个；全部为空则 active_id=""。
+    """
+    if not isinstance(raw, dict):
+        return {"active_id": "", "providers": []}
+    if isinstance(raw.get("providers"), list):
+        out: list = []
+        seen_ids: set = set()
+        for i, p in enumerate(raw["providers"]):
+            if not isinstance(p, dict):
+                continue
+            pid = str(p.get("id") or "").strip() or f"provider_{i + 1}"
+            while pid in seen_ids:
+                pid = f"{pid}_{i + 1}"
+            seen_ids.add(pid)
+            item = dict(p)
+            item["id"] = pid
+            item["name"] = str(p.get("name") or "").strip() or pid
+            out.append(item)
+        active_id = str(raw.get("active_id") or "").strip()
+        if not out:
+            return {"active_id": "", "providers": []}
+        if not active_id or not any(p["id"] == active_id for p in out):
+            active_id = out[0]["id"]
+        return {"active_id": active_id, "providers": out}
+    # 历史单层形状：本身就是一个供应商配置
+    if raw:
+        return {"active_id": "default", "providers": [{**raw, "id": "default", "name": "默认"}]}
+    return {"active_id": "", "providers": []}
+
+
 def _get_llm_config() -> dict:
-    """从 system_config 读取 LLM 配置，优先级高于 .env"""
+    """从 system_config 读取【启用供应商】的 LLM 配置，优先级高于 .env。
+
+    存储值支持多供应商 {active_id, providers:[...]}（当前）与历史单层 dict（自动迁移）；
+    返回值恒为扁平的单供应商 dict，下游调用方无感知。
+    """
     repo = SystemConfigRepository()
     try:
-        config = repo.get_value("llm_config", {})
+        stored = repo.get_value("llm_config", {})
     finally:
         repo.close()
 
+    store = _normalize_providers_value(stored)
+    providers = store["providers"]
+    if providers:
+        active = next((p for p in providers if p["id"] == store["active_id"]), providers[0])
+        config = dict(active)
+    else:
+        config = {}
     config = {
         "base_url": config.get("base_url") or _settings.LLM_BASE_URL,
         "api_key": config.get("api_key") or _settings.LLM_API_KEY,
@@ -455,17 +502,122 @@ async def stream_chat(
 
     client = _client(config["base_url"], config["api_key"])
 
-    try:
-        stream = await client.chat.completions.create(
-            model=model or config["model"],
-            messages=messages,  # type: ignore[arg-type]
-            stream=True,
-            temperature=config["temperature"] if temperature is None else temperature,
-            max_tokens=config["max_tokens"] if max_tokens is None else max_tokens,
-        )
+    # 空流重启（2026-11-02 CloudPrime 实测）：该中转约 2/3 流式请求只回一个
+    # choices=[] 的 usage 空分片即 [DONE]（无 finish_reason）。正常供应商一次流
+    # 必有内容或有 finish_reason，重启分支不触发，行为零变化。
+    for attempt in range(1 + _STREAM_EMPTY_RETRIES):
+        if attempt:
+            logger.warning("LLM 流式空回重启（第 %d 次）model=%s base=%s",
+                           attempt, config.get("model"), config.get("base_url"))
+            await asyncio.sleep(_STREAM_EMPTY_RETRY_DELAY_S)
         has_content = False
         finish_reason: Optional[str] = None
         _think = _ThinkStreamFilter()
+        try:
+            stream = await client.chat.completions.create(
+                model=model or config["model"],
+                messages=messages,  # type: ignore[arg-type]
+                stream=True,
+                temperature=config["temperature"] if temperature is None else temperature,
+                max_tokens=config["max_tokens"] if max_tokens is None else max_tokens,
+            )
+            async for chunk in stream:
+                try:
+                    choice = chunk.choices[0]
+                except (AttributeError, IndexError):
+                    continue
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+                delta = choice.delta.content
+                if delta:
+                    # 内联 <think> 块不进正文（本通道无 reasoning 消费方，思考段直接丢弃）
+                    for kind, text in _think.feed(delta):
+                        if kind == "content" and text:
+                            has_content = True
+                            yield text
+            for kind, text in _think.flush():
+                if kind == "content" and text:
+                    has_content = True
+                    yield text
+        except Exception as e:
+            raise LLMError(f"LLM 调用失败: {e}") from e
+        if has_content or finish_reason:
+            if has_content:
+                return
+            break  # 有 finish_reason 的真空回 → 走下方统一诊断
+        if attempt < _STREAM_EMPTY_RETRIES:
+            continue
+        break
+    # 流正常结束却无正文：reasoning 类模型在复杂任务上会把 max_tokens 预算在思考
+    # 阶段(reasoning_content)耗尽，正文一个 token 都没产出即被 length 截断。
+    if not has_content:
+        if finish_reason == "length":
+            yield TRUNCATED_NOTICE
+        else:
+            yield (
+                f"⚠️ 模型返回为空(content 为空,finish_reason={finish_reason or 'none'})。"
+                "可能原因:模型异常、输入超限或被安全过滤。"
+            )
+
+
+# 流式空回重试次数：CloudPrime 实测流式请求有较高比例秒回一个 choices=[] 的
+# usage 空分片（finish=None，疑似中转节点损坏/限流），空回成本极低（秒回），
+# 重试成功率高。间隔 0.5s 避免连打加剧限流。
+_STREAM_EMPTY_RETRIES = 5
+_STREAM_EMPTY_RETRY_DELAY_S = 0.5
+
+
+async def _stream_once(
+    config: dict,
+    messages: List[Dict[str, Any]],
+    *,
+    model: Optional[str] = None,
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    timeout: float = 90.0,
+    tools: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """OpenAI 兼容通道的流式调用聚合（一次流 → 全文 + tool_calls）。
+
+    背景（2026-11-02 实测 CloudPrime + glm-5.3-flash）：部分中转端点的【非流式】链路
+    整体损坏——HTTP 200 包 {"code":500,"msg":"404 NOT_FOUND"} 错误体（SDK 解析即炸），
+    而【流式】同参请求正常。所以非流式出口（chat_json / chat_with_tools）失败后
+    统一落到这里兜底；非流式本来就能通的供应商（如智谱官方）永远不会进到兜底，
+    行为零变化。
+
+    返回 {"content": 正文(已剥 <think>), "tool_calls": [{id,name,arguments字符串}],
+          "finish_reason": str|None}；reasoning_content / think 段一律丢弃。
+
+    CloudPrime 实测（2026-11-02）：该通道【流式也间歇性空回】（较高比例请求只回一个
+    choices=[] 的 usage 空分片即 DONE，finish_reason=None），与 temperature/参数无关，
+    疑似中转后端部分节点损坏。空回成本极低（秒回），故这里内置空回重试
+    （1 + _STREAM_EMPTY_RETRIES 次尝试，间隔 _STREAM_EMPTY_RETRY_DELAY_S）。
+    """
+    last_agg: Dict[str, Any] = {"content": "", "tool_calls": [], "finish_reason": None}
+    for attempt in range(1 + _STREAM_EMPTY_RETRIES):
+        if attempt:
+            logger.warning("LLM 流式空回重试（第 %d 次）model=%s base=%s",
+                           attempt, config.get("model"), config.get("base_url"))
+            await asyncio.sleep(_STREAM_EMPTY_RETRY_DELAY_S)
+        client = _client(config["base_url"], config["api_key"], timeout=timeout)
+        kwargs: Dict[str, Any] = {
+            "model": model or config["model"],
+            "messages": messages,  # type: ignore[arg-type]
+            "stream": True,
+            "temperature": config["temperature"] if temperature is None else temperature,
+            "max_tokens": config["max_tokens"] if max_tokens is None else max_tokens,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+        if isinstance(config.get("thinking"), dict) and config["thinking"]:
+            kwargs["extra_body"] = {"thinking": config["thinking"]}
+        stream = await client.chat.completions.create(**kwargs)
+
+        _think = _ThinkStreamFilter()
+        parts: List[str] = []
+        tool_acc: Dict[int, Dict[str, str]] = {}
+        finish_reason: Optional[str] = None
         async for chunk in stream:
             try:
                 choice = chunk.choices[0]
@@ -473,31 +625,38 @@ async def stream_chat(
                 continue
             if choice.finish_reason:
                 finish_reason = choice.finish_reason
-            delta = choice.delta.content
-            if delta:
-                # 内联 <think> 块不进正文（本通道无 reasoning 消费方，思考段直接丢弃）
-                for kind, text in _think.feed(delta):
+            delta = getattr(choice, "delta", None)
+            if delta is None:
+                continue
+            if getattr(delta, "content", None):
+                for kind, text in _think.feed(delta.content):
                     if kind == "content" and text:
-                        has_content = True
-                        yield text
+                        parts.append(text)
+            for tc in (getattr(delta, "tool_calls", None) or []):
+                idx = int(getattr(tc, "index", None) or 0)
+                slot = tool_acc.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                if getattr(tc, "id", None):
+                    slot["id"] = tc.id
+                fn = getattr(tc, "function", None)
+                if fn is not None:
+                    if getattr(fn, "name", None):
+                        slot["name"] = (slot["name"] or "") + fn.name
+                    if getattr(fn, "arguments", None):
+                        slot["arguments"] += fn.arguments
         for kind, text in _think.flush():
             if kind == "content" and text:
-                has_content = True
-                yield text
-        # 流正常结束却无正文：reasoning 类模型在复杂任务上会把
-        # max_tokens 预算在思考阶段(reasoning_content)耗尽,正文 content 一个
-        # token 都没产出即被 length 截断。这里给出可操作的诊断,而不是让上层
-        # 显示无意义的"(空回复)"。
-        if not has_content:
-            if finish_reason == "length":
-                yield TRUNCATED_NOTICE
-            else:
-                yield (
-                    f"⚠️ 模型返回为空(content 为空,finish_reason={finish_reason or 'none'})。"
-                    "可能原因:模型异常、输入超限或被安全过滤。"
-                )
-    except Exception as e:
-        raise LLMError(f"LLM 调用失败: {e}") from e
+                parts.append(text)
+        tool_calls = [
+            {"id": tool_acc[i]["id"] or f"call_{i}", "name": tool_acc[i]["name"],
+             "arguments": tool_acc[i]["arguments"] or "{}"}
+            for i in sorted(tool_acc) if tool_acc[i]["name"]
+        ]
+        last_agg = {"content": "".join(parts), "tool_calls": tool_calls, "finish_reason": finish_reason}
+        # 空回判定：无正文无工具调用且无结束原因（usage 空分片形状）→ 重试；
+        # 有 finish_reason 的真空回（模型选择不输出）不重试，如实返回。
+        if last_agg["content"] or last_agg["tool_calls"] or finish_reason:
+            return last_agg
+    return last_agg
 
 
 async def chat_json(
@@ -535,6 +694,7 @@ async def chat_json(
 
     profile = get_model_capabilities(model or config["model"], config)
     last_err: Optional[Exception] = None
+    stream_err: Optional[Exception] = None
     for attempt in range(1, max(1, int(max_attempts)) + 1):
         # Anthropic Messages 没有 response_format=json_object：靠 _ensure_json_instruction
         # 提示词约束 + 同一套解析/收口管线，重试语义与 JSON mode 失败降级一致。
@@ -596,7 +756,27 @@ async def chat_json(
             # First attempt uses json_object mode; second attempt falls back to plain text + parser.
             if not use_json_mode:
                 break
-    raise LLMError(f"LLM JSON 调用失败(已降级重试): {last_err}")
+    # 流式兜底（2026-11-02）：部分中转端点（CloudPrime 实测）非流式链路整体损坏
+    # （HTTP 200 包 404 错误体 / 空正文），流式却正常。非流式重试全失败后用
+    # _stream_once 聚合再试一次；正常供应商（非流式可通）永远走不到这里。
+    if not use_anthropic:
+        try:
+            resp_content = await _stream_once(
+                config, messages, model=model, temperature=temperature,
+                max_tokens=max_tokens, timeout=timeout,
+            )
+            content = str(resp_content.get("content") or "").strip()
+            if content:
+                data = _parse_json_content(content)
+                if isinstance(data, dict):
+                    if schema:
+                        data, _ = clean_by_schema(data, schema)
+                    if data:
+                        return data
+        except Exception as e:
+            stream_err = e
+    raise LLMError(f"LLM JSON 调用失败(已降级重试): {last_err}"
+                   + (f"；流式兜底也失败: {stream_err}" if stream_err else "；流式兜底也未产出有效 JSON"))
 
 
 async def chat_with_tools(
@@ -655,9 +835,41 @@ async def chat_with_tools(
             max_tokens=config["max_tokens"] if max_tokens is None else max_tokens,
         )
     except Exception as e:
-        if _is_native_tools_unsupported(e):
-            raise LLMNativeToolsUnsupported(_format_err(e)) from e
-        raise LLMError(_format_err(e)) from e
+        # 流式兜底（2026-11-02 CloudPrime 实测）：部分中转端点非流式链路整体损坏
+        # （HTTP 200 包 404 错误体），流式同参正常。先流式重试一次，仍失败才按
+        # 原语义收口（Unsupported 降级 / LLMError）。正常端点不走这里。
+        try:
+            agg = await _stream_once(
+                config, messages, model=model, temperature=temperature,
+                max_tokens=max_tokens, timeout=timeout, tools=request_tools,
+            )
+        except Exception as e2:
+            if _is_native_tools_unsupported(e) or _is_native_tools_unsupported(e2):
+                raise LLMNativeToolsUnsupported(_format_err(e2)) from e2
+            raise LLMError(_format_err(e)) from e
+        content = str(agg.get("content") or "")
+        raw_tool_calls = [
+            {
+                "id": tc["id"], "type": "function",
+                "function": {"name": tc["name"], "arguments": tc["arguments"]},
+            }
+            for tc in (agg.get("tool_calls") or [])
+        ]
+        parsed_tool_calls = []
+        for tc in (agg.get("tool_calls") or []):
+            try:
+                args = json.loads(tc.get("arguments") or "{}")
+            except Exception:
+                args = {}
+            if not isinstance(args, dict):
+                args = {}
+            parsed_tool_calls.append({"id": tc["id"], "name": tc["name"], "arguments": args})
+        raw_message = {
+            "role": "assistant",
+            "content": content,
+            "tool_calls": raw_tool_calls,
+        }
+        return {"message": raw_message, "tool_calls": parsed_tool_calls}
     try:
         choice = resp.choices[0]
         message = choice.message
@@ -842,10 +1054,14 @@ def clean_by_schema(data: Any, schema: dict) -> tuple:
 # (system_config.llm_config > .env > 默认)。用同步 OpenAI 客户端。
 
 def _resolve_config(overrides: Optional[dict] = None) -> dict:
-    """把 overrides 合并进 DB 配置：仅当 overrides 给出非空值时覆盖。"""
+    """把 overrides 合并进 DB 配置：仅当 overrides 给出非空值时覆盖。
+
+    upstream_format 同样可覆盖——多供应商后，实测面板常拿「编辑中供应商」的协议
+    去测非启用端点，漏了这个键就会错用启用供应商的协议。
+    """
     config = _get_llm_config()
     if overrides:
-        for k in ("base_url", "api_key", "model"):
+        for k in ("base_url", "api_key", "model", "upstream_format"):
             v = overrides.get(k)
             if v:
                 config[k] = v
@@ -1239,11 +1455,15 @@ def _probe_anthropic(config: dict) -> dict:
 
 
 def test_connection(overrides: Optional[dict] = None) -> dict:
-    """实测一次 chat completion（同步，max_tokens=8）。返回 {success, message}。
+    """实测一次 chat completion（同步）。返回 {success, message}。
 
     成功 message 给人可读确认；失败 message 是真实错误（HTTP/鉴权/model 名等），
     供 AI 设置页「测试连接」按钮直接展示，不再被占位文案吞掉。
     upstream_format=anthropic 走 /v1/messages（OpenAI SDK 打不通该协议）。
+
+    max_tokens 给 2048（reasoning 模型思考就要吃掉几百上千 token，8 连「ping」的
+    正文都挤不出来——2026-11-02 CloudPrime glm-5.3-flash 实测）；非流式失败或空回
+    时再用流式探测兜底（部分中转端点非流式链路损坏、流式正常）。
     """
     config = _resolve_config(overrides)
     if not config.get("api_key"):
@@ -1254,16 +1474,44 @@ def test_connection(overrides: Optional[dict] = None) -> dict:
         return _test_connection_anthropic(config)
     try:
         from openai import OpenAI
-        client = OpenAI(base_url=config["base_url"], api_key=config["api_key"], timeout=20, max_retries=0)
-        resp = client.chat.completions.create(
-            model=config["model"],
-            messages=[{"role": "user", "content": "ping"}],
-            max_tokens=8,
-        )
-        reply = (resp.choices[0].message.content or "").strip()
+        client = OpenAI(base_url=config["base_url"], api_key=config["api_key"], timeout=60, max_retries=0)
+        reply = ""
+        try:
+            resp = client.chat.completions.create(
+                model=config["model"],
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=2048,
+            )
+            reply = (resp.choices[0].message.content or "").strip()
+        except Exception as ne:
+            # 非流式失败 → 流式探测兜底（CloudPrime 类端点：非流式 200 包 404 错误体；
+            # 流式本身也间歇空回——choices=[] 的 usage 空分片，需重试）
+            try:
+                chunks: list = []
+                for _attempt in range(1 + _STREAM_EMPTY_RETRIES):
+                    chunks = []
+                    stream = client.chat.completions.create(
+                        model=config["model"],
+                        messages=[{"role": "user", "content": "ping"}],
+                        max_tokens=2048,
+                        stream=True,
+                    )
+                    for chunk in stream:
+                        try:
+                            delta = chunk.choices[0].delta.content
+                        except (AttributeError, IndexError):
+                            continue
+                        if delta:
+                            chunks.append(str(delta))
+                    if chunks:
+                        break
+                reply = "".join(chunks).strip()
+            except Exception as se:
+                return {"success": False, "message": _format_err(se if str(se) else ne)}
         return {
             "success": True,
-            "message": f"连接成功 · 模型 {config['model']} 已响应",
+            "message": f"连接成功 · 模型 {config['model']} 已响应"
+                       + ("" if reply else "（流式通道正常，非流式空回）"),
             "reply": reply,
         }
     except Exception as e:
@@ -1282,7 +1530,7 @@ def _test_connection_anthropic(config: dict) -> dict:
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
-    payload = {"model": config["model"], "max_tokens": 8,
+    payload = {"model": config["model"], "max_tokens": 2048,
                "messages": [{"role": "user", "content": "ping"}]}
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=30)

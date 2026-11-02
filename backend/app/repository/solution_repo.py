@@ -39,6 +39,7 @@ class SolutionRepository:
             title=data["title"],
             sub=data.get("sub"),
             features=_j(data.get("features")),
+            cover_url=data.get("cover_url"),
             intro=data.get("intro"),
             content_md=data.get("content_md"),
             platforms=_j(data.get("platforms")),
@@ -55,7 +56,7 @@ class SolutionRepository:
         if not sol:
             return None
         now = datetime.now().isoformat()
-        for k in ("key", "scene_key", "scene", "title", "sub", "intro", "content_md"):
+        for k in ("key", "scene_key", "scene", "title", "sub", "cover_url", "intro", "content_md"):
             if k in data:
                 setattr(sol, k, data[k])
         for k in ("features", "platforms"):

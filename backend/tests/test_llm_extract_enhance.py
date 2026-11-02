@@ -78,17 +78,31 @@ def test_clean_by_schema_non_dict_returns_empty():
 # ============================================================
 
 def _fake_client(responses):
-    """responses: list of (content_str | Exception) 依次消费。"""
+    """responses: list of (content_str | Exception | ("stream", content_str)) 依次消费。
+
+    ("stream", content) 返回可 async 迭代的流式响应（模拟 _stream_once 兜底路径）。
+    """
     class _Completions:
         def __init__(self):
             self.responses = list(responses)
             self.calls = []
+
+        def _stream_response(self, content):
+            async def _agen():
+                # 单 chunk 全量：模拟流式返回正文
+                yield SimpleNamespace(choices=[SimpleNamespace(
+                    finish_reason="stop",
+                    delta=SimpleNamespace(content=content, tool_calls=None),
+                )])
+            return _agen()
 
         async def create(self, **kwargs):
             self.calls.append(kwargs)
             r = self.responses.pop(0)
             if isinstance(r, Exception):
                 raise r
+            if isinstance(r, tuple) and r[0] == "stream":
+                return self._stream_response(r[1])
             return SimpleNamespace(choices=[SimpleNamespace(
                 message=SimpleNamespace(content=r))])
 
@@ -138,6 +152,7 @@ def test_chat_json_retries_once_then_succeeds():
 def test_chat_json_raises_after_retries():
     comp, client = _fake_client([
         RuntimeError("boom"), RuntimeError("boom again"),
+        RuntimeError("stream boom"),   # 流式兜底也失败 → 仍收口 LLMError
     ])
     with patch("ai_office.llm_client._client", return_value=client), \
          patch("ai_office.llm_client._get_llm_config", return_value={
@@ -145,18 +160,34 @@ def test_chat_json_raises_after_retries():
              "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "probe_capabilities": {"supports_json_mode": True}}):
         with pytest.raises(llm_client.LLMError):
             asyncio.run(llm_client.chat_json([{"role": "user", "content": "hi"}]))
-    assert len(comp.calls) == 2
+    assert len(comp.calls) == 3
 
 
 def test_chat_json_empty_content_raises():
-    comp, client = _fake_client(["", ""])
+    comp, client = _fake_client(["", "", ""])
     with patch("ai_office.llm_client._client", return_value=client), \
          patch("ai_office.llm_client._get_llm_config", return_value={
              "base_url": "http://x", "api_key": "k", "model": "m",
              "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "probe_capabilities": {"supports_json_mode": True}}):
         with pytest.raises(llm_client.LLMError):
             asyncio.run(llm_client.chat_json([{"role": "user", "content": "hi"}]))
-    assert len(comp.calls) == 2
+    assert len(comp.calls) == 3
+
+
+def test_chat_json_stream_fallback_recovers_nonstream_failure():
+    """非流式链路整体损坏（CloudPrime 实测：200 包错误体/空回）→ 流式聚合兜底救回。"""
+    comp, client = _fake_client([
+        "not even close {{{",            # 非流式 json mode
+        "still no {{{",                  # 非流式降级重试
+        ("stream", '{"form": "4U"}'),    # 流式聚合（_stream_once 走 stream=True 路径）
+    ])
+    with patch("ai_office.llm_client._client", return_value=client), \
+         patch("ai_office.llm_client._get_llm_config", return_value={
+             "base_url": "http://x", "api_key": "k", "model": "m",
+             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "probe_capabilities": {"supports_json_mode": True}}):
+        data = asyncio.run(llm_client.chat_json([{"role": "user", "content": "hi"}]))
+    assert data["form"] == "4U"
+    assert comp.calls[-1].get("stream") is True, "第 3 次调用是流式兜底"
 
 
 # ============================================================

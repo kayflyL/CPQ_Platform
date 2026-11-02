@@ -535,18 +535,18 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   display: flex;
   flex-direction: column;
   gap: 18px;
-  --sheet-panel: var(--cpq-bg-secondary);
-  --sheet-surface: var(--cpq-bg-secondary);
-  --sheet-head: var(--cpq-bg-tertiary);
+  /* 表格调色板 —— 暗色用白半透明玻璃：透出宿主页/卡底色，与玻璃输入框（glass-2）同材质，
+     不再是一块独立灰板；浅色主题实色白由下方 light 块给出 */
+  --sheet-surface: var(--cpq-overlay-w3);
+  --sheet-head: var(--cpq-overlay-w8);
   --sheet-line: var(--cpq-border-secondary);
   --sheet-line-strong: var(--cpq-border-primary);
-  --sheet-hover: var(--cpq-overlay-w4);
+  --sheet-hover: var(--cpq-overlay-w6);
   --sheet-focus: var(--cpq-overlay-a10);
-  --sheet-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  --sheet-shadow: none;
 }
 /* 浅色主题下的表格调色板，与 SchemeEditor 的 .flow-sheet 保持一致 */
 :root[data-theme='light'] .req-form {
-  --sheet-panel: #ffffff;
   --sheet-surface: #ffffff;
   --sheet-head: #f5f8fd;
   --sheet-line: #e7eef7;

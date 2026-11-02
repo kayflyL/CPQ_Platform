@@ -107,6 +107,32 @@ function setScene(k: string) { activeScene.value = k }
 function open(sol: Solution) { router.push(`/strategies/solutions/${sol.key}`) }
 function create() { router.push('/strategies/solutions/new') }
 function enter(to: string) { router.push(to) }
+
+/* ── 杂志卡辅助：摘要 / 阅读时长 / 日期 ── */
+// 摘要：intro 去 Markdown 标记 → 纯文本；无 intro 回落 sub
+function plainOf(sol: Solution): string {
+  const src = sol.intro || sol.sub || ''
+  return src.replace(/[#*`>\-\[\]()!]/g, '').replace(/\s+/g, ' ').trim()
+}
+// 阅读时长：中文按字数 / 400字每分钟，英文按词数 / 200wpm，最低 1 分钟
+function readMinutesOf(sol: Solution): number {
+  const text = (sol.intro || '') + ' ' + (sol.content_md || '')
+  const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length
+  const words = text.replace(/[\u4e00-\u9fff]/g, ' ').split(/\s+/).filter(Boolean).length
+  return Math.max(1, Math.round(cjk / 400 + words / 200))
+}
+function dateOf(sol: Solution): string {
+  const raw = sol.updated_at || sol.created_at
+  if (!raw) return ''
+  const d = new Date(raw)
+  return isNaN(d.getTime()) ? '' : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
+}
+// 自动封面：按 key 做确定性伪随机，同一方案每次渲染同一图案（无闪烁）
+function coverSeedOf(key: string): number {
+  let h = 0
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0
+  return h
+}
 </script>
 
 <template>
@@ -162,13 +188,27 @@ function enter(to: string) { router.push(to) }
           v-for="(sol, i) in list"
           :key="sol.key"
           class="sol-card"
-          :style="{ '--h': hueOf(sol.scene_key), '--i': i }"
+          :style="{ '--h': hueOf(sol.scene_key), '--i': i, '--seed': coverSeedOf(sol.key) }"
           @click="open(sol)"
         >
-          <div class="plate-row"><span class="plate">{{ sol.scene }}</span></div>
-          <div class="card-title">{{ sol.title }}</div>
-          <div v-if="sol.sub" class="card-sub">{{ sol.sub }}</div>
-          <span class="ar">→</span>
+          <div class="cover">
+            <img v-if="sol.cover_url" :src="sol.cover_url" alt="">
+            <div v-else class="cover-gen">
+              <span class="cover-mono">{{ sol.scene }}</span>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="meta-row">
+              <span class="plate">{{ sol.scene }}</span>
+              <span v-if="dateOf(sol)" class="meta-date">{{ dateOf(sol) }}</span>
+            </div>
+            <div class="card-title">{{ sol.title }}</div>
+            <div v-if="plainOf(sol)" class="card-sub">{{ plainOf(sol) }}</div>
+            <div class="foot-row">
+              <span class="read-min">约 {{ readMinutesOf(sol) }} 分钟阅读</span>
+              <span class="read-more">阅读全文 <span class="ar">→</span></span>
+            </div>
+          </div>
         </article>
       </div>
     </main>
@@ -268,36 +308,74 @@ function enter(to: string) { router.push(to) }
 .hero-cta .sp { font-size: 15px; }
 .hero-note { font-size: 11.5px; color: var(--cpq-text-muted); }
 
-/* 方案卡：铭牌 + 标题 + 一句话；hover 走 Vercel 口径（100ms 颜色状态） */
-.sol-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 14px; }
+/* 方案卡：杂志式（封面 + 元信息 + 标题 + 摘要 + 阅读全文）；hover 走 Vercel 口径（100ms 颜色状态） */
+.sol-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--cpq-space-5); }
 .sol-card {
-  position: relative; display: flex; flex-direction: column; gap: 8px; padding: 18px 18px 20px; cursor: pointer;
-  background: var(--cpq-glass-card-bg); border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-lg);
+  position: relative; display: flex; flex-direction: column; overflow: hidden; cursor: pointer;
+  background: var(--cpq-glass-card-bg); border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-xl);
   transition: color .1s, background-color .1s, border-color .1s, box-shadow .1s;
   animation: rise .4s cubic-bezier(.16, 1, .3, 1) backwards;
   animation-delay: calc(var(--i) * 40ms);
 }
 .sol-card:hover {
   background: var(--hover-bg);
-  border-color: var(--h-ring);
-  box-shadow: 0 0 0 1px var(--h-ring);
+  border-color: color-mix(in srgb, var(--h) 50%, var(--cpq-glass-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--h) 50%, transparent);
 }
 .sol-card:hover .card-title { color: var(--cpq-text-primary); }
-.sol-card:hover .card-sub { color: var(--cpq-text-secondary); }
-.sol-card:hover .ar { color: var(--cpq-text-primary); }
+.sol-card:hover .read-more { color: var(--h); }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
 
-.plate-row { display: flex; align-items: center; gap: 8px; }
+/* 封面：固定高度横带（不抢卡片主体），自动封面用场景色渐变 + seed 驱动的图案角度/位置（确定性，无闪烁） */
+.cover { height: 116px; position: relative; overflow: hidden; border-bottom: 1px solid var(--cpq-glass-border); flex-shrink: 0; }
+.cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover-gen {
+  position: absolute; inset: 0; display: flex; align-items: flex-end;
+  padding: var(--cpq-space-3) var(--cpq-space-4);
+  background:
+    radial-gradient(120% 200% at calc(78% + (var(--seed) % 3) * 6%) calc(-40% + (var(--seed) % 4) * 14%),
+      color-mix(in srgb, var(--h) 42%, transparent), transparent 62%),
+    radial-gradient(90% 160% at 8% 130%, color-mix(in srgb, var(--h) 20%, transparent), transparent 58%),
+    var(--cpq-overlay-w6);
+}
+.cover-gen::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background-image: linear-gradient(color-mix(in srgb, var(--h) 10%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--h) 10%, transparent) 1px, transparent 1px);
+  background-size: 30px 30px;
+  transform: rotate(calc((var(--seed) % 7 - 3) * 2deg)) scale(1.4);
+  mask-image: linear-gradient(115deg, transparent 30%, #000 100%);
+}
+.cover-mono {
+  position: relative; z-index: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--cpq-font-size-xs); letter-spacing: .16em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--h) 82%, var(--cpq-text-primary));
+}
+
+.card-body { display: flex; flex-direction: column; gap: var(--cpq-space-2); padding: var(--cpq-space-4); flex: 1; }
+.meta-row { display: flex; align-items: center; gap: var(--cpq-space-2); }
 .plate {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10.5px; letter-spacing: .04em;
+  font-size: var(--cpq-font-size-xs); letter-spacing: .04em;
   color: var(--h); background: color-mix(in srgb, var(--h) 13%, transparent);
   border: 1px solid color-mix(in srgb, var(--h) 45%, transparent);
   padding: 2px 9px; border-radius: var(--cpq-radius-xs);
 }
-.card-title { font-size: 15.5px; font-weight: 600; line-height: 1.45; color: var(--cpq-text-primary); transition: color .1s; }
-.card-sub { font-size: 12.5px; color: var(--cpq-text-secondary); line-height: 1.65; transition: color .1s; }
-.ar { position: absolute; right: 16px; bottom: 16px; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-base); transition: color .1s; }
+.meta-date { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+.card-title {
+  font-size: var(--cpq-font-size-lg); font-weight: 700; line-height: 1.45; color: var(--cpq-text-primary);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  transition: color .1s;
+}
+.card-sub {
+  font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); line-height: 1.65; transition: color .1s;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.foot-row { display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: var(--cpq-space-2); }
+.read-min { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+.read-more { font-size: var(--cpq-font-size-sm); font-weight: 600; color: var(--cpq-text-secondary); transition: color .1s; }
+.read-more .ar { font-size: var(--cpq-font-size-sm); }
 
 .sol-empty { color: var(--cpq-text-muted); font-size: 13px; padding: 24px 0; text-align: center; }
 @media (prefers-reduced-motion: reduce) { .sol-card { animation: none !important; } }

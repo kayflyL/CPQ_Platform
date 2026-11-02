@@ -87,6 +87,7 @@ declare module 'vue' {
     CapabilityShowcase: typeof import('./src/components/server-config/CapabilityShowcase.vue')['default']
     ChassisCard: typeof import('./src/components/server-config/ChassisCard.vue')['default']
     ColleaguePersonaCard: typeof import('./src/components/assistant/ColleaguePersonaCard.vue')['default']
+    ConfigSubmitPanel: typeof import('./src/components/public/ConfigSubmitPanel.vue')['default']
     ConfigWizard: typeof import('./src/components/server-config/ConfigWizard.vue')['default']
     CostAnalysisPanel: typeof import('./src/components/server-admin/CostAnalysisPanel.vue')['default']
     CostSheetEditor: typeof import('./src/components/opportunity/CostSheetEditor.vue')['default']
