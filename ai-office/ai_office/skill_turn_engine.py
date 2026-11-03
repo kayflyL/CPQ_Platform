@@ -11,6 +11,7 @@ from ai_office import host_ports as hp
 import asyncio
 import logging
 import json
+import os
 import time
 from ai_office.agent_react import run_stream_chat_loop
 from ai_office.skill_memory import _brain_note_summary, _slots_view
@@ -243,6 +244,9 @@ class _SkillTurnRuntime:
             # 工作记忆跨轮承接：上一回合的工具轨迹本回合仍要可见（截 3 条，与 _note 同一窗口）。
             # 不承接的话 engine 每轮重建 → mem.brain_notes 只剩「本回合」一条，检索轨迹每轮归零。
             "brain_notes": list(self.mem.get("brain_notes") or [])[-3:],
+            # 反问预算（跨 pause-resume 累计，随 mem 持久；run() 终态镜像回 mem，done 清零）：
+            # 之前只有 one_ask_per_turn 的单回合防重，跨周期模型可以无限问下去（闲聊 4 卡实测）。
+            "ask_user_used": int(self.mem.get("ask_user_used") or 0),
         }
         # B2 读回：商机需求草稿是线索登记表的真相（对话期间每轮原地更新）。回合开始把它
         # 播种回本轮工作副本 ext；写模式非 draft（试运行/无商机）或库里还没有草稿时不动。
@@ -311,11 +315,18 @@ class _SkillTurnRuntime:
         self._brain_steps = list(steps)
 
     async def _capturing_sink(self, payload):
-        """流式旁白捕获：既攒本次回合的旁白，也原样转发给上层事件槽。"""
+        """流式旁白捕获：攒本次回合的旁白；chunk 不再逐字转发上层事件槽。
+
+        过程旁白与面向用户的提问曾是同一条渲染通道——大脑回合里旁白以 chunk 流进正文区，
+        看起来像助手在向用户提问，但流程根本没停，用户回答被队列收走、与 pause 卡对不上。
+        现在旁白只在节点边界随产物落库（fill_nar → persist_and_broadcast），brain 回合内
+        不再直播；thinking/工具活动仍实时转发（活动感不受影响），真提问走 pause 载荷。
+        """
         sub = (payload or {}).get("sub") or {}
         if sub.get("kind") == "chunk" and sub.get("delta"):
             self.narration.append(sub["delta"])
             self.node_narration.setdefault(self._cur_step.get("key") or "_", []).append(sub["delta"])
+            return
         if self.event_sink:
             await self.event_sink(payload)
 
@@ -559,11 +570,20 @@ class _SkillTurnRuntime:
                               + _sf_text)
 
         user_msg = ("【客户消息】\n" + (self.full_text or "（无）"))
+        history = self.history or []
+        # 历史去重（P0）：需求原文每步都经 user_msg 全文注入，12 条历史窗口里若还留着同一段
+        # 原文（首轮的 user 消息=本回合 full_text），同一事实进 prompt 两三遍（user 消息+历史
+        # +登记表视图）。只剔除**正文完全含于本回合 full_text** 的 user 消息——后续补充回答
+        # （不含于 full_text）是它们唯一的 prompt 载体，原样保留。
+        _ft = "".join(str(self.full_text or "").split())
+        if _ft:
+            history = [m for m in history
+                       if not (isinstance(m, dict) and (m or {}).get("role") == "user"
+                               and "".join(str((m or {}).get("content") or "").split()) in _ft)]
         # document 产物节点：历史里的旧报告是复读毒源（锚定效应，且统计数字已过期必须重查）。
         # 生成新报告的上下文里它们只有害没有用——组上下文时确定性剔除（「数据范围：」是
         # 契约规定的报告首行指纹）。这是该步插座属性驱动的输入卫生，非流类型特判；
         # 出口终检只作保险丝，不承担清洁上下文的责任。
-        history = self.history or []
         _tgt = node_cfg.get("target")
         _arts = _tgt.get("artifacts") if isinstance(_tgt, dict) else None
         if any(isinstance(a, dict) and str(a.get("kind") or "") == "document" for a in (_arts or [])):
@@ -581,6 +601,26 @@ class _SkillTurnRuntime:
             llm_temperature=self.temperature if isinstance(self.temperature, (int, float)) else 0.0,
             context_block=context_block,
         )
+        if os.environ.get("CPQ_CTX_PROFILE"):
+            # 组成剖析（P0 上下文去重的取证口径，env 门控零行为影响）：一次大脑调用的
+            # prompt 各段字符数——改前改后同一口径对比，砍哪儿以数据为准。
+            _hist_chars = sum(len(str((m or {}).get("content") or "")) for m in (history or [])[-12:])
+            _hist_user_chars = sum(len(str((m or {}).get("content") or ""))
+                                   for m in (history or [])[-12:]
+                                   if (m or {}).get("role") == "user")
+            logger.info(
+                "ctx_profile step=%s sys=%d(persona=%d rules=%d know=%d) "
+                "ctxblock=%d(slots=%d notes=%d rows=%d findings=%d) "
+                "hist12=%d(user=%d) usermsg=%d tools=%d",
+                step_key, len(sys_prompt), len(self.persona or ""),
+                len(manual_rules_block(self.manual_rules) or ""),
+                len(self._knowledge_for(step_key) or ""),
+                len(context_block), len(json.dumps(_slots, ensure_ascii=False)),
+                len("\n".join(str(n) for n in (self.mem.get("brain_notes") or [])[-2:])),
+                len(json.dumps(_rows_all or _rows_ctx, ensure_ascii=False)) if (_rows_ctx or _rows_all) else 0,
+                len(_sf_text),
+                _hist_chars, _hist_user_chars,
+                len(user_msg), len(tools))
         return user_msg, loop_kwargs
 
     async def _settle(self, result: dict, step_key: str) -> dict:
@@ -974,15 +1014,21 @@ class _SkillTurnRuntime:
         self._prepare()
         await self._emit_pipeline_start()
         engine = self.engine
-        pending = [s for s in self._brain_steps if str(s.get("step") or "") not in engine["steps_done"]]
-        while pending:
-            _act = await self._run_one_step(pending[0])
-            if _act in ("wait", "pause", "failed"):
-                return engine
-            if _act == "deliver":
-                break
+        try:
             pending = [s for s in self._brain_steps if str(s.get("step") or "") not in engine["steps_done"]]
-        return await self._deliver()
+            while pending:
+                _act = await self._run_one_step(pending[0])
+                if _act in ("wait", "pause", "failed"):
+                    return engine
+                if _act == "deliver":
+                    break
+                pending = [s for s in self._brain_steps if str(s.get("step") or "") not in engine["steps_done"]]
+            return await self._deliver()
+        finally:
+            # 反问预算镜像回 mem（随回合终态持久）：done 清零开新账，暂停/失败保留供续跑累计。
+            engine["ask_user_used"] = int(engine.get("ask_user_used") or 0)
+            self.mem["ask_user_used"] = (0 if engine.get("engine_result") == "done"
+                                         else engine["ask_user_used"])
 
 
 async def run_skill_agent_turn(*, thread_id: str, role_key: str, persona: str,

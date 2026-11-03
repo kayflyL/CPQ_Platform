@@ -19,6 +19,7 @@ from ai_office import host_ports as hp
 import asyncio
 import json
 import logging
+import re
 import time
 
 from ai_office.agent_react import run_stream_chat_loop
@@ -34,6 +35,18 @@ from typing import Any, Callable, Optional
 
 
 logger = logging.getLogger(__name__)
+
+# 意图闸的形状判据（窄触发，只看文本形状不看业务语义）：≤16 字且不含数字/量词/域名实词
+# ——寒暄与客套（「你好」「在吗」「谢谢你」）落聊天轮；带任何需求形状（「2台」「1U」
+# 「服务器」「配置」）一律放行进引擎。
+_SMALLTALK_DOMAIN_RE = re.compile(
+    r"[0-9０-９]|[台颗路个块核托]|[Gg]B|TB|型号|服务器|平台|计算|存储|内存|硬盘"
+    r"|网卡|电源|机箱|GPU|CPU|RAID|报价|预算|采购|需求|方案|配置|选型")
+
+
+def _smalltalk_shaped(text: str) -> bool:
+    t = str(text or "").strip()
+    return bool(t) and len(t) <= 16 and not _SMALLTALK_DOMAIN_RE.search(t)
 
 
 def _failure_reply(failure: dict) -> str:
@@ -762,6 +775,15 @@ class _ChatTurnRuntime:
                 "card_emitted": card_emitted,
                 "narration": _merged_narration(self.result_ctx)}
 
+    def _fresh_session(self) -> bool:
+        """会话零进度：无已完成步骤、无中断点、无待答反问，登记表一个字段都没落过。"""
+        from ai_office.skill_memory import _slots_view
+        mem = self.mem
+        if mem.get("steps_done") or mem.get("engine_pause") or mem.get("pending_asks"):
+            return False
+        _ext = mem.get("ext") if isinstance(mem.get("ext"), dict) else {}
+        return not any(v for v in _slots_view(self.ext or _ext).values())
+
     async def run(self) -> Optional[dict]:
         """对话回合主干：装配 → 点选落槽 → 对话/直进引擎 → done / gaps 分派。"""
         from ai_office.skill_plan_runtime import engine_result_of
@@ -769,6 +791,15 @@ class _ChatTurnRuntime:
         if _early is not None:
             return _early
         self._apply_card_selections()
+        # 意图闸（空会话 + 寒暄形状 → 落回聊天轮）：需求画布是「输入即上下文」的强管线，
+        # 试运行直启连一句寒暄也全管线装配、逐节点反问（实测「你好」61 次 LLM 调用、
+        # 4 轮 156s、4 张重复卡）。窄触发：会话已有任何进度（步骤/暂停/待答/登记表）
+        # 一律放行进引擎，形状信号只看文本本身。
+        if (self.force_submit and self._fresh_session()
+                and _smalltalk_shaped(self.user_text)):
+            logger.info("意图闸命中（空会话+寒暄形状）：落回聊天轮 thread=%s", self.thread_id)
+            self.force_submit = False
+            self.click_fast_path = False
         _chat = await self._chat_phase()
         if _chat is not None:
             return _chat

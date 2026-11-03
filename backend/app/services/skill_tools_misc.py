@@ -178,6 +178,17 @@ def tool_ask_user(args: dict) -> dict:
     if not isinstance(asks, list) or asks:
         return {"ok": False, "error": "one_ask_per_turn",
                 "message": "本轮已登记待答问题（one_ask_per_turn：本回合不再接受新问题）"}
+    # 反问预算（任务级，跨 pause-resume 周期累计）：one_ask_per_turn 只防单回合内连问，
+    # 防不住「暂停→回答→再问」无限循环（闲聊一句寒暄连出 4 张卡实测）。超额=错误事实
+    # 回喂大脑，逼它基于已登记信息与显式假设收口；引擎不在场（纯对话回合）不受此限。
+    engine = ctx.get("engine") if isinstance(ctx.get("engine"), dict) else None
+    if engine is not None:
+        used = int(engine.get("ask_user_used") or 0)
+        if used >= 6:
+            return {"ok": False, "error": "ask_budget_exhausted",
+                    "message": f"本任务反问预算已用完（累计 {used} 次）：基于已登记信息继续推进，"
+                               "缺项按显式假设收口，不要再调用本工具"}
+        engine["ask_user_used"] = used + 1
     slot_arg = str((args or {}).get("slot") or "").strip()
     row_arg = str((args or {}).get("row") or "").strip()
     reopen = bool((args or {}).get("reopen"))

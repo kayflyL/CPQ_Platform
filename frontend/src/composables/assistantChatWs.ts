@@ -69,11 +69,32 @@ export interface AssistantChatWsState {
 
 /** 新消息发送时收起已完成的任务胶囊（running/paused 保留——任务还在进行） */
 export function resetTaskUI(state: AssistantChatWsState) {
+  cancelTaskDismiss(state)
   if (state.taskPhase !== 'done') return
   state.nodeTraces = []
   state.taskPhase = ''
   state.taskPause = null
   state.taskTitle = ''
+}
+
+// done 态自动退场：pipeline_done 只把 phase 置 done、从不清 traces，「已完成 3/3 ✓」
+// 的胶囊会一直挂到用户下次说话（没有退场逻辑）。done 后延时自动收起；期间用户发消息
+// 仍走 resetTaskUI 立即收起，新回合 pipeline_start 取消未触发的退场。
+const TASK_DISMISS_MS = 12_000
+const doneTimers = new WeakMap<AssistantChatWsState, ReturnType<typeof setTimeout>>()
+
+function scheduleTaskDismiss(state: AssistantChatWsState) {
+  cancelTaskDismiss(state)
+  doneTimers.set(state, setTimeout(() => {
+    doneTimers.delete(state)
+    if (state.taskPhase === 'done') resetTaskUI(state)
+  }, TASK_DISMISS_MS))
+}
+
+function cancelTaskDismiss(state: AssistantChatWsState) {
+  const old = doneTimers.get(state)
+  if (old) clearTimeout(old)
+  doneTimers.delete(state)
 }
 
 // ── 思考流合帧（2026-09-05）：reasoning token 逐个到达，直写状态 = 每 token 一次
@@ -128,7 +149,10 @@ export function adoptTurnEnd(state: AssistantChatWsState) {
   state.streamingText = ''
   state.queuedCount = 0
   state.toolTraces = []
-  if (state.taskPhase === 'running') state.taskPhase = 'done'
+  if (state.taskPhase === 'running') {
+    state.taskPhase = 'done'
+    scheduleTaskDismiss(state)
+  }
 }
 
 /**
@@ -203,6 +227,7 @@ export function handleAssistantChatWsEvent(
   switch (data?.type) {
     case 'pipeline_start': {
       // 由后端算好的完整步骤骨架预置计划条，避免「只显示已跑节点」的闪烁/截断。
+      cancelTaskDismiss(state)
       state.nodeTraces = (Array.isArray(data.steps) ? data.steps : []).map((s: any) => ({
         step: String(s.key || s.step || ''),
         label: String(s.label || s.key || s.step || ''),
@@ -271,6 +296,7 @@ export function handleAssistantChatWsEvent(
       state.running = false
       state.streamingText = ''
       state.taskPhase = 'done'
+      scheduleTaskDismiss(state)
       // 方案卡消息必须以完整消息对象入列（kind=business_artifact + data JSON 串）：
       // 裸字符串没有 role/kind/content，落进消息组件的直播兜底分支=永久三点泡、
       // 卡片不渲染（2026-09-06 四犯定案）。后端现已随事件带落库对象；此处对旧格式
@@ -295,6 +321,7 @@ export function handleAssistantChatWsEvent(
       state.running = false
       state.streamingText = ''
       state.taskPhase = 'done'
+      scheduleTaskDismiss(state)
       return true
     case 'pipeline_done':
       state.waiting = false
@@ -303,6 +330,7 @@ export function handleAssistantChatWsEvent(
       state.streamingText = ''
       state.taskPhase = 'done'
       state.taskPause = null
+      scheduleTaskDismiss(state)
       return true
     case 'pipeline_paused':
       state.waiting = false

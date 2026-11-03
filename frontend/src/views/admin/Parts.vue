@@ -1441,20 +1441,30 @@ const openCreatePartModal = () => {
   partModalVisible.value = true
 }
 
-const openEditPartModal = (part: any) => {
+// 列表行不含 specs/compat_servers（列表接口不返回这两个字段），而 update_part 是全量替换语义——
+// 直接用列表行填表保存会清空已有参数，所以任何入口都先拉详情再填表
+const openEditPartModal = async (part: any) => {
+  let full = part
+  try {
+    const res = await axios.get(`/api/admin/kp/parts/${part.id}`)
+    full = res.data
+  } catch {
+    message.error('加载配件详情失败')
+    return
+  }
   partForm.value = {
-    id: part.id,
-    name: part.name,
-    category_id: part.category_id,
-    brand: part.brand || '',
-    oem_sku: part.oem_sku || '',
-    alt_sku: part.alt_sku || '',
-    short_desc: part.short_desc || '',
-    condition: part.condition || '全新',
-    lead_time: part.lead_time || '',
-    specs: (part.specs || []).map((s: any) => ({ key: s.spec_key, value: s.spec_value || '' })),
-    compat_servers: (part.compat_servers || []).map((c: any) => c.server_model),
-    applicable_series: part.applicable?.series || [],
+    id: full.id,
+    name: full.name,
+    category_id: full.category_id,
+    brand: full.brand || '',
+    oem_sku: full.oem_sku || '',
+    alt_sku: full.alt_sku || '',
+    short_desc: full.short_desc || '',
+    condition: full.condition || '全新',
+    lead_time: full.lead_time || '',
+    specs: (full.specs || []).map((s: any) => ({ key: s.spec_key, value: s.spec_value || '' })),
+    compat_servers: (full.compat_servers || []).map((c: any) => c.server_model),
+    applicable_series: full.applicable?.series || [],
   }
   partModalVisible.value = true
 }
