@@ -121,7 +121,9 @@ def set_default(template_id: int):
 
 # ── 上传 Excel ──
 
-@router.post("/upload", dependencies=[Depends(require_perms("page.settings.templates"))])
+# 仅做格式转换（Excel→Univer snapshot，无持久化）；附件预览弹窗也走这里，
+# 故只挂路由级登录门槛，不要求模板管理权限（曾致全站非 admin 预览 Excel 403）。
+@router.post("/upload")
 async def upload_excel(file: UploadFile = File(...)):
     """
     上传 Excel 文件 → 转为 Univer workbook_snapshot 格式
