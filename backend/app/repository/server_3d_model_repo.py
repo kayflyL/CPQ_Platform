@@ -21,7 +21,7 @@ def _normalize(data: dict) -> dict:
 
 class Server3dModelRepository:
 
-    _FIELDS = {"name", "layout_config"}
+    _FIELDS = {"name", "layout_config", "kind", "part_type"}
 
     def _with_bindings(self, c, rows: List[dict]) -> List[dict]:
         """按行集合批量取绑定机型id,填进每行 model_ids。"""
@@ -63,13 +63,13 @@ class Server3dModelRepository:
         return out
 
     def get_by_model(self, model_id: int) -> Optional[dict]:
-        """配置页反查:该机型绑定着的3D模型(多个取最新登记的一条)。"""
+        """配置页反查:该机型绑定着的3D整机模型(多个取最新登记的一条;部件模型不参与绑定)。"""
         with l6_engine.connect() as c:
             r = c.execute(text(
                 """
                 SELECT m.* FROM l6.server_3d_models m
                 JOIN l6.server_3d_model_bindings b ON b.model_3d_id = m.id
-                WHERE b.model_id = :mid
+                WHERE b.model_id = :mid AND COALESCE(m.kind, 'machine') = 'machine'
                 ORDER BY m.id DESC LIMIT 1
                 """
             ), {"mid": model_id}).first()

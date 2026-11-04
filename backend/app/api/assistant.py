@@ -790,7 +790,13 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
     rk = (role_key or "").strip() or str(thread.get("colleague_role_key") or "").strip() or "assistant"
     mem = _load_mem(thread_id, rk)
     last_card = mem.get("last_card") or {}
-    meta = last_card.get("pick_meta") or {}
+    meta_raw = last_card.get("pick_meta") or {}
+    # 合批多问卡（2026-11-04）：pick_meta 按槽位字典留底（{"__multi__": True, "slots": {...}}），
+    # 自选下拉按当前题的 slot 取各自的行候选；单卡仍是旧的单对象形状。
+    if isinstance(meta_raw, dict) and meta_raw.get("__multi__"):
+        meta = (meta_raw.get("slots") or {}).get(slot) or {}
+    else:
+        meta = meta_raw
     if not meta:
         raise HTTPException(status_code=409, detail="当前选项卡不支持自选（任务进行中的配件推荐卡才可）")
 

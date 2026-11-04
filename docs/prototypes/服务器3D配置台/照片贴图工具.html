@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>照片贴图工具 · 方盒参照标定 v2</title>
+<style>
+  :root{ --bg:#0e1626; --line:rgba(255,255,255,.12); --tx:#e8edf5; --tx2:#9aa7ba; --mint:#7ee0c3 }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
+  #stage{position:fixed;inset:0}
+  .hud{position:fixed;left:16px;top:14px;z-index:2}
+  .hud h1{font-size:16px;font-weight:700}
+  .hud p{font-size:12px;color:var(--tx2);margin-top:2px}
+  .panel{position:fixed;right:16px;top:14px;z-index:2;display:flex;flex-direction:column;gap:8px;width:262px;
+         max-height:calc(100vh - 90px);overflow-y:auto}
+  .card{background:rgba(13,20,32,.8);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .kv{font-size:12px;color:var(--tx2)}
+  .kv b{color:var(--tx)}
+  .widebtn{width:100%;padding:7px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.04);
+           color:var(--tx2);font-size:12.5px;cursor:pointer;margin-top:6px}
+  .widebtn:hover{border-color:rgba(126,224,195,.5);color:var(--tx)}
+  .dims{display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap}
+  .dims label{display:flex;flex-direction:column;font-size:11px;color:var(--tx2)}
+  .dims input{width:60px;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px;color:var(--tx);padding:3px 6px}
+  #rebuild{width:100%;padding:5px;border-radius:7px;border:1px solid var(--line);background:rgba(126,224,195,.1);
+           color:var(--mint);cursor:pointer;margin-top:4px}
+  /* 面列表 */
+  .frow{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:9px;padding:6px 8px;margin-top:6px;cursor:pointer}
+  .frow.sel{border-color:rgba(126,224,195,.55)}
+  .frow .tag{font-size:12px;font-weight:700;color:var(--tx);width:20px;text-align:center}
+  .frow .meta{flex:1;min-width:0}
+  .frow .meta .sz{font-size:11px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-align:left}
+  .frow .meta .ph{font-size:11px;color:var(--mint);white-space:nowrap;overflow:hidden;text-align:left;text-overflow:ellipsis}
+  .frow button{font-size:11px;background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--tx2);
+               border-radius:6px;padding:3px 8px;cursor:pointer;white-space:nowrap}
+  .frow button:hover{color:var(--tx);border-color:rgba(126,224,195,.5)}
+  /* 选中照片控制 */
+  .ctl{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:6px}
+  .ctl label{display:flex;flex-direction:column;font-size:11px;color:var(--tx2)}
+  .ctl input{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px;color:var(--tx);padding:3px 6px;font-size:12px}
+  .btnrow{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+  .btnrow button{flex:1;font-size:11.5px;background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--tx2);
+                 border-radius:6px;padding:4px 2px;cursor:pointer;min-width:56px}
+  .btnrow button:hover{color:var(--tx);border-color:rgba(126,224,195,.5)}
+  .snaprow{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:var(--tx2)}
+  .snaprow input[type=checkbox]{accent-color:#7ee0c3}
+  .hint{position:fixed;left:16px;bottom:14px;z-index:2;font-size:12px;color:var(--tx2);max-width:600px}
+  .hint b{color:var(--mint)}
+  #toast{position:fixed;left:50%;bottom:56px;transform:translateX(-50%);background:rgba(13,20,32,.92);
+         border:1px solid rgba(126,224,195,.5);color:var(--tx);padding:8px 16px;border-radius:10px;
+         font-size:13px;opacity:0;transition:.25s;pointer-events:none;z-index:3}
+  #toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div class="hud">
+  <h1>照片贴图工具 · 方盒参照标定 v2</h1>
+  <p>每面一张照片 · 照片永远贴在面上拖不出去 · 位移有数值框/方向键微调 · 磁吸对齐面缘与其他照片</p>
+</div>
+<div class="panel">
+  <div class="card">
+    <div class="kv">盒体尺寸(mm)——单位即毫米</div>
+    <div class="dims">
+      <label>宽<input type="number" id="dimW" value="448"></label>
+      <label>高<input type="number" id="dimH" value="178"></label>
+      <label>深<input type="number" id="dimD" value="650"></label>
+    </div>
+    <button id="rebuild">重建盒体</button>
+  </div>
+  <div class="card">
+    <div class="kv">六个面 · 各自上传（自动附到该面）</div>
+    <div id="faceList"></div>
+    <input type="file" id="faceFile" accept="image/*" style="display:none">
+    <button class="widebtn" id="demoBtn">载入示例（本机 refs 三视图）</button>
+  </div>
+  <div class="card">
+    <div class="kv" id="selTitle">选中照片</div>
+    <div id="selBody" style="display:none">
+      <div class="ctl">
+        <label>位移U (mm)<input type="number" id="inU" step="0.5"></label>
+        <label>位移V (mm)<input type="number" id="inV" step="0.5"></label>
+        <label>显示宽 (mm)<input type="number" id="inW" step="1"></label>
+        <label>显示高 (mm)<input type="number" id="inH" step="1"></label>
+        <label>透明度 (%)<input type="number" id="inO" step="5" min="10" max="100"></label>
+      </div>
+      <div class="snaprow"><input type="checkbox" id="lockAR" checked> 锁定长宽比（取消勾选后显示宽/显示高可分别调，自由改比例）</div>
+      <div class="btnrow">
+        <button id="btnCenter">居中</button>
+        <button id="btnContain">适配(完整)</button>
+        <button id="btnCover">铺满</button>
+        <button id="btnRot">旋转90°</button>
+        <button id="btnMirror">镜像</button>
+        <button id="btnDel">删除</button>
+      </div>
+      <div class="kv" id="calib" style="margin-top:6px"></div>
+      <div class="snaprow"><input type="checkbox" id="snapOn" checked> 磁吸（面缘/中心/其他照片边，5mm 内吸附）</div>
+      <div class="kv" style="margin-top:4px">方向键 = 1mm 微调（Shift = 10mm）；拖照片中间=移动，拖边缘/角=改大小（都只在所在面内）</div>
+    </div>
+  </div>
+  <div class="card">
+    <button class="widebtn" id="exportBtn">导出标定 JSON</button>
+  </div>
+</div>
+<div class="hint">流程：点某个面的「上传」→ 照片自动附到该面并<b>自动转到该面视角</b> → 拖中间=移动（磁吸），<b>拖边缘/角=改大小</b>（缩到贴面缘自动吸附）→ 尺寸栏改真实值后「重建盒体」→ 导出 photo-calib.json。<b>点盒体任意面或面行</b>都会选中并亮绿色高亮。方向不对用「旋转90°/镜像」——方向由人定。</div>
+<div id="toast"></div>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+
+/* ===== 场景基础 ===== */
+let W = 448, H = 178, D = 650
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x0e1626)
+const app = document.getElementById('stage')
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setSize(innerWidth, innerHeight)
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+renderer.toneMapping = THREE.ACESFilmicToneMapping
+app.appendChild(renderer.domElement)
+const pmrem = new THREE.PMREMGenerator(renderer)
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+scene.environmentIntensity = 0.4
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 1, 5000)
+camera.position.set(620, 460, 820)
+const controls = new OrbitControls(camera, renderer.domElement)
+controls.enableDamping = true
+controls.target.set(0, 90, 0)
+const amb = new THREE.AmbientLight(0xbfd0e8, 1.2); scene.add(amb)
+const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(400, 600, 350); scene.add(key)
+
+/* ===== 面定义：锚点位于面中心，局部 XY 即面内坐标(u,v)，局部 +Z 朝外 ===== */
+const FACES = {
+  front:  { label: '前', size: () => [W, H], place: g => { g.position.set(0, H / 2, D / 2 + 0.5) } },
+  rear:   { label: '后', size: () => [W, H], place: g => { g.position.set(0, H / 2, -D / 2 - 0.5); g.rotation.y = Math.PI } },
+  left:   { label: '左', size: () => [D, H], place: g => { g.position.set(-W / 2 - 0.5, H / 2, 0); g.rotation.y = -Math.PI / 2 } },
+  right:  { label: '右', size: () => [D, H], place: g => { g.position.set(W / 2 + 0.5, H / 2, 0); g.rotation.y = Math.PI / 2 } },
+  top:    { label: '顶', size: () => [W, D], place: g => { g.position.set(0, H + 0.5, 0); g.rotation.x = -Math.PI / 2 } },
+  bottom: { label: '底', size: () => [W, D], place: g => { g.position.set(0, -0.5, 0); g.rotation.x = Math.PI / 2 } },
+}
+const FACE_KEYS = Object.keys(FACES)
+
+/* ===== 盒体+面锚点(吸附参考线挂锚点内) ===== */
+let boxGroup = null
+const anchors = {}          // face -> Group
+const guideU = {}           // face -> 竖参考线(吸附u时亮)
+const guideV = {}
+const highlight = {}        // face -> 面高亮板(选中/悬停面行时亮)
+function buildBox() {
+  if (boxGroup) {
+    scene.remove(boxGroup)
+    boxGroup.traverse(o => { o.geometry?.dispose(); o.material?.dispose?.() })
+  }
+  boxGroup = new THREE.Group()
+  const geo = new THREE.BoxGeometry(W, H, D)
+  const body = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ color: 0x2e4059, roughness: 0.55, metalness: 0.3, envMapIntensity: 0.25 }))
+  body.position.y = H / 2
+  boxGroup.add(body)
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 20), new THREE.LineBasicMaterial({ color: 0x7ee0c3, transparent: true, opacity: 0.5 }))
+  edges.position.y = H / 2
+  boxGroup.add(edges)
+  for (const k of FACE_KEYS) {
+    const a = new THREE.Group()
+    FACES[k].place(a)
+    const gU = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -1400, 0.5), new THREE.Vector3(0, 1400, 0.5)]),
+      new THREE.LineBasicMaterial({ color: 0xffd76e, transparent: true, opacity: 0.9 }))
+    const gV = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-1400, 0, 0.5), new THREE.Vector3(1400, 0, 0.5)]),
+      new THREE.LineBasicMaterial({ color: 0xffd76e, transparent: true, opacity: 0.9 }))
+    gU.visible = gV.visible = false
+    a.add(gU, gV)
+    const [fw, fh] = FACES[k].size()
+    const hl = new THREE.Mesh(new THREE.PlaneGeometry(fw, fh),
+      new THREE.MeshBasicMaterial({ color: 0x7ee0c3, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }))
+    hl.position.z = 0.4
+    hl.renderOrder = 1
+    hl.visible = false
+    a.add(hl)
+    highlight[k] = hl
+    boxGroup.add(a)
+    anchors[k] = a; guideU[k] = gU; guideV[k] = gV
+  }
+  scene.add(boxGroup)
+}
+buildBox()
+/* ===== 照片状态（每面一张） ===== */
+const photos = {}           // face -> {name,tex,natW,natH,u,v,dispW,rot90,mirror,opacity,mesh,outline}
+let selected = null         // 当前选中照片（face 键）
+let pendingFace = null      // 文件选择器等着贴到哪个面
+const ray = new THREE.Raycaster()
+const ptr = new THREE.Vector2()
+const plane3 = new THREE.Plane()
+const hitP = new THREE.Vector3()
+
+function dispExtents(p) {
+  const even = p.rot90 % 2 === 0
+  return even ? { w: p.dispW, h: p.dispH } : { w: p.dispH, h: p.dispW }
+}
+function makeGeometry(p) { return new THREE.PlaneGeometry(1, p.natH / p.natW) }
+
+/* 依据 p 的状态把 mesh 摆到位（锚点局部坐标 u,v，永远在该面平面内） */
+function applyPhoto(p, face) {
+  const m = p.mesh
+  m.position.set(p.u, p.v, 1)
+  m.rotation.set(0, 0, p.rot90 * Math.PI / 2)
+  /* 几何是 1×(natH/natW)：scale.y 换算回"显示高"，长宽比只进一次 */
+  const sy = p.dispH / (p.natH / p.natW)
+  m.scale.set(p.mirror ? -p.dispW : p.dispW, sy, 1)
+  void face
+}
+
+/* ===== 面列表 / 选中控制 UI ===== */
+function fmt(n) { return (+n).toFixed(1).replace(/\.0$/, '') }
+function renderFaceList() {
+  const el = document.getElementById('faceList')
+  el.innerHTML = ''
+  for (const k of FACE_KEYS) {
+    const p = photos[k]
+    const d = document.createElement('div')
+    d.className = 'frow' + (selected === k ? ' sel' : '')
+    const [fw, fh] = FACES[k].size()
+    d.innerHTML = `<span class="tag">${FACES[k].label}</span>
+      <div class="meta">
+        <div class="sz">${fw}×${fh}mm</div>
+        <div class="ph">${p ? `📷 ${p.name} · ${(p.natW / p.dispW).toFixed(2)} px/mm` : '<span style="color:var(--tx2)">空</span>'}
+      </div>
+      <button data-f="${k}">上传</button>`
+    d.addEventListener('click', e => {
+      if (e.target.dataset.f) return           // 上传按钮自己处理
+      select(k)
+      viewFace(k)
+    })
+    d.addEventListener('mouseenter', () => { highlight[k].visible = true })
+    d.addEventListener('mouseleave', () => { highlight[k].visible = (selected === k) })
+    d.querySelector('button').addEventListener('click', e => {
+      e.stopPropagation()
+      pendingFace = k
+      document.getElementById('faceFile').click()
+    })
+    el.appendChild(d)
+    }
+}
+
+/* ===== 选中 / 添加 / 删除 ===== */
+function select(faceKey) {
+  selected = faceKey
+  for (const k of FACE_KEYS) {
+    const p = photos[k]
+    if (p) p.outline.visible = (k === selected)
+    if (highlight[k]) highlight[k].visible = (k === selected)
+  }
+  updateSelUI()
+  renderFaceList()
+}
+
+function updateSelUI() {
+  const t = document.getElementById('selTitle'), body = document.getElementById('selBody')
+  const p = selected ? photos[selected] : null
+  if (!p) {
+    t.textContent = selected ? '该面暂无照片' : '选中照片'
+    body.style.display = 'none'
+    return
+  }
+  const [fw, fh] = FACES[selected].size()
+  t.textContent = `选中照片 · ${FACES[selected].label}面 · ${p.name}`
+  body.style.display = 'block'
+  document.getElementById('inU').value = fmt(p.u)
+  document.getElementById('inV').value = fmt(p.v)
+  document.getElementById('inW').value = fmt(p.dispW)
+  document.getElementById('inH').value = fmt(p.dispH)
+  document.getElementById('inO').value = Math.round(p.opacity * 100)
+  const ext = dispExtents(p)
+  document.getElementById('calib').innerHTML =
+    `照片 ${p.natW}×${p.natH}px · 显示 ${fmt(ext.w)}×${fmt(ext.h)}mm · 面可用 ${fw}×${fh}mm<br>` +
+    `标定 <b>${(p.natW / p.dispW).toFixed(2)} px/mm</b> · 照片上量 N px → N ÷ ${(p.natW / p.dispW).toFixed(2)} = mm`
+}
+
+/* ===== 添加 / 删除照片 ===== */
+function addPhoto(face, tex, natW, natH, name) {
+  const p = { name, tex, natW, natH, face, u: 0, v: 0, rot90: 0, mirror: false, opacity: 0.92 }
+  p.mesh = new THREE.Mesh(makeGeometry(p), new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: p.opacity, side: THREE.DoubleSide, toneMapped: false, depthWrite: false }))
+  p.mesh.renderOrder = 2
+  p.outline = new THREE.LineSegments(new THREE.EdgesGeometry(p.mesh.geometry), new THREE.LineBasicMaterial({ color: 0x7ee0c3, transparent: true, opacity: 0.95 }))
+  p.mesh.userData.face = face
+  p.mesh.add(p.outline)
+  const [fw, fh] = FACES[face].size()
+  p.dispW = Math.min(fw, fh * p.natW / p.natH)
+  p.dispH = p.dispW * p.natH / p.natW
+  applyPhoto(p)
+  anchors[face].add(p.mesh)
+  photos[face] = p
+  select(face)
+}
+
+function removePhoto(face) {
+  const p = photos[face]
+  if (!p) return
+  anchors[face].remove(p.mesh)
+  p.mesh.geometry.dispose(); p.mesh.material.dispose()
+  delete photos[face]
+  select(selected === face ? null : selected)
+}
+
+function fitPhoto(p, mode) {
+  const [fw, fh] = FACES[p.face].size()
+  const even = p.rot90 % 2 === 0
+  const pw = even ? p.natW : p.natH, ph = even ? p.natH : p.natW
+  const s = mode === 'cover' ? Math.max(fw / pw, fh / ph) : Math.min(fw / pw, fh / ph)
+  p.dispW = pw * s
+  p.dispH = ph * s
+  p.u = 0; p.v = 0
+  applyPhoto(p)
+}
+
+/* ===== 磁吸 ===== */
+const SNAP_TOL = 5
+function snapAxis(myEdges, candidates) {
+  let best = null
+  for (const me of myEdges) for (const c of candidates) {
+    const d = c - me
+    if (Math.abs(d) < SNAP_TOL && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, at: c }
+  }
+  return best
+}
+function snapPos(p, u, v) {
+  const on = document.getElementById('snapOn') && document.getElementById('snapOn').checked
+  const [fw, fh] = FACES[p.face].size()
+  const ext = dispExtents(p)
+  let su = null, sv = null
+  if (on) {
+    su = snapAxis([u - ext.w / 2, u, u + ext.w / 2], [0, -fw / 2, fw / 2])
+    sv = snapAxis([v - ext.h / 2, v, v + ext.h / 2], [0, -fh / 2, fh / 2])
+  }
+  if (su) u += su.d
+  if (sv) v += sv.d
+  return { u, v, su, sv }
+}
+
+/* ===== 拖拽（约束在面平面内） ===== */
+function setPtr(ev) {
+  ptr.x = (ev.clientX / innerWidth) * 2 - 1
+  ptr.y = -(ev.clientY / innerHeight) * 2 + 1
+}
+let drag = null
+function faceHit(face, ev) {
+  const a = anchors[face]
+  const n = new THREE.Vector3(0, 0, 1).applyQuaternion(a.getWorldQuaternion(new THREE.Quaternion()))
+  plane3.setFromNormalAndCoplanarPoint(n, a.getWorldPosition(new THREE.Vector3()))
+  setPtr(ev)
+  ray.setFromCamera(ptr, camera)
+  if (!ray.ray.intersectPlane(plane3, hitP)) return null
+  return a.worldToLocal(hitP)
+}
+
+renderer.domElement.addEventListener('pointerdown', ev => {
+  if (ev.button !== 0) return
+  setPtr(ev)
+  ray.setFromCamera(ptr, camera)
+  const meshes = FACE_KEYS.map(k => photos[k]?.mesh).filter(Boolean)
+  const hits = ray.intersectObjects(meshes, false)
+  if (!hits.length) {
+    const bhit = ray.intersectObject(boxGroup.children[0], false)
+    if (bhit.length) {
+      const n = bhit[0].face.normal
+      const key = `${Math.round(n.x)},${Math.round(n.y)},${Math.round(n.z)}`
+      const face = { '0,0,1': 'front', '0,0,-1': 'rear', '-1,0,0': 'left', '1,0,0': 'right', '0,1,0': 'top', '0,-1,0': 'bottom' }[key]
+      if (face) { select(face); updateSelUI() }
+    }
+    return
+  }
+  const face = hits[0].object.userData.face
+  const loc = faceHit(face, ev)
+  if (!loc) return
+  const p = photos[face]
+  const ext = dispExtents(p)
+  const du = Math.abs(loc.x - p.u), dv = Math.abs(loc.y - p.v)
+  if (ext.w / 2 - du < 12 || ext.h / 2 - dv < 12) {
+    /* 抓在边缘/角上 → 缩放：角=等比，单边=只改该向（解锁比例后可拉伸） */
+    const lock = document.getElementById('lockAR').checked
+    const nearU = ext.w / 2 - du < 12, nearV = ext.h / 2 - dv < 12
+    const corner = nearU && nearV
+    if (lock || corner) {
+      const r0 = Math.max(du / (ext.w / 2), dv / (ext.h / 2))
+      if (r0 > 0.02) {
+        drag = { face, mode: 'scale', r0, dispW0: p.dispW, dispH0: p.dispH, hw0: ext.w / 2, hh0: ext.h / 2 }
+        select(face)
+        controls.enabled = false
+        return
+      }
+    }
+    if (nearU && !lock) {
+      drag = { face, mode: 'scaleW', w0: ext.w, dispW0: p.dispW }
+      select(face); controls.enabled = false
+      return
+    }
+    if (nearV && !lock) {
+      drag = { face, mode: 'scaleH', h0: ext.h, dispH0: p.dispH }
+      select(face); controls.enabled = false
+      return
+    }
+  }
+  drag = { face, mode: 'move', offU: p.u - loc.x, offV: p.v - loc.y }
+  select(face)
+  controls.enabled = false
+})
+renderer.domElement.addEventListener('pointermove', ev => {
+  if (!drag) return
+  const loc = faceHit(drag.face, ev)
+  if (!loc) return
+  const p = photos[drag.face]
+  const [fw, fh] = FACES[drag.face].size()
+  if (drag.mode === 'scale') {
+    const r1 = Math.max(Math.abs(loc.x - p.u) / drag.hw0, Math.abs(loc.y - p.v) / drag.hh0) || 0
+    if (r1 > 0.02) {
+      const f = THREE.MathUtils.clamp(r1 / drag.r0, 0.002, 200)
+      p.dispW = THREE.MathUtils.clamp(drag.dispW0 * f, 5, 4000)
+      p.dispH = THREE.MathUtils.clamp(drag.dispH0 * f, 5, 4000)
+    }
+    const e = dispExtents(p)
+    if (Math.abs(e.w - fw) < 6) { const k = fw / e.w; p.dispW *= k; p.dispH *= k }   // 缩放磁吸:贴面缘即停
+    if (Math.abs(e.h - fh) < 6) { const k = fh / e.h; p.dispW *= k; p.dispH *= k }
+    applyPhoto(p)
+    updateSelUI()
+    return
+  }
+  if (drag.mode === 'scaleW') {
+    const w1 = Math.abs(loc.x - p.u) * 2
+    p.dispW = THREE.MathUtils.clamp(Math.max(5, w1), 5, 4000)
+    const e = dispExtents(p)
+    if (Math.abs(e.w - fw) < 6) { const k = fw / e.w; p.dispW *= k; p.dispH *= k }
+    applyPhoto(p)
+    updateSelUI()
+    return
+  }
+  if (drag.mode === 'scaleH') {
+    const h1 = Math.abs(loc.y - p.v) * 2
+    p.dispH = THREE.MathUtils.clamp(Math.max(5, h1), 5, 4000)
+    const e = dispExtents(p)
+    if (Math.abs(e.h - fh) < 6) { const k = fh / e.h; p.dispW *= k; p.dispH *= k }
+    applyPhoto(p)
+    updateSelUI()
+    return
+  }
+  const r = snapPos(p, loc.x + drag.offU, loc.y + drag.offV)
+  p.u = THREE.MathUtils.clamp(r.u, -fw / 2, fw / 2)
+  p.v = THREE.MathUtils.clamp(r.v, -fh / 2, fh / 2)
+  applyPhoto(p)
+  guideU[drag.face].visible = !!r.su
+  guideV[drag.face].visible = !!r.sv
+  if (r.su) guideU[drag.face].position.x = r.su.at
+  if (r.sv) guideV[drag.face].position.y = r.sv.at
+  updateSelUI()
+})
+addEventListener('pointerup', () => {
+  if (!drag) return
+  guideU[drag.face].visible = false
+  guideV[drag.face].visible = false
+  drag = null
+  controls.enabled = true
+  updateSelUI()
+})
+
+/* ===== 文件导入（按面）/ 示例 ===== */
+document.getElementById('faceFile').addEventListener('change', async e => {
+  const f = e.target.files[0]
+  if (!f || !pendingFace) return
+  const bmp = await createImageBitmap(f)
+  const tex = new THREE.Texture(bmp)
+  tex.needsUpdate = true
+  tex.colorSpace = THREE.SRGBColorSpace
+  if (photos[pendingFace]) removePhoto(pendingFace)
+  addPhoto(pendingFace, tex, bmp.width, bmp.height, f.name)
+  viewFace(pendingFace)
+  showToast(`已贴到「${FACES[pendingFace].label}」面 · 相机已飞到该面正前方 · 拖动/数值框微调`)
+  pendingFace = null
+  e.target.value = ''
+})
+document.getElementById('demoBtn').addEventListener('click', async () => {
+  const loader = new THREE.TextureLoader()
+  const demo = [['refs/前视图.png', 'front'], ['refs/侧视图.png', 'left'], ['refs/俯视图-无盖.png', 'top']]
+  for (const [url, face] of demo) {
+    const tex = await loader.loadAsync(url)
+    tex.colorSpace = THREE.SRGBColorSpace
+    const img = tex.image
+    if (photos[face]) removePhoto(face)
+    addPhoto(face, tex, img.width, img.height, url.split('/').pop())
+    fitPhoto(photos[face], 'contain')
+    updateSelUI()
+  }
+  viewFace('top')
+})
+
+/* ===== 数值框 / 按钮 / 键盘 ===== */
+function readInt(id) { return +document.getElementById(id).value || 0 }
+for (const [id, fn] of [
+  ['inU', v => p => { const [fw] = FACES[p.face].size(); p.u = THREE.MathUtils.clamp(v, -fw / 2, fw / 2); applyPhoto(p) }],
+  ['inV', v => p => { const [, fh] = FACES[p.face].size(); p.v = THREE.MathUtils.clamp(v, -fh / 2, fh / 2); applyPhoto(p) }],
+  ['inW', v => p => {
+    p.dispW = Math.max(5, v)
+    if (document.getElementById('lockAR').checked) p.dispH = p.dispW * p.natH / p.natW
+    applyPhoto(p)
+  }],
+  ['inH', v => p => {
+    p.dispH = Math.max(5, v)
+    if (document.getElementById('lockAR').checked) p.dispW = p.dispH * p.natW / p.natH
+    applyPhoto(p)
+  }],
+  ['inO', v => p => { p.opacity = Math.min(1, Math.max(0.1, v / 100)); p.mesh.material.opacity = p.opacity }],
+]) {
+  document.getElementById(id).addEventListener('change', ev => {
+    const p = selected && photos[selected]
+    if (!p) return
+    fn(readInt(id))(p)
+    updateSelUI()
+  })
+}
+document.getElementById('btnCenter').addEventListener('click', () => {
+  const p = selected && photos[selected]; if (!p) return
+  p.u = 0; p.v = 0; applyPhoto(p); updateSelUI()
+})
+document.getElementById('btnContain').addEventListener('click', () => {
+  const p = selected && photos[selected]; if (!p) return
+  fitPhoto(p, 'contain'); updateSelUI()
+})
+document.getElementById('btnCover').addEventListener('click', () => {
+  const p = selected && photos[selected]; if (!p) return
+  fitPhoto(p, 'cover'); updateSelUI()
+})
+document.getElementById('btnRot').addEventListener('click', () => {
+  const p = selected && photos[selected]; if (!p) return
+  p.rot90 = (p.rot90 + 1) % 4
+  applyPhoto(p); updateSelUI()
+})
+document.getElementById('btnMirror').addEventListener('click', () => {
+  const p = selected && photos[selected]; if (!p) return
+  p.mirror = !p.mirror
+  applyPhoto(p); updateSelUI()
+})
+document.getElementById('btnDel').addEventListener('click', () => {
+  if (selected && photos[selected]) removePhoto(selected)
+})
+
+/* ===== 键盘方向键微调 ===== */
+addEventListener('keydown', ev => {
+  if (!selected || !photos[selected]) return
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return
+  const step = ev.shiftKey ? 10 : 1
+  const p = photos[selected]
+  let dx = 0, dy = 0
+  if (ev.key === 'ArrowLeft') dx = -step
+  if (ev.key === 'ArrowRight') dx = step
+  if (ev.key === 'ArrowUp') dy = step
+  if (ev.key === 'ArrowDown') dy = -step
+  if (!dx && !dy) return
+  ev.preventDefault()
+  const [fw, fh] = FACES[selected].size()
+  p.u = THREE.MathUtils.clamp(p.u + dx, -fw / 2, fw / 2)
+  p.v = THREE.MathUtils.clamp(p.v + dy, -fh / 2, fh / 2)
+  applyPhoto(p)
+  updateSelUI()
+})
+
+/* ===== 重建盒体 ===== */
+document.getElementById('rebuild').addEventListener('click', () => {
+  W = +document.getElementById('dimW').value || W
+  H = +document.getElementById('dimH').value || H
+  D = +document.getElementById('dimD').value || D
+  buildBox()
+  for (const k of Object.keys(photos)) {
+    const p = photos[k]
+    const [fw, fh] = FACES[k].size()
+    p.u = THREE.MathUtils.clamp(p.u, -fw / 2, fw / 2)
+    p.v = THREE.MathUtils.clamp(p.v, -fh / 2, fh / 2)
+    anchors[k].add(p.mesh)          // buildBox 重建了锚点，照片重新挂回
+    applyPhoto(p)
+  }
+  fitView()
+  showToast(`盒体已重建为 ${W}×${H}×${D} mm · 相机已适配新尺寸`)
+  updateSelUI()
+})
+
+/* ===== 导出标定 JSON ===== */
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const data = {
+    box: { W, H, D },
+    photos: FACE_KEYS.filter(k => photos[k]).map(k => {
+      const p = photos[k]
+      return { name: p.name, face: k, natW: p.natW, natH: p.natH,
+        u: +p.u.toFixed(2), v: +p.v.toFixed(2), dispW: +p.dispW.toFixed(2), dispH: +p.dispH.toFixed(2),
+        rot90: p.rot90, mirror: p.mirror,
+        pxPerMm: +(p.natW / p.dispW).toFixed(3) }
+    }),
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = 'photo-calib.json'
+  a.click()
+  URL.revokeObjectURL(a.href)
+})
+
+/* ===== 视角飞行 / toast ===== */
+let camTween = null
+function viewFace(face) {
+  const a = anchors[face]
+  const n = new THREE.Vector3(0, 0, 1).applyQuaternion(a.getWorldQuaternion(new THREE.Quaternion()))
+  const c = a.getWorldPosition(new THREE.Vector3())
+  const [fw, fh] = FACES[face].size()
+  const dist = Math.max(fw, fh) * 1.35
+  camTween = {
+    t: 0,
+    fromP: camera.position.clone(), toP: c.clone().addScaledVector(n, dist),
+    fromT: controls.target.clone(), toT: c.clone(),
+  }
+}
+function fitView() {
+  const bb = new THREE.Box3().setFromObject(boxGroup)
+  const size = bb.getSize(new THREE.Vector3())
+  const c = bb.getCenter(new THREE.Vector3())
+  const dist = Math.max(size.x, size.y, size.z) * 1.9
+  const dir = new THREE.Vector3(0.72, 0.5, 1).normalize()
+  camTween = {
+    t: 0,
+    fromP: camera.position.clone(), toP: c.clone().addScaledVector(dir, dist),
+    fromT: controls.target.clone(), toT: c.clone(),
+  }
+}
+function stepCamera() {
+  if (!camTween) return false
+  camTween.t = Math.min(1, camTween.t + 0.035)
+  const e = camTween.t * camTween.t * (3 - 2 * camTween.t)
+  camera.position.lerpVectors(camTween.fromP, camTween.toP, e)
+  controls.target.lerpVectors(camTween.fromT, camTween.toT, e)
+  if (camTween.t >= 1) camTween = null
+  return true
+}
+let toastTimer = null
+function showToast(msg) {
+  const t = document.getElementById('toast')
+  t.textContent = msg
+  t.classList.add('show')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2800)
+}
+
+/* ===== 主循环 ===== */
+renderer.setAnimationLoop(() => { stepCamera(); controls.update(); renderer.render(scene, camera) })
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight) })
+renderFaceList()
+window.__fit = { photos, FACES, anchors, camera, renderer, scene, controls, snapPos, dispExtents, viewFace, stepCamera, select }
+</script>
+</body>
+</html>

@@ -2,165 +2,31 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "fae-dashboard",
-      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
-      "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8896",
-        "--directory",
-        "D:/报价/FAE业务需求进度结果/清洗输出"
-      ],
-      "port": 8896
+      "name": "ai-office-cards",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-X", "utf8", "-m", "http.server", "8932", "--directory", "docs/AI办公室"],
+      "port": 8932
     },
     {
-      "name": "backend",
-      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
-      "runtimeArgs": [
-        "-m",
-        "uvicorn",
-        "app.main:app",
-        "--app-dir",
-        "backend",
-        "--port",
-        "8000"
-      ],
-      "port": 8000
+      "name": "blueprint-static",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-X", "utf8", "-m", "http.server", "8931", "--directory", "docs/prototypes/服务器3D配置台"],
+      "port": 8931
     },
     {
-      "name": "frontend",
+      "name": "frontend-dev",
+      "url": "http://localhost:5173"
+    },
+    {
+      "name": "frontend-vite-test",
       "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "--prefix",
-        "frontend",
-        "run",
-        "dev"
-      ],
-      "port": 5173,
-      "autoPort": true
+      "runtimeArgs": ["run", "dev", "--", "--port", "5175", "--strictPort"],
+      "cwd": "frontend",
+      "port": 5175
     },
     {
-      "name": "prototype",
-      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
-      "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8891",
-        "--directory",
-        "docs"
-      ],
-      "port": 8891
-    },
-    {
-      "name": "prototype-verify",
-      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
-      "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8895",
-        "--directory",
-        "docs"
-      ],
-      "port": 8895
-    },
-    {
-      "name": "galaxy-proto",
-      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
-      "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8892",
-        "--directory",
-        "."
-      ],
-      "port": 8892
-    },
-    {
-      "name": "by-mirror",
-      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
-      "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8893",
-        "--directory",
-        "_by_mirror"
-      ],
-      "port": 8893
-    },
-    {
-      "name": "galaxy-public",
-      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
-      "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8894",
-        "--directory",
-        "frontend/public"
-      ],
-      "port": 8894
-    },
-    {
-      "name": "office-verify",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_API_TARGET=http://127.0.0.1:8010&& npm --prefix frontend run dev -- --port 5176 --strictPort"
-      ],
-      "port": 5176
-    },
-    {
-      "name": "proto-desk",
-      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
-      "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8895",
-        "--directory",
-        "docs/prototypes"
-      ],
-      "port": 8895
-    },
-    {
-      "name": "backend-verify",
-      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
-      "runtimeArgs": [
-        "-X",
-        "utf8",
-        "-c",
-        "import os,sys; os.environ['AUTH_ENABLED']='false'; sys.path.insert(0,'backend'); import uvicorn; uvicorn.run('app.main:app', host='127.0.0.1', port=8011)"
-      ],
-      "port": 8011
-    },
-    {
-      "name": "frontend-verify",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_API_TARGET=http://127.0.0.1:8011&& npm --prefix frontend run dev"
-      ],
-      "port": 5175,
-      "autoPort": true
-    },
-    {
-      "name": "leads-verify",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_API_TARGET=http://127.0.0.1:8000&& npm --prefix frontend run dev -- --port 5177 --strictPort"
-      ],
-      "port": 5177
-    },
-    {
-      "name": "neural-dashboard",
-      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
-      "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8899",
-        "--directory",
-        "D:/neural-creator-dashboard/dist"
-      ],
-      "port": 8899
+      "name": "zte-ref",
+      "url": "https://enterprise.zte.com.cn/ssp3d20220314/R6530G3/#/zh-CN"
     }
   ]
 }

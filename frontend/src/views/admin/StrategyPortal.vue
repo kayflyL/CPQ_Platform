@@ -1,8 +1,9 @@
 <script setup lang="ts">
 defineOptions({ name: 'StrategyPortal' })
-/** 解决方案门户(/strategies)——Vercel/华为目录式布局。
- *  左侧:方案场景目录树(带数量) + 工作流入口;
- *  右侧:场景介绍横幅(含方案助手咨询 CTA) + 极简方案卡(场景铭牌 + 标题 + 一句话)。 */
+/** 解决方案门户(/strategies)——全宽横幅布局。
+ *  顶部:吸顶工具行(场景胶囊过滤 + 搜索/新建方案);
+ *  横幅:全宽 hero(左=场景介绍 + 方案助手咨询 CTA,右肩=工作流三入口);
+ *  下方:固定 3 列方案卡网格(封面 + 场景铭牌 + 标题 + 一句话摘要)。 */
 import { ref, computed, onMounted, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { solutionApi, type Solution, type SolutionScene } from '@/api/solutions'
@@ -13,7 +14,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const { show: showAssistant } = useAssistantShell()
 
-/* ── 工作流入口（侧栏底部） ── */
+/* ── 工作流入口（横幅右肩） ── */
 interface ModuleCard { key: string; title: string; desc: string; to: string }
 const MODULES: ModuleCard[] = [
   { key: 'requirement', title: '需求分析', desc: '该配什么、配多少', to: '/strategies/requirement' },
@@ -137,47 +138,50 @@ function coverSeedOf(key: string): number {
 
 <template>
   <div class="portal">
-    <!-- 左：目录树（场景 + 工作流） -->
-    <aside class="side">
-      <div class="side-brand">CPQ · 策略中心</div>
-      <div class="side-cap">方案场景</div>
-      <button
-        v-for="c in chips"
-        :key="c.key"
-        class="tree-item"
-        :class="{ on: activeScene === c.key }"
-        :style="{ '--sc': hueOf(c.key) }"
-        @click="setScene(c.key)"
-      >
-        <span class="dot"></span>{{ c.label }}<span class="n">{{ counts[c.key] || 0 }}</span>
-      </button>
-      <hr class="side-sep">
-      <div class="side-cap">工作流</div>
-      <button v-for="m in MODULES" :key="m.key" class="wf-item" :title="m.desc" @click="enter(m.to)">
-        <span class="ic">{{ String(MODULES.indexOf(m) + 1).padStart(2, '0') }}</span>{{ m.title }}
-      </button>
-    </aside>
-
-    <!-- 右：内容区 -->
     <main class="main">
-      <div class="main-head">
-        <div class="main-title">解决方案库</div>
-        <div class="head-right">
-          <input v-model="keyword" class="sol-search" type="search" placeholder="搜索方案、场景或关键词">
-          <button class="btn-new" @click="create">＋ 新建方案</button>
+      <!-- 全宽横幅：左=场景介绍 + 方案助手咨询，右肩=工作流三入口 -->
+      <div class="hero" :style="{ '--h': heroHue }">
+        <div class="hero-main">
+          <div class="hero-kicker">{{ hero.kick }}</div>
+          <div class="hero-title">{{ hero.title }}</div>
+          <div class="hero-desc">{{ hero.desc }}</div>
+          <div class="hero-actions">
+            <button v-if="auth.chatRolesAllowed" class="hero-cta" title="唤起方案助手，AI 根据客户需求推荐场景方案" @click="showAssistant()">
+              <span class="sp">✦</span>方案助手咨询
+            </button>
+            <span class="hero-note">说出客户需求，AI 推荐匹配的场景方案</span>
+          </div>
+        </div>
+        <div class="hero-wf">
+          <div class="wf-cap">工作流</div>
+          <button v-for="m in MODULES" :key="m.key" class="wf-link" @click="enter(m.to)">
+            <span class="ic">{{ String(MODULES.indexOf(m) + 1).padStart(2, '0') }}</span>
+            <span class="wf-txt">
+              <span class="wf-t">{{ m.title }}</span>
+              <span class="wf-d">{{ m.desc }}</span>
+            </span>
+            <span class="ar">→</span>
+          </button>
         </div>
       </div>
 
-      <!-- 场景横幅：介绍 + 方案助手咨询 -->
-      <div class="hero" :style="{ '--h': heroHue }">
-        <div class="hero-kicker">{{ hero.kick }}</div>
-        <div class="hero-title">{{ hero.title }}</div>
-        <div class="hero-desc">{{ hero.desc }}</div>
-        <div class="hero-actions">
-          <button v-if="auth.chatRolesAllowed" class="hero-cta" title="唤起方案助手，AI 根据客户需求推荐场景方案" @click="showAssistant()">
-            <span class="sp">✦</span>方案助手咨询
+      <!-- 列表工具行：场景 tabs（左） + 搜索/新建（右）；横幅之后、卡片之前 -->
+      <div class="main-head">
+        <div class="scene-row">
+          <button
+            v-for="c in chips"
+            :key="c.key"
+            class="chip"
+            :class="{ on: activeScene === c.key }"
+            :style="{ '--sc': hueOf(c.key) }"
+            @click="setScene(c.key)"
+          >
+            {{ c.label }}<span class="n">{{ counts[c.key] || 0 }}</span>
           </button>
-          <span class="hero-note">说出客户需求，AI 推荐匹配的场景方案</span>
+        </div>
+        <div class="head-right">
+          <input v-model="keyword" class="sol-search" type="search" placeholder="搜索方案、场景或关键词">
+          <button class="btn-new" @click="create">＋ 新建方案</button>
         </div>
       </div>
 
@@ -217,50 +221,30 @@ function coverSeedOf(key: string): number {
 
 <style scoped>
 .portal {
-  --h-ring: color-mix(in srgb, var(--cpq-text-primary) 32%, transparent);
   --hover-bg: color-mix(in srgb, var(--cpq-text-primary) 4%, var(--cpq-glass-card-bg));
-  display: flex; max-width: 1180px; margin: 0 auto;
+  max-width: 1180px; margin: 0 auto;
   /* 满高壳：页面本身不滚（顶栏让位已由 .main-scroll 的占位元素垫掉），滚动收敛到 .main 内滚 */
-  height: calc(100vh - var(--cpq-header-clearance, 72px)); padding: 8px 0 0;
+  height: calc(100vh - var(--cpq-header-clearance, 72px)); padding: var(--cpq-space-2) 0 0;
 }
+.main { height: 100%; overflow-y: auto; padding: 0 var(--cpq-space-5) 60px; }
 
-/* 左：目录树 */
-.side { width: 216px; flex-shrink: 0; padding: 14px 12px; border-right: 1px solid var(--cpq-glass-border); height: 100%; overflow: auto; }
-.side-brand { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; letter-spacing: .18em; color: var(--cpq-text-muted); padding: 0 10px 16px; }
-.side-cap { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); letter-spacing: .1em; padding: 0 10px; margin: 4px 0 8px; }
-.tree-item {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 8px 10px; margin-bottom: 2px; border: none; border-radius: var(--cpq-radius-sm);
-  background: none; color: var(--cpq-text-secondary); font-size: 13.5px; text-align: left; cursor: pointer;
-  transition: background .15s, color .15s;
-}
-.tree-item:hover { background: var(--cpq-overlay-w6); color: var(--cpq-text-primary); }
-.tree-item.on { background: color-mix(in srgb, var(--sc, var(--cpq-accent-primary)) 12%, transparent); color: var(--cpq-text-primary); }
-.tree-item.on .dot { background: var(--sc, var(--cpq-accent-primary)); box-shadow: 0 0 8px var(--sc, var(--cpq-accent-primary)); }
-.tree-item .dot { width: 7px; height: 7px; border-radius: var(--cpq-radius-xs); background: var(--cpq-text-muted); flex-shrink: 0; }
-.tree-item .n { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
-.side-sep { border: none; border-top: 1px solid var(--cpq-glass-border); margin: 14px 10px; }
-.wf-item {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 8px 10px; margin-bottom: 2px; border: none; border-radius: var(--cpq-radius-sm);
-  background: none; color: var(--cpq-text-secondary); font-size: 13px; text-align: left; cursor: pointer;
-  transition: background .15s, color .15s;
-}
-.wf-item:hover { background: var(--cpq-overlay-w6); color: var(--cpq-text-primary); }
-.wf-item .ic { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
-
-/* 右：内容区 */
-.main { flex: 1; min-width: 0; padding: 0 4px 60px 26px; overflow-y: auto; }
+/* 列表工具行：场景 tabs（左） + 搜索/新建（右）；常规流内不吸顶，轻编辑风格 */
 .main-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  /* 吸顶工具条：嵌套滚动容器内一律 top:0；玻璃底带挡住从底下滚过的卡片 */
-  position: sticky; top: 0; z-index: 5;
-  margin: 0 -4px 8px -26px; padding: 14px 4px 12px 26px;
-  background: var(--cpq-glass-card-bg); -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur)); backdrop-filter: blur(var(--cpq-glass-card-blur));
+  display: flex; align-items: center; justify-content: space-between; gap: var(--cpq-space-4);
+  margin-bottom: var(--cpq-space-5); padding-bottom: var(--cpq-space-3);
   border-bottom: 1px solid var(--cpq-glass-border);
 }
-.main-title { font-size: 17px; font-weight: 700; color: var(--cpq-text-primary); }
-.head-right { display: flex; gap: 10px; align-items: center; }
+.scene-row { display: flex; align-items: baseline; gap: var(--cpq-space-4); min-width: 0; overflow-x: auto; }
+.chip {
+  display: inline-flex; align-items: baseline; gap: var(--cpq-space-1);
+  padding: 0 0 var(--cpq-space-2); border: none; border-bottom: 2px solid transparent;
+  background: none; color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-base); white-space: nowrap; cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.chip:hover { color: var(--cpq-text-primary); }
+.chip.on { color: var(--cpq-text-primary); font-weight: 600; border-bottom-color: var(--sc, var(--cpq-accent-primary)); }
+.chip .n { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+.head-right { display: flex; gap: var(--cpq-space-2); align-items: center; flex-shrink: 0; }
 .sol-search {
   width: 210px; height: 34px; padding: 0 12px; font-size: 13px;
   color: var(--cpq-text-primary); background: var(--cpq-overlay-w6);
@@ -276,15 +260,15 @@ function coverSeedOf(key: string): number {
 }
 .btn-new:hover { filter: brightness(1.12); }
 
-/* 场景横幅（华为式：介绍 + 咨询 CTA） */
+/* 全宽横幅：左=场景介绍 + 方案助手咨询，右肩=工作流三入口 */
 .hero {
-  position: relative; overflow: hidden; border-radius: var(--cpq-radius-lg);
+  position: relative; overflow: hidden; display: flex; gap: var(--cpq-space-6); border-radius: var(--cpq-radius-lg);
   border: 1px solid color-mix(in srgb, var(--h) 38%, var(--cpq-glass-border));
   background:
     radial-gradient(90% 160% at 88% 10%, color-mix(in srgb, var(--h) 18%, transparent), transparent 62%),
     radial-gradient(60% 120% at 4% 108%, color-mix(in srgb, var(--h) 8%, transparent), transparent 55%),
     var(--cpq-glass-card-bg);
-  padding: 30px 34px 28px; margin-bottom: 24px;
+  padding: var(--cpq-space-6); margin-bottom: var(--cpq-space-5);
   transition: border-color .3s, background .3s;
 }
 .hero::after {
@@ -292,24 +276,48 @@ function coverSeedOf(key: string): number {
   background-image: linear-gradient(color-mix(in srgb, var(--h) 7%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--h) 7%, transparent) 1px, transparent 1px);
   background-size: 34px 34px; mask-image: linear-gradient(100deg, transparent 42%, #000 100%);
 }
-.hero-kicker { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--cpq-font-size-xs); letter-spacing: .16em; color: color-mix(in srgb, var(--h) 78%, var(--cpq-text-primary)); margin-bottom: 12px; }
-.hero-title { font-size: 25px; font-weight: 800; letter-spacing: -.5px; color: var(--cpq-text-primary); margin-bottom: 10px; }
-.hero-desc { font-size: 13.5px; color: var(--cpq-text-secondary); line-height: 1.75; max-width: 560px; margin-bottom: 20px; }
-.hero-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.hero-main { flex: 1; min-width: 0; }
+.hero-kicker { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--cpq-font-size-xs); letter-spacing: .16em; color: color-mix(in srgb, var(--h) 78%, var(--cpq-text-primary)); margin-bottom: var(--cpq-space-3); }
+.hero-title { font-size: var(--cpq-font-size-3xl); font-weight: 800; letter-spacing: -.5px; color: var(--cpq-text-primary); margin-bottom: var(--cpq-space-2); }
+.hero-desc { font-size: var(--cpq-font-size-base); color: var(--cpq-text-secondary); line-height: 1.75; max-width: 560px; margin-bottom: var(--cpq-space-5); }
+.hero-actions { display: flex; align-items: center; gap: var(--cpq-space-4); flex-wrap: wrap; }
 .hero-cta {
   display: inline-flex; align-items: center; gap: 9px;
-  height: 40px; padding: 0 20px; border-radius: var(--cpq-radius-xl); border: none; cursor: pointer;
-  font-size: 13.5px; font-weight: 700; color: #fff;
+  height: 40px; padding: 0 var(--cpq-space-5); border-radius: var(--cpq-radius-xl); border: none; cursor: pointer;
+  font-size: var(--cpq-font-size-base); font-weight: 700; color: #fff;
   background: linear-gradient(135deg, color-mix(in srgb, var(--h) 88%, #fff), var(--h));
   box-shadow: 0 8px 24px -10px color-mix(in srgb, var(--h) 80%, transparent);
   transition: transform .2s, filter .2s;
 }
 .hero-cta:hover { transform: translateY(-1px); filter: brightness(1.08); }
 .hero-cta .sp { font-size: 15px; }
-.hero-note { font-size: 11.5px; color: var(--cpq-text-muted); }
+.hero-note { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+
+/* 右肩工作流：编号 + 标题 + 一句话说明，hover 提亮 */
+.hero-wf {
+  flex-shrink: 0; width: 236px;
+  border-left: 1px solid color-mix(in srgb, var(--h) 22%, var(--cpq-glass-border));
+  padding-left: var(--cpq-space-5);
+  display: flex; flex-direction: column; gap: var(--cpq-space-1);
+}
+.wf-cap { font-size: var(--cpq-font-size-xs); letter-spacing: .1em; color: var(--cpq-text-muted); padding: 0 var(--cpq-space-3); margin: var(--cpq-space-1) 0 var(--cpq-space-2); }
+.wf-link {
+  display: flex; align-items: flex-start; gap: var(--cpq-space-2); width: 100%;
+  padding: var(--cpq-space-2) var(--cpq-space-3); border: none; border-radius: var(--cpq-radius-lg);
+  background: none; color: var(--cpq-text-secondary); text-align: left; cursor: pointer;
+  transition: background .15s;
+}
+.wf-link:hover { background: var(--cpq-overlay-w6); }
+.wf-link:hover .ar { color: var(--h); transform: translateX(2px); }
+.wf-link .ic { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); padding-top: 2px; }
+.wf-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.wf-t { font-size: var(--cpq-font-size-sm); font-weight: 600; color: var(--cpq-text-primary); }
+.wf-d { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; transition: color .15s; }
+.wf-link:hover .wf-d { color: var(--cpq-text-secondary); }
+.wf-link .ar { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); padding-top: 3px; transition: color .15s, transform .15s; }
 
 /* 方案卡：杂志式（封面 + 元信息 + 标题 + 摘要 + 阅读全文）；hover 走 Vercel 口径（100ms 颜色状态） */
-.sol-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--cpq-space-5); }
+.sol-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--cpq-space-4); }
 .sol-card {
   position: relative; display: flex; flex-direction: column; overflow: hidden; cursor: pointer;
   background: var(--cpq-glass-card-bg); border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-xl);
@@ -327,7 +335,7 @@ function coverSeedOf(key: string): number {
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
 
 /* 封面：固定高度横带（不抢卡片主体），自动封面用场景色渐变 + seed 驱动的图案角度/位置（确定性，无闪烁） */
-.cover { height: 116px; position: relative; overflow: hidden; border-bottom: 1px solid var(--cpq-glass-border); flex-shrink: 0; }
+.cover { aspect-ratio: 16 / 10; position: relative; overflow: hidden; border-bottom: 1px solid var(--cpq-glass-border); flex-shrink: 0; }
 .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover-gen {
   position: absolute; inset: 0; display: flex; align-items: flex-end;
@@ -380,22 +388,33 @@ function coverSeedOf(key: string): number {
 .sol-empty { color: var(--cpq-text-muted); font-size: 13px; padding: 24px 0; text-align: center; }
 @media (prefers-reduced-motion: reduce) { .sol-card { animation: none !important; } }
 
-/* 窄屏：侧栏折为横向条 */
+/* 中屏收列：≤1200 四列收三列 */
+@media (max-width: 1200px) {
+  .sol-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* 窄屏：工具行换行，横幅改纵向堆叠（工作流收进横幅底部横排），卡两列 */
 @media (max-width: 920px) {
-  .portal { flex-direction: column; height: auto; padding-bottom: 32px; }
-  .side { width: auto; height: auto; border-right: none; border-bottom: 1px solid var(--cpq-glass-border); display: flex; gap: 14px; overflow-x: auto; padding: 10px 2px; align-items: center; }
-  .side-brand, .side-sep { display: none; }
-  /* 分组标签与条目禁止被 flex 压缩（曾把「方案场景」四字压成一列竖排） */
-  .side-cap { margin: 0 2px 0 0; white-space: nowrap; flex-shrink: 0; }
-  .side .side-cap:first-of-type { margin-left: 8px; }
-  .tree-item, .wf-item { width: auto; white-space: nowrap; margin-bottom: 0; flex-shrink: 0; }
-  .main { padding-left: 0; overflow: visible; }
-  /* 标题独占一行，搜索框弹性收缩占余宽（曾互相挤压导致标题/按钮断行） */
-  .main-head { position: static; margin: 0 0 20px; padding: 0 4px 12px; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; border-bottom: 1px solid var(--cpq-glass-border); flex-wrap: wrap; gap: 10px 16px; }
-  .main-title { white-space: nowrap; }
-  .head-right { flex: 1; min-width: 0; }
+  .portal { height: auto; padding-bottom: var(--cpq-space-6); }
+  .main { height: auto; overflow: visible; padding: 0 var(--cpq-space-4) 0; }
+  .main-head { flex-wrap: wrap; gap: var(--cpq-space-2) var(--cpq-space-4); }
+  .scene-row { flex: 1; min-width: 0; }
+  .head-right { flex: 1 1 100%; }
   .sol-search { flex: 1; width: auto; min-width: 0; }
   .btn-new { flex-shrink: 0; }
-  .hero { padding: 24px 20px 22px; }
+  .sol-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero { flex-direction: column; gap: 0; padding: var(--cpq-space-5) var(--cpq-space-4); }
+  .hero-wf { width: auto; border-left: none; border-top: 1px solid color-mix(in srgb, var(--h) 22%, var(--cpq-glass-border)); padding-left: 0; padding-top: var(--cpq-space-3); margin-top: var(--cpq-space-4); flex-direction: row; gap: var(--cpq-space-2); overflow-x: auto; }
+  .wf-cap { display: none; }
+  .wf-link { width: auto; flex-shrink: 0; }
+  .wf-txt { gap: 0; }
+  .wf-d, .wf-link .ar { display: none; }
+}
+
+/* 手机：卡单列，横幅边距再收一档 */
+@media (max-width: 640px) {
+  .sol-grid { grid-template-columns: minmax(0, 1fr); gap: var(--cpq-space-3); }
+  .hero { padding: var(--cpq-space-4); }
+  .main { padding: 0 var(--cpq-space-3) 0; }
 }
 </style>

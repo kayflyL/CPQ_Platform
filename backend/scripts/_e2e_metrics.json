@@ -1,0 +1,443 @@
+{
+ "metrics": {
+  "scenario": "案例对照-BC-416391-4U-GPU-A800",
+  "finished": true,
+  "turns": 7,
+  "wall_s": 1153.9,
+  "turn_s_min": 14.5,
+  "turn_s_max": 341.2,
+  "cards": 6,
+  "repeat_cards": 0,
+  "repeat_rows": 0,
+  "repeat_cats": 0,
+  "auto_answers": 6,
+  "kp_rows": 8,
+  "assembled_rows": 17,
+  "last_step": "output",
+  "pause_events": 6,
+  "pause_kinds": [
+   "stuck"
+  ],
+  "pause_reason_codes": [
+   "kp_pick"
+  ],
+  "pause_facts_incomplete": 0,
+  "pause_kinds_unknown": [],
+  "interrupted": false
+ },
+ "cards": [
+  {
+   "turn": 1,
+   "slot": "kp_row",
+   "row": "kp-fc657306",
+   "n_options": 9,
+   "sig": [
+    "kp_row",
+    "kp-fc657306",
+    [
+     "AMD EPYC 7A23",
+     "AMD EPYC 9115",
+     "AMD EPYC 9124",
+     "AMD EPYC 9255",
+     "AMD EPYC 9334",
+     "AMD EPYC 9347F",
+     "AMD EPYC 9654",
+     "AMD EPYC 9654 96 cores",
+     "保持原需求（库里暂无此料，本行按原需求留白）"
+    ]
+   ],
+   "repeat_card": false,
+   "repeat_row": false,
+   "cat": "kp-fc657306",
+   "repeat_cat": false
+  },
+  {
+   "turn": 2,
+   "slot": "kp_row",
+   "row": "kp-4800828b",
+   "n_options": 9,
+   "sig": [
+    "kp_row",
+    "kp-4800828b",
+    [
+     "16G DDR5 4800MHz",
+     "16GB DDR5-6400 Single Rank x8",
+     "32G 4800MHz DDR5 RDIMM",
+     "32G 5600 DDR5 RDIMM",
+     "64G 4800 DDR5 RDIMM",
+     "64G 5600 DDR5 RDIMM",
+     "64G 6400 DDR5 RDIMM",
+     "DDR5 6400 64G",
+     "保持原需求（库里暂无此料，本行按原需求留白）"
+    ]
+   ],
+   "repeat_card": false,
+   "repeat_row": false,
+   "cat": "kp-4800828b",
+   "repeat_cat": false
+  },
+  {
+   "turn": 3,
+   "slot": "kp_row",
+   "row": "kp-bf019a53",
+   "n_options": 9,
+   "sig": [
+    "kp_row",
+    "kp-bf019a53",
+    [
+     "1.92T SATA SSD",
+     "2T SATA SSD",
+     "3.84T SATA SSD",
+     "480G SATA SSD",
+     "480G SATA SSD 企业级",
+     "480G SATA SSD 读密集型",
+     "7.68T SATA SSD",
+     "8T SATA SSD",
+     "保持原需求（库里暂无此料，本行按原需求留白）"
+    ]
+   ],
+   "repeat_card": false,
+   "repeat_row": false,
+   "cat": "kp-bf019a53",
+   "repeat_cat": false
+  },
+  {
+   "turn": 4,
+   "slot": "kp_row",
+   "row": "kp-b36c9074",
+   "n_options": 9,
+   "sig": [
+    "kp_row",
+    "kp-b36c9074",
+    [
+     "1.6T NVME SSD dwpd>=3",
+     "1.92T NVMe SSD",
+     "1.92T NVMe SSD gen4",
+     "3.84T NVME SSD Gen5",
+     "3.84T NVMe SSD",
+     "3.84T NVMe 读取密集型",
+     "3.84TB NVMe U.2 SSD企业级",
+     "U.2 NVME SSD 1.92T 企业级 （RAID1）",
+     "保持原需求（库里暂无此料，本行按原需求留白）"
+    ]
+   ],
+   "repeat_card": false,
+   "repeat_row": false,
+   "cat": "kp-b36c9074",
+   "repeat_cat": false
+  },
+  {
+   "turn": 5,
+   "slot": "kp_row",
+   "row": "kp-d190452a",
+   "n_options": 9,
+   "sig": [
+    "kp_row",
+    "kp-d190452a",
+    [
+     "9560-16i  ≥4G缓存,含电池",
+     "LSI 9361-16i",
+     "LSI 9361-8i",
+     "LSI 9361-8i 1G cache",
+     "LSI 9361-8i 1G cache + supercap+supercap bracket",
+     "LSI 9560-16i",
+     "LSI 9560-8i",
+     "MegaRAID 9361-16i",
+     "保持原需求（库里暂无此料，本行按原需求留白）"
+    ]
+   ],
+   "repeat_card": false,
+   "repeat_row": false,
+   "cat": "kp-d190452a",
+   "repeat_cat": false
+  },
+  {
+   "turn": 6,
+   "slot": "kp_row",
+   "row": "kp-96c674fe",
+   "n_options": 8,
+   "sig": [
+    "kp_row",
+    "kp-96c674fe",
+    [
+     "NVIDIA 4090涡轮卡",
+     "NVIDIA A800 80G",
+     "NVIDIA GPU A800",
+     "NVIDIA GPU H100",
+     "NVIDIA GeForce RTX4090D 24GB",
+     "NVIDIA H100 80G",
+     "NVIDIA L20",
+     "NVIDIA L20 48G"
+    ]
+   ],
+   "repeat_card": false,
+   "repeat_row": false,
+   "cat": "kp-96c674fe",
+   "repeat_cat": false
+  }
+ ],
+ "turns": [
+  {
+   "input": "机箱：4U 机架式（含8个全高全长双宽PCIe5.0 GPU卡位，支持12个3.5英寸硬盘：前置8盘位SATA+4盘位NVMe U.2，2700W 2+2/3+1冗余高效铂金电源） / CPU：AMD EPYC 9654 96核192线程 2.4GHz L3 384MB TDP 360W *2 / 内存：64GB DDR5 4800MHz R-ECC *24 / 硬盘：SATA SSD PM893",
+   "dur": 341.1942882537842,
+   "narration": "",
+   "nodes": [
+    [
+     "input",
+     "需求原文 400 字"
+    ],
+    [
+     "agent_fill",
+     "线索登记表 · 5 项已登记"
+    ],
+    [
+     "model_reason",
+     "机箱表（L6 配置） · 机型「ESA240 V3」 / 7 行"
+    ]
+   ],
+   "paused": "kp_row·行 kp-fc657306 选项=[AMD EPYC 9654/AMD EPYC 9654 96 cores/AMD EPYC 7A23/AMD EPYC 9115]",
+   "pause": [
+    {
+     "turn": 1,
+     "kind": "stuck",
+     "step": "kp_reason",
+     "label": "配件选型",
+     "reason_code": "kp_pick",
+     "resumable": true,
+     "pending": [
+      "kp_row"
+     ],
+     "steps_done": [
+      "agent_fill",
+      "model_reason"
+     ]
+    }
+   ],
+   "finished": false
+  },
+  {
+   "input": "[{\"slot\": \"kp_row\", \"value\": \"AMD EPYC 9654\"}]",
+   "dur": 263.57457160949707,
+   "narration": "",
+   "nodes": [
+    [
+     "input",
+     "需求原文 401 字"
+    ],
+    [
+     "agent_fill",
+     "线索登记表 · 5 项已登记"
+    ],
+    [
+     "model_reason",
+     "机箱表（L6 配置） · 7 行"
+    ]
+   ],
+   "paused": "kp_row·行 kp-4800828b 选项=[32G 4800MHz DDR5 RDIMM/16G DDR5 4800MHz/64G 4800 DDR5 RDIMM/64G 5600 DDR5 RDIMM]",
+   "pause": [
+    {
+     "turn": 2,
+     "kind": "stuck",
+     "step": "kp_reason",
+     "label": "配件选型",
+     "reason_code": "kp_pick",
+     "resumable": true,
+     "pending": [
+      "kp_row"
+     ],
+     "steps_done": [
+      "agent_fill",
+      "model_reason"
+     ]
+    }
+   ],
+   "finished": false
+  },
+  {
+   "input": "[{\"slot\": \"kp_row\", \"value\": \"32G 4800MHz DDR5 RDIMM\"}]",
+   "dur": 198.60201263427734,
+   "narration": "",
+   "nodes": [
+    [
+     "input",
+     "需求原文 401 字"
+    ],
+    [
+     "agent_fill",
+     "线索登记表 · 5 项已登记"
+    ],
+    [
+     "model_reason",
+     "机箱表（L6 配置） · 7 行"
+    ]
+   ],
+   "paused": "kp_row·行 kp-bf019a53 选项=[1.92T SATA SSD/2T SATA SSD/3.84T SATA SSD/480G SATA SSD]",
+   "pause": [
+    {
+     "turn": 3,
+     "kind": "stuck",
+     "step": "kp_reason",
+     "label": "配件选型",
+     "reason_code": "kp_pick",
+     "resumable": true,
+     "pending": [
+      "kp_row"
+     ],
+     "steps_done": [
+      "agent_fill",
+      "model_reason"
+     ]
+    }
+   ],
+   "finished": false
+  },
+  {
+   "input": "[{\"slot\": \"kp_row\", \"value\": \"1.92T SATA SSD\"}]",
+   "dur": 200.97717261314392,
+   "narration": "",
+   "nodes": [
+    [
+     "input",
+     "需求原文 401 字"
+    ],
+    [
+     "agent_fill",
+     "线索登记表 · 5 项已登记"
+    ],
+    [
+     "model_reason",
+     "机箱表（L6 配置） · 7 行"
+    ]
+   ],
+   "paused": "kp_row·行 kp-b36c9074 选项=[3.84TB NVMe U.2 SSD企业级/3.84T NVMe SSD/3.84T NVME SSD Gen5/3.84T NVMe 读取密集型]",
+   "pause": [
+    {
+     "turn": 4,
+     "kind": "stuck",
+     "step": "kp_reason",
+     "label": "配件选型",
+     "reason_code": "kp_pick",
+     "resumable": true,
+     "pending": [
+      "kp_row"
+     ],
+     "steps_done": [
+      "agent_fill",
+      "model_reason"
+     ]
+    }
+   ],
+   "finished": false
+  },
+  {
+   "input": "[{\"slot\": \"kp_row\", \"value\": \"3.84TB NVMe U.2 SSD企业级\"}]",
+   "dur": 79.90013670921326,
+   "narration": "",
+   "nodes": [
+    [
+     "input",
+     "需求原文 401 字"
+    ],
+    [
+     "agent_fill",
+     "线索登记表 · 5 项已登记"
+    ],
+    [
+     "model_reason",
+     "机箱表（L6 配置） · 7 行"
+    ]
+   ],
+   "paused": "kp_row·行 kp-d190452a 选项=[9560-16i  ≥4G缓存,含电池/LSI 9560-16i/LSI 9361-16i/LSI 9560-8i]",
+   "pause": [
+    {
+     "turn": 5,
+     "kind": "stuck",
+     "step": "kp_reason",
+     "label": "配件选型",
+     "reason_code": "kp_pick",
+     "resumable": true,
+     "pending": [
+      "kp_row"
+     ],
+     "steps_done": [
+      "agent_fill",
+      "model_reason"
+     ]
+    }
+   ],
+   "finished": false
+  },
+  {
+   "input": "[{\"slot\": \"kp_row\", \"value\": \"9560-16i  ≥4G缓存,含电池\"}]",
+   "dur": 55.19172286987305,
+   "narration": "",
+   "nodes": [
+    [
+     "input",
+     "需求原文 401 字"
+    ],
+    [
+     "agent_fill",
+     "线索登记表 · 5 项已登记"
+    ],
+    [
+     "model_reason",
+     "机箱表（L6 配置） · 7 行"
+    ]
+   ],
+   "paused": "kp_row·行 kp-96c674fe 选项=[NVIDIA A800 80G/NVIDIA H100 80G/NVIDIA GPU A800/NVIDIA 4090涡轮卡]",
+   "pause": [
+    {
+     "turn": 6,
+     "kind": "stuck",
+     "step": "kp_reason",
+     "label": "配件选型",
+     "reason_code": "kp_pick",
+     "resumable": true,
+     "pending": [
+      "kp_row"
+     ],
+     "steps_done": [
+      "agent_fill",
+      "model_reason"
+     ]
+    }
+   ],
+   "finished": false
+  },
+  {
+   "input": "[{\"slot\": \"kp_row\", \"value\": \"NVIDIA A800 80G\"}]",
+   "dur": 14.475579500198364,
+   "narration": "",
+   "nodes": [
+    [
+     "input",
+     "需求原文 401 字"
+    ],
+    [
+     "agent_fill",
+     "线索登记表 · 5 项已登记"
+    ],
+    [
+     "model_reason",
+     "机箱表（L6 配置） · 7 行"
+    ],
+    [
+     "kp_reason",
+     "配件表（方案配置配件部分） · 8 行"
+    ],
+    [
+     "compose",
+     "方案配置表（L6 + KP 组装结果） · 17 行 / 1 个整机配置"
+    ],
+    [
+     "output",
+     "方案配置卡 · 1 个整机配置"
+    ]
+   ],
+   "paused": "",
+   "pause": [],
+   "finished": true
+  }
+ ]
+}

@@ -659,7 +659,8 @@ function buildListParams(): Record<string, any> {
   } else if (partApplied.value.length) {
     params.period = 'all'
   }
-  if (filters.value.search) params.search = filters.value.search
+  const searchKw = (filters.value.search || '').trim()  // 复制粘贴常带不可见尾空白，未 trim 会静默搜不到
+  if (searchKw) params.search = searchKw
   if (partApplied.value.length) params.part_filters = JSON.stringify(partAppliedRows.value)
   if (filters.value.status !== 'all') {
     params.result = filters.value.status
@@ -833,7 +834,8 @@ async function loadSummary() {
     } else if (Array.isArray(filters.value.chassis) && filters.value.chassis.length > 0) {
       params.chassis = filters.value.chassis.join(',')
     }
-    if (filters.value.search) params.search = filters.value.search
+    const searchKw = (filters.value.search || '').trim()  // 复制粘贴常带不可见尾空白，未 trim 会静默搜不到
+  if (searchKw) params.search = searchKw
     if (partApplied.value.length) params.part_filters = JSON.stringify(partAppliedRows.value)
     if (canViewAll.value && filters.value.sales_person) params.sales_person = filters.value.sales_person
     const res = await axios.get('/api/dashboard/summary', { params })

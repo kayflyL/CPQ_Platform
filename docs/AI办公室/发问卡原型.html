@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发问卡原型 · AI 办公室</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   发问卡原型(规格书) — 2026-11-04
+   范围:AI 助手会话内全部 7 种发问卡形态。
+   视觉值全部取自 frontend/src/styles/tokens.css(唯一值源)。
+   本文件 = 评审用规格:用户确认后,前端样式以此为准,
+   后端按各卡「数据契约」标注接线(此前 AskCard 多问向导只有渲染端、
+   无生产者,接线在原型确认之后单独一步做)。
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  /* tokens.css 同值镜像(原型离线自包含) */
+  --cpq-accent-primary: #1677FF;
+  --cpq-accent-primary-light: #4096ff;
+  --cpq-color-success: #52C9A0;
+  --cpq-color-warning: #faad14;
+  --cpq-color-danger: #ff4d4f;
+  --cpq-text-primary: #E8ECEF;
+  --cpq-text-secondary: #9BA1AA;
+  --cpq-text-muted: #6E7582;
+  --cpq-overlay-w4: rgba(255,255,255,.04);
+  --cpq-overlay-w6: rgba(255,255,255,.06);
+  --cpq-overlay-w8: rgba(255,255,255,.08);
+  --cpq-overlay-w10: rgba(255,255,255,.10);
+  --cpq-overlay-w15: rgba(255,255,255,.15);
+  --cpq-overlay-a6: rgba(22,119,255,.06);
+  --cpq-overlay-a8: rgba(22,119,255,.08);
+  --cpq-overlay-a10: rgba(22,119,255,.10);
+  --cpq-overlay-a14: rgba(22,119,255,.14);
+  --cpq-overlay-a35: rgba(22,119,255,.35);
+  --cpq-overlay-a45: rgba(22,119,255,.45);
+  --cpq-overlay-success12: rgba(82,201,160,.12);
+  --cpq-overlay-success35: rgba(82,201,160,.35);
+  --cpq-overlay-warn12: rgba(250,173,20,.12);
+  --cpq-overlay-warn40: rgba(250,173,20,.40);
+  --cpq-radius-sm: 4px;
+  --cpq-radius-md: 6px;
+  --cpq-radius-lg: 8px;
+  --cpq-radius-full: 999px;
+  --cpq-font-size-xs: 11px;
+  --cpq-font-size-sm: 12px;
+  --cpq-font-size-base: 14px;
+  --cpq-font-size-lg: 16px;
+  --cpq-font-size-xl: 20px;
+  --cpq-space-1: 4px;
+  --cpq-space-2: 8px;
+  --cpq-space-3: 12px;
+  --cpq-space-4: 16px;
+  --cpq-space-5: 24px;
+  --cpq-space-6: 32px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #14171C;
+  color: var(--cpq-text-primary);
+  font-size: var(--cpq-font-size-base);
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  line-height: 1.5;
+  padding: var(--cpq-space-6) var(--cpq-space-5) 96px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+/* ── 页头 ── */
+.page-head { margin-bottom: var(--cpq-space-6); }
+.page-head h1 { font-size: var(--cpq-font-size-xl); font-weight: 700; margin-bottom: var(--cpq-space-2); }
+.page-head p { color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); max-width: 860px; }
+.page-head .warn { color: var(--cpq-color-warning); }
+/* ── 目录 ── */
+.toc { display: flex; flex-wrap: wrap; gap: var(--cpq-space-2); margin: var(--cpq-space-4) 0 var(--cpq-space-6); }
+.toc a {
+  color: var(--cpq-accent-primary-light); text-decoration: none; font-size: var(--cpq-font-size-sm);
+  padding: var(--cpq-space-1) var(--cpq-space-3);
+  border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-full);
+}
+.toc a:hover { background: var(--cpq-overlay-a8); }
+/* ── 分区:标注 + 样张 两栏 ── */
+section.card-sec { margin-bottom: var(--cpq-space-6); scroll-margin-top: var(--cpq-space-6); }
+.sec-title { font-size: var(--cpq-font-size-lg); font-weight: 700; margin-bottom: var(--cpq-space-3); }
+.sec-title .kind {
+  font-size: var(--cpq-font-size-xs); font-weight: 400; color: var(--cpq-text-muted);
+  font-family: Consolas, monospace; margin-left: var(--cpq-space-2);
+}
+.sec-grid { display: grid; grid-template-columns: minmax(320px, 420px) minmax(420px, 1fr); gap: var(--cpq-space-5); align-items: start; }
+@media (max-width: 900px) { .sec-grid { grid-template-columns: 1fr; } }
+/* 标注层 */
+.spec {
+  font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary);
+  border: 1px dashed var(--cpq-overlay-w15); border-radius: var(--cpq-radius-lg);
+  padding: var(--cpq-space-3) var(--cpq-space-4);
+}
+.spec h4 { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); font-weight: 600; margin: var(--cpq-space-3) 0 var(--cpq-space-1); text-transform: uppercase; letter-spacing: .05em; }
+.spec h4:first-child { margin-top: 0; }
+.spec code {
+  font-family: Consolas, monospace; font-size: var(--cpq-font-size-xs);
+  color: var(--cpq-accent-primary-light); background: var(--cpq-overlay-a6);
+  padding: 1px 4px; border-radius: var(--cpq-radius-sm);
+}
+.spec li { margin-left: 18px; margin-bottom: var(--cpq-space-1); }
+.spec .claude { color: var(--cpq-color-success); }
+/* 样张舞台(模拟聊天流左对齐) */
+.stage { padding: var(--cpq-space-4); background: var(--cpq-overlay-w4); border-radius: var(--cpq-radius-lg); display: flex; flex-direction: column; gap: var(--cpq-space-4); }
+.stage-label { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+
+/* ══════════ 卡通用结构(与 AskCard.vue 同源) ══════════ */
+.am-q {
+  max-width: 640px; border: 1px solid var(--cpq-overlay-w10);
+  border-radius: var(--cpq-radius-md); background: var(--cpq-overlay-w4);
+  overflow: hidden; display: flex; flex-direction: column;
+}
+.am-q--locked { opacity: .62; }
+.am-q-head {
+  display: flex; align-items: flex-start; gap: var(--cpq-space-2);
+  padding: 10px var(--cpq-space-3);
+  border-bottom: 1px solid var(--cpq-overlay-w8); background: var(--cpq-overlay-a6);
+}
+.am-q-badge {
+  flex: none; width: 18px; height: 18px; border-radius: var(--cpq-radius-sm);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--cpq-font-size-sm); font-weight: 700;
+  color: var(--cpq-accent-primary); border: 1px solid var(--cpq-accent-primary); margin-top: 1px;
+}
+.am-q-text { font-size: 13px; font-weight: 600; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.am-q-page { margin-left: auto; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); white-space: nowrap; }
+/* 选项行 */
+.am-q-opt {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: var(--cpq-space-2) var(--cpq-space-3);
+  border: 0; border-top: 1px solid transparent; background: transparent;
+  text-align: left; cursor: pointer; color: inherit; font: inherit;
+  transition: background .15s ease;
+}
+.am-q-opt + .am-q-opt, .am-q-group-label + .am-q-opt { border-top: 1px solid var(--cpq-overlay-w6); }
+.am-q-opt:hover { background: var(--cpq-overlay-a10); }
+.am-q-opt--picked { background: var(--cpq-overlay-a8); box-shadow: inset 2px 0 0 var(--cpq-accent-primary); }
+.am-q-opt--picked .am-q-key { border-color: var(--cpq-accent-primary); color: var(--cpq-accent-primary); }
+.am-q-opt--escape .am-q-label { color: var(--cpq-text-secondary); }
+.am-q-key {
+  flex: none; min-width: 20px; height: 20px; padding: 0 4px;
+  border-radius: var(--cpq-radius-sm); border: 1px solid var(--cpq-overlay-w10);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--cpq-font-size-xs); font-weight: 600; color: var(--cpq-text-secondary);
+}
+.am-q-opt:hover .am-q-key { border-color: var(--cpq-accent-primary); color: var(--cpq-accent-primary); }
+.am-q-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.am-q-label { font-size: 13px; line-height: 1.4; color: var(--cpq-text-primary); word-break: break-word; }
+.am-q-desc { font-size: var(--cpq-font-size-sm); line-height: 1.4; color: var(--cpq-text-muted); word-break: break-word; }
+/* 徽标 */
+.am-q-rec, .am-q-rule {
+  display: inline-block; margin-left: var(--cpq-space-2); padding: 0 var(--cpq-space-2);
+  border-radius: var(--cpq-radius-full); font-size: 10.5px; line-height: 18px;
+  vertical-align: middle; cursor: help;
+}
+.am-q-rec { color: #6ea8ff; background: var(--cpq-overlay-a14); border: 1px solid var(--cpq-overlay-a35); }
+.am-q-opt--rec { border-color: var(--cpq-overlay-a45); }
+.am-q-rule--match { color: var(--cpq-color-success); background: var(--cpq-overlay-success12); border: 1px solid var(--cpq-overlay-success35); }
+.am-q-rule--conflict { color: var(--cpq-color-warning); background: var(--cpq-overlay-warn12); border: 1px solid var(--cpq-overlay-warn40); }
+/* 分组标签 + 自选下拉 */
+.am-q-group-label {
+  padding: var(--cpq-space-2) var(--cpq-space-3) var(--cpq-space-1);
+  font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.pick-select {
+  flex: none; width: 200px; font-size: var(--cpq-font-size-sm);
+  background: transparent; color: var(--cpq-text-secondary);
+  border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-sm);
+  padding: 2px var(--cpq-space-2); cursor: pointer;
+}
+.pick-select option { background: #1c2027; color: var(--cpq-text-primary); }
+/* 数量步进器 */
+.am-q-stepper {
+  display: flex; align-items: center; gap: var(--cpq-space-2);
+  padding: var(--cpq-space-2) var(--cpq-space-3);
+  border-top: 1px solid var(--cpq-overlay-w6); background: var(--cpq-overlay-w4);
+  font-size: var(--cpq-font-size-sm);
+}
+.am-q-stepper-label { color: var(--cpq-text-muted); }
+.am-q-step-btn {
+  width: 22px; height: 22px; border-radius: var(--cpq-radius-sm);
+  border: 1px solid var(--cpq-overlay-w10); background: transparent;
+  color: var(--cpq-text-primary); font-size: 13px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.am-q-step-btn:disabled { opacity: .4; cursor: default; }
+.am-q-step-btn:not(:disabled):hover { border-color: var(--cpq-accent-primary); color: var(--cpq-accent-primary); }
+.am-q-step-input {
+  width: 56px; height: 22px; border-radius: var(--cpq-radius-sm);
+  border: 1px solid var(--cpq-overlay-w10); background: transparent;
+  color: var(--cpq-text-primary); font-size: var(--cpq-font-size-sm); text-align: center;
+}
+.am-q-stepper-total { margin-left: var(--cpq-space-1); color: var(--cpq-accent-primary); font-weight: 600; }
+/* 手动输入行 */
+.am-q-manual { padding: var(--cpq-space-2) var(--cpq-space-3); border-top: 1px solid var(--cpq-overlay-w6); }
+.am-q-manual-input, .hq-other {
+  width: 100%; height: 28px; border-radius: var(--cpq-radius-sm);
+  border: 1px solid var(--cpq-overlay-w10); background: transparent;
+  color: var(--cpq-text-primary); font-size: 12.5px; padding: 0 10px; outline: none;
+}
+.am-q-manual-input:focus, .hq-other:focus { border-color: var(--cpq-accent-primary); }
+.am-q-manual-input::placeholder, .hq-other::placeholder { color: var(--cpq-text-muted); }
+/* 底行 */
+.am-q-foot {
+  padding: var(--cpq-space-1) var(--cpq-space-3); border-top: 1px solid var(--cpq-overlay-w6);
+  font-size: 11.5px; color: var(--cpq-text-muted);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.am-q-foot--wizard { justify-content: flex-start; }
+.am-q-wizard-spring { flex: 1; }
+.am-q-wizard-btn {
+  border: none; background: transparent; color: var(--cpq-text-muted);
+  font-size: var(--cpq-font-size-sm); padding: var(--cpq-space-1) 10px;
+  border-radius: var(--cpq-radius-sm); cursor: pointer;
+}
+.am-q-wizard-btn:hover { color: var(--cpq-text-primary); }
+.am-q-submit {
+  flex: none; padding: var(--cpq-space-1) 14px; border-radius: var(--cpq-radius-sm);
+  border: 1px solid var(--cpq-accent-primary); background: var(--cpq-accent-primary);
+  color: #fff; font-size: var(--cpq-font-size-sm); font-weight: 600; cursor: pointer;
+  transition: opacity .15s ease;
+}
+.am-q-submit:disabled { opacity: .4; cursor: default; }
+.am-q-form-hint { min-width: 0; }
+/* 已答塌行 */
+.am-q-done {
+  display: flex; align-items: center; gap: var(--cpq-space-2); max-width: 640px;
+  padding: var(--cpq-space-1) 10px; border-radius: var(--cpq-radius-md);
+  border: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w6);
+  font-size: var(--cpq-font-size-sm); line-height: 18px; color: var(--cpq-text-secondary);
+}
+.am-q-done-check {
+  flex: none; width: 14px; height: 14px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; color: #16a34a; border: 1px solid rgba(22,163,74,.33);
+}
+.am-q-done-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.am-q-done-answer {
+  flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--cpq-text-primary); font-weight: 600;
+}
+
+/* ══════════ HumanQueryCard 家族 ══════════ */
+.hq-card { max-width: 640px; border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-md); background: var(--cpq-overlay-w4); overflow: hidden; }
+.hq-head { display: flex; align-items: center; gap: var(--cpq-space-2); padding: 10px var(--cpq-space-3); border-bottom: 1px solid var(--cpq-overlay-w8); background: var(--cpq-overlay-a6); font-weight: 600; font-size: 13px; }
+.hq-badge { flex: none; width: 18px; height: 18px; border-radius: var(--cpq-radius-sm); display: inline-flex; align-items: center; justify-content: center; font-size: var(--cpq-font-size-sm); border: 1px solid var(--cpq-accent-primary); color: var(--cpq-accent-primary); }
+.hq-consent .hq-badge { border-color: var(--cpq-color-warning); color: var(--cpq-color-warning); }
+.hq-detail { padding: var(--cpq-space-3); font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); white-space: pre-wrap; border-bottom: 1px solid var(--cpq-overlay-w6); font-family: inherit; }
+.hq-hint { padding: var(--cpq-space-2) var(--cpq-space-3) 0; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+.hq-actions { display: flex; justify-content: flex-end; gap: var(--cpq-space-2); padding: var(--cpq-space-3); }
+.hq-btn { padding: var(--cpq-space-1) var(--cpq-space-4); border-radius: var(--cpq-radius-sm); border: 1px solid var(--cpq-overlay-w15); background: transparent; color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); cursor: pointer; }
+.hq-btn:hover { color: var(--cpq-text-primary); border-color: var(--cpq-overlay-w20, rgba(255,255,255,.2)); }
+.hq-btn-primary { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); color: #fff; font-weight: 600; }
+.hq-btn-primary:disabled { opacity: .4; cursor: default; }
+.hq-opts { padding: var(--cpq-space-2) var(--cpq-space-3); display: flex; flex-direction: column; gap: var(--cpq-space-1); }
+.hq-opt { display: flex; align-items: flex-start; gap: 10px; padding: var(--cpq-space-2); border-radius: var(--cpq-radius-sm); cursor: pointer; }
+.hq-opt:hover { background: var(--cpq-overlay-a8); }
+.hq-opt.picked { background: var(--cpq-overlay-a8); box-shadow: inset 2px 0 0 var(--cpq-accent-primary); }
+.hq-opt input { margin-top: 3px; accent-color: var(--cpq-accent-primary); }
+.hq-opt-main { display: flex; flex-direction: column; gap: 2px; }
+.hq-opt-label { font-size: 13px; }
+.hq-opt-desc { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
+.hq-rec { font-style: normal; margin-left: var(--cpq-space-2); padding: 0 var(--cpq-space-2); border-radius: var(--cpq-radius-full); font-size: 10.5px; color: #6ea8ff; background: var(--cpq-overlay-a14); border: 1px solid var(--cpq-overlay-a35); }
+.hq-other-wrap { padding: 0 var(--cpq-space-3) var(--cpq-space-2); }
+.hq-fields { padding: var(--cpq-space-3); display: flex; flex-direction: column; gap: var(--cpq-space-3); }
+.hq-field-label, .if-label { display: block; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); margin-bottom: var(--cpq-space-1); }
+.hq-input, .if-input {
+  width: 100%; height: 28px; border-radius: var(--cpq-radius-sm);
+  border: 1px solid var(--cpq-overlay-w10); background: transparent;
+  color: var(--cpq-text-primary); font-size: 13px; padding: 0 10px; outline: none;
+}
+.hq-input:focus, .if-input:focus { border-color: var(--cpq-accent-primary); }
+/* InputFormCard */
+.if-card { max-width: 640px; border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-md); background: var(--cpq-overlay-w4); overflow: hidden; }
+.if-head { display: flex; align-items: center; gap: var(--cpq-space-2); padding: 10px var(--cpq-space-3); border-bottom: 1px solid var(--cpq-overlay-w8); background: var(--cpq-overlay-a6); font-weight: 600; font-size: 13px; }
+.if-badge { flex: none; width: 18px; height: 18px; border-radius: var(--cpq-radius-sm); display: inline-flex; align-items: center; justify-content: center; font-size: var(--cpq-font-size-sm); border: 1px solid var(--cpq-accent-primary); color: var(--cpq-accent-primary); }
+.if-body { padding: var(--cpq-space-3); display: flex; flex-direction: column; gap: var(--cpq-space-3); }
+.if-hint { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+.if-foot { display: flex; align-items: center; justify-content: space-between; padding: var(--cpq-space-2) var(--cpq-space-3); border-top: 1px solid var(--cpq-overlay-w6); font-size: 11.5px; color: var(--cpq-text-muted); }
+.if-done { color: var(--cpq-color-success); }
+.if-done-vals { color: var(--cpq-text-primary); font-weight: 600; }
+/* 契约总表 */
+.contract-table { width: 100%; border-collapse: collapse; font-size: var(--cpq-font-size-sm); margin-top: var(--cpq-space-3); }
+.contract-table th, .contract-table td { border: 1px solid var(--cpq-overlay-w10); padding: var(--cpq-space-2) var(--cpq-space-3); text-align: left; vertical-align: top; }
+.contract-table th { background: var(--cpq-overlay-w6); color: var(--cpq-text-secondary); font-weight: 600; white-space: nowrap; }
+.contract-table code { font-family: Consolas, monospace; font-size: var(--cpq-font-size-xs); color: var(--cpq-accent-primary-light); }
+.contract-table td.mut { color: var(--cpq-text-muted); }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>发问卡原型(规格书)</h1>
+  <p>AI 助手会话内 <b>6 种在役发问卡形态 + 1 条退役记录</b>(2026-11-04 评审定调)。
+     样张可交互(点击/翻页/步进器均为真实 mock 逻辑)。
+     视觉值全部取自 <code>tokens.css</code>;确认后:前端样式以此为准,后端按各卡标注的<b>数据契约</b>接线。</p>
+  <p class="warn">评审定调(2026-11-04):① choice 单选卡退役,单问确认卡吸收其 Other 逃生门;② 配件行卡支持同回合多行缺口合批(与多问卡同一套分页协议)。
+     另:多问向导卡(#3)前端渲染端已存在(AskCard.vue,未提交),但后端零生产者——接线作为独立一步执行。</p>
+  <nav class="toc">
+    <a href="#c1">1 单问确认卡(含 Other)</a><a href="#c2">2 配件行卡(单行+合批)</a><a href="#c3">3 多问向导卡(Claude 式)</a>
+    <a href="#c4">4 consent 授权卡</a><a href="#c5">5 退役:choice 单选卡</a><a href="#c6">6 form 字段表单</a>
+    <a href="#c7">7 InputFormCard 输入卡</a><a href="#contract">附:数据契约总表</a>
+  </nav>
+</div>
+
+<!-- ═══════════ 1 单问确认卡 ═══════════ -->
+<section class="card-sec" id="c1">
+  <div class="sec-title">1 · 单问确认卡<span class="kind">kind=input_options · ask_user 工具 / 引擎缺口</span></div>
+  <div class="sec-grid">
+    <div class="spec">
+      <h4>使用链路</h4>
+      大脑 <code>ask_user</code> 登记或引擎缺口(词典确认/推断求证),回合结束统一弹一张。
+      <h4>数据契约</h4>
+      <li><code>question</code> + <code>options[]</code>:<code>label</code>(必)、<code>desc</code>、<code>recommended</code>、<code>slot/value</code>(落登记表字段)、<code>rule_match / rule_conflict</code>(影子校验徽标,系统生成非 AI)</li>
+      <h4>交互规则</h4>
+      <li>点选即选中学态;底部固定 <b>Other 逃生门</b>(替代已退役的 choice 单选卡):点击展开自由输入行,回车/提交——文本优先于选中项;不选任何项也可以只输入文本回答回喂</li>
+      <li>回合进行中卡可见禁点(锁定态,半透明);已答塌缩为一行</li>
+      <h4 class="claude">Claude 对标点</h4>
+      <li class="claude">题头+竖排选项+序号+描述行,已对齐;Claude 的推荐项无徽标、以排序表达,我们保留「推荐」徽标(客户可见 AI 倾向,业务需要)</li>
+    </div>
+    <div class="stage">
+      <div class="stage-label">状态一:待答(含推荐 / 规则推荐 / 与规则不符 三种徽标)</div>
+      <div class="am-q" id="q1a">
+        <div class="am-q-head"><span class="am-q-badge">?</span><span class="am-q-text">服务器平台路线没有明确要求,倾向哪个方向?</span></div>
+        <button class="am-q-opt am-q-opt--rec" onclick="pick(this)"><span class="am-q-key">1</span><span class="am-q-body"><span class="am-q-label">国产 x86(兆芯 KH 系列)<span class="am-q-rec">推荐</span></span><span class="am-q-desc">满足国产化要求,供货与生态稳定</span></span></button>
+        <button class="am-q-opt" onclick="pick(this)"><span class="am-q-key">2</span><span class="am-q-body"><span class="am-q-label">国际 x86(至强 6)</span><span class="am-q-desc">性能上限更高,受出口与供货周期约束</span></span></button>
+        <button class="am-q-opt" onclick="pick(this)"><span class="am-q-key">3</span><span class="am-q-body"><span class="am-q-label">ARM(鲲鹏 920)</span><span class="am-q-desc">自主可控,业务软件需适配验证</span></span></button>
+        <button class="am-q-opt am-q-opt--escape" onclick="toggleOther(this,'other1')"><span class="am-q-key">⋯</span><span class="am-q-body"><span class="am-q-label">Other</span><span class="am-q-desc">都不合适?说说你的想法</span></span></button>
+        <div class="am-q-manual" id="other1" style="display:none"><input class="am-q-manual-input" placeholder="说说你的想法,回车提交"></div>
+        <div class="am-q-foot"><span>选择一项,或选 Other 自由输入</span></div>
+      </div>
+      <div class="am-q" id="q1b">
+        <div class="am-q-head"><span class="am-q-badge">?</span><span class="am-q-text">这台服务器部署在哪里?</span></div>
+        <button class="am-q-opt" onclick="pick(this)"><span class="am-q-key">1</span><span class="am-q-body"><span class="am-q-label">机房上架<span class="am-q-rule am-q-rule--match" title="平台归置规则硬命中与该选项一致">规则推荐</span></span><span class="am-q-desc">标准机柜部署,含导轨与上架服务</span></span></button>
+        <button class="am-q-opt" onclick="pick(this)"><span class="am-q-key">2</span><span class="am-q-body"><span class="am-q-label">办公室桌面<span class="q-rule-conflict-slot"></span><span class="am-q-rule am-q-rule--conflict" title="平台归置规则硬命中 机房上架,该选项与规则不符,请核对">与规则不符</span></span><span class="am-q-desc">塔式/静音机型,噪音与占用需确认</span></span></button>
+        <div class="am-q-foot"><span>选择一项,或直接输入其他回答</span></div>
+      </div>
+      <div class="stage-label">状态二:已答塌行(不占聊天流)</div>
+      <div class="am-q-done"><span class="am-q-done-check">✓</span><span class="am-q-done-text">服务器平台路线没有明确要求,倾向哪个方向?</span><span class="am-q-done-answer">已选:国产 x86(兆芯 KH 系列)</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 2 配件行卡 ═══════════ -->
+<section class="card-sec" id="c2">
+  <div class="sec-title">2 · 配件行卡(parts_card)<span class="kind">kind=input_options · parts_card=true</span></div>
+  <div class="sec-grid">
+    <div class="spec">
+      <h4>使用链路</h4>
+      某 BOM 行需客户拍板料号/数量时发;选项即候选料,点选可带 <code>pick</code> 直落该料。
+      <h4>数据契约</h4>
+      <li>在 #1 基础上增加:<code>parts_card</code>、选项级 <code>qty / qty_max</code>(步进器默认量与上限)、<code>group</code>(分组标签,如「AI 推荐」)、<code>pick_all / waived / absent</code>(批量/豁免语义)</li>
+      <h4>交互规则</h4>
+      <li>点选=选中(可再点取消),选中后出现<b>数量步进器</b> + 实时总量(如容量)</li>
+      <li><b>合批(2026-11-04 定调)</b>:同回合 ≥2 个行缺口时合为一张分页卡(与 #3 同套协议):逐行作答、每行可跳过,最后一页一次提交全部行答案;每行答案带 slot/label/qty</li>
+      <li><b>库自选下拉</b>:分组标签行右侧,懒加载 card-pick 候选,失败就地显示错误行(不再空下拉)</li>
+      <li><b>库外型号</b>:手动输入直接提交,服务端自动匹配目录</li>
+      <li>逃生项(豁免/跳过)弱化为文字观感;必须「确认提交」才回喂(与 #1 点选即回喂不同)</li>
+      <h4 class="claude">Claude 对标点</h4>
+      <li class="claude">Claude 无此卡——业务特有形态;数量步进器+实时总量+三条选料出路(推荐项/库自选/库外手输)是本系统对「选料卡」的完整答案</li>
+    </div>
+    <div class="stage">
+      <div class="stage-label">状态一:待答(选中一项后出现步进器)</div>
+      <div class="am-q" id="q2">
+        <div class="am-q-head"><span class="am-q-badge">?</span><span class="am-q-text">RAID 卡(1 行 ×2)怎么配?</span></div>
+        <div class="am-q-group-label"><span>AI 推荐</span>
+          <select class="pick-select"><option value="">从配件库自选…</option><option>LSI 9361-8i 8G 1GB</option><option>MegaRAID 9460-8i</option><option>JBOD 直通卡 9305-16i</option></select>
+        </div>
+        <button class="am-q-opt am-q-opt--rec" onclick="pickParts(this, 4096)"><span class="am-q-key">1</span><span class="am-q-body"><span class="am-q-label">LSI 9361-8i 2G<span class="am-q-rec">推荐</span></span><span class="am-q-desc">1G 缓存,支持 RAID 0/1/5/10,配 NVMe 硬盘</span></span></button>
+        <button class="am-q-opt" onclick="pickParts(this, 4096)"><span class="am-q-key">2</span><span class="am-q-body"><span class="am-q-label">MegaRAID 9460-8i 4G</span><span class="am-q-desc">4G 缓存,支持 RAID 6 与 SSD 加速</span></span></button>
+        <button class="am-q-opt am-q-opt--escape" onclick="pickParts(this, 0)"><span class="am-q-key">3</span><span class="am-q-body"><span class="am-q-label">这行先豁免,不配 RAID 卡</span></span></button>
+        <div class="am-q-stepper" id="stepper2" style="display:none">
+          <span class="am-q-stepper-label">数量</span>
+          <button class="am-q-step-btn" onclick="stepQty(-1)">−</button>
+          <input class="am-q-step-input" id="qty2" value="2" readonly>
+          <button class="am-q-step-btn" onclick="stepQty(1)">＋</button>
+          <span class="am-q-stepper-total" id="total2">共 8T 缓存容量</span>
+        </div>
+        <div class="am-q-manual"><input class="am-q-manual-input" placeholder="手动输入型号(库外型号也可提交)"></div>
+        <div class="am-q-foot"><span class="am-q-form-hint" id="hint2">选择一个推荐项,或从配件库/手动输入型号</span><button class="am-q-submit" disabled id="sub2" onclick="doneCard('q2','RAID 卡(1 行 ×2)怎么配?','已选:LSI 9361-8i 2G ×2')">确认提交</button></div>
+      </div>
+      <div class="stage-label">状态二:已答塌行</div>
+      <div class="am-q-done"><span class="am-q-done-check">✓</span><span class="am-q-done-text">RAID 卡(1 行 ×2)怎么配?</span><span class="am-q-done-answer">已选:LSI 9361-8i 2G ×2</span></div>
+      <div class="stage-label">状态三:多行缺口合批(RAID 卡 + 内存,与 #3 同套分页协议,可交互)</div>
+      <div class="am-q" id="partsWizard">
+        <div class="am-q-head"><span class="am-q-badge">?</span><span class="am-q-text" id="pwText"></span><span class="am-q-page" id="pwPage"></span></div>
+        <div id="pwOpts"></div>
+        <div class="am-q-stepper" id="pwStepper" style="display:none">
+          <span class="am-q-stepper-label">数量</span>
+          <button class="am-q-step-btn" onclick="pwStep(-1)">−</button>
+          <input class="am-q-step-input" id="pwQty" value="1" readonly>
+          <button class="am-q-step-btn" onclick="pwStep(1)">＋</button>
+          <span class="am-q-stepper-total" id="pwTotal"></span>
+        </div>
+        <div class="am-q-manual"><input class="am-q-manual-input" id="pwInput" placeholder="手动输入型号(库外型号也可提交)"></div>
+        <div class="am-q-foot am-q-foot--wizard">
+          <button class="am-q-wizard-btn" onclick="pwSkip()">跳过</button>
+          <span class="am-q-wizard-spring"></span>
+          <button class="am-q-submit" id="pwNextBtn" onclick="pwNext()">下一行</button>
+        </div>
+      </div>
+      <div class="am-q-done" id="pwDone" style="display:none"><span class="am-q-done-check">✓</span><span class="am-q-done-text">配件确认</span><span class="am-q-done-answer" id="pwDoneText"></span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 3 多问向导卡 ═══════════ -->
+<section class="card-sec" id="c3">
+  <div class="sec-title">3 · 多问向导卡(Claude Code 式)<span class="kind">kind=input_options · data.multi_questions[]</span></div>
+  <div class="sec-grid">
+    <div class="spec">
+      <h4>使用链路</h4>
+      同一回合产生 ≥2 个待问缺口时合批:<code>multi_questions[]</code> 每题独立 <code>slot/question/options</code>(≤4 题)。【后端生产者待接线,即本原型确认后的独立一步】
+      <h4>数据契约</h4>
+      <li><code>multi_questions: [{slot, question, options:[{label, desc, recommended}]}]</code>;每题选项与 #1 同构</li>
+      <h4>交互规则</h4>
+      <li>逐题作答:「下一题」推进,页码 <code>n / N</code>;「跳过」=本题留空前进</li>
+      <li>每题底部<b>自由输入行</b>(= Other 逃生门,可留空);最后一页「提交」一次回喂全部答案(<code>submit-selections</code>)</li>
+      <li>提交后塌缩为「已提交 n/N 项」摘要行</li>
+      <h4 class="claude">Claude 对标点</h4>
+      <li class="claude">完整对标截图原卡:题头分页指示 ↔「1 of 4」;选项描述行 ↔ option description;自由输入 ↔ Other;跳过 ↔ Skip。差异:我们是中文文案+推荐徽标;Claude 有 Ctrl⏎ 快捷键,不迁(聊天场景无键盘习惯)</li>
+    </div>
+    <div class="stage">
+      <div class="stage-label">可交互:点选项 / 下一题 / 跳过 / 提交,体验完整作答流</div>
+      <div class="am-q" id="mq">
+        <div class="am-q-head"><span class="am-q-badge">?</span><span class="am-q-text" id="mqText"></span><span class="am-q-page" id="mqPage"></span></div>
+        <div id="mqOpts"></div>
+        <div class="am-q-manual"><input class="am-q-manual-input" id="mqInput" placeholder="其他回答(可留空跳过)"></div>
+        <div class="am-q-foot am-q-foot--wizard">
+          <button class="am-q-wizard-btn" onclick="mqSkip()">跳过</button>
+          <span class="am-q-wizard-spring"></span>
+          <button class="am-q-submit" id="mqNextBtn" onclick="mqNext()">下一题</button>
+        </div>
+      </div>
+      <div class="am-q-done" id="mqDone" style="display:none"><span class="am-q-done-check">✓</span><span class="am-q-done-text">配置确认</span><span class="am-q-done-answer" id="mqDoneText"></span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 4 consent 授权卡 ═══════════ -->
+<section class="card-sec" id="c4">
+  <div class="sec-title">4 · consent 授权卡<span class="kind">kind=query · human_query 协议 · 写工具两段确认</span></div>
+  <div class="sec-grid">
+    <div class="spec">
+      <h4>使用链路</h4>
+      AI 要执行有后果的写动作(建文档/写商机/发外链)前的授权确认;协议槽状态在库,活过重启。
+      <h4>数据契约</h4>
+      <li><code>{kind:'consent', question:{title, detail, hint}}</code>;答案固定「确认执行 / 取消」二元</li>
+      <h4>交互规则</h4>
+      <li>无自由输入——授权就是授权;detail 讲清后果,hint 讲清可回退性</li>
+      <h4 class="claude">Claude 对标点</h4>
+      <li class="claude">对应 Claude Code 的权限批准弹窗;我们多一层 detail 展开(业务后果需要讲给客户看)</li>
+    </div>
+    <div class="stage">
+      <div class="hq-card hq-consent">
+        <div class="hq-head"><span class="hq-badge">!</span><span>确认执行:为商机「XX 银行数据中心」生成 BOM 草稿?</span></div>
+        <pre class="hq-detail">将根据当前确认的配置生成 2 个 BOM 页签并挂到商机下:
+· 标准配置(兆芯 KH-3000 系列)
+· 高密存储配置(12 盘位)
+生成后可在方案页手动调整,不会自动对外发送。</pre>
+        <p class="hq-hint">可回退:草稿可删除,不影响商机已有内容。</p>
+        <div class="hq-actions"><button class="hq-btn" onclick="doneCard('hqConsentWrap','确认执行:生成 BOM 草稿?','已取消')">取消</button><button class="hq-btn hq-btn-primary" onclick="doneCard('hqConsentWrap','确认执行:生成 BOM 草稿?','已确认执行')">确认执行</button></div>
+      </div>
+      <div class="am-q-done" id="hqConsentWrap" style="display:none"><span class="am-q-done-check">✓</span><span class="am-q-done-text" id="hqConsentT"></span><span class="am-q-done-answer" id="hqConsentA"></span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 5 退役:choice 单选卡 ═══════════ -->
+<section class="card-sec" id="c5">
+  <div class="sec-title">5 · 【退役】choice 单选卡<span class="kind">2026-11-04 评审定调 · 由 #1 单问确认卡替代</span></div>
+  <div class="sec-grid">
+    <div class="spec">
+      <h4>退役原因</h4>
+      <li>与 #1 单问确认卡功能重叠(单选+描述+推荐+Other),而样式弱于 #1(无序号键、无规则徽标、无已答塌行)</li>
+      <li>处置:human_query 协议的 <code>choice</code> 问答一律改用 #1 单问确认卡样式渲染(题头+序号选项+Other 逃生门);协议槽机制不变,只换渲染与契约字段</li>
+      <li>连带清理(接线时执行):前端 HumanQueryCard 的 choice 分支、后端 choice 型问答的选项组装,一并删除,不留双轨</li>
+    </div>
+    <div class="stage">
+      <div class="am-q-done"><span class="am-q-done-check">✗</span><span class="am-q-done-text">choice 单选卡已退役</span><span class="am-q-done-answer">需求 → #1 单问确认卡</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 6 form 字段表单 ═══════════ -->
+<section class="card-sec" id="c6">
+  <div class="sec-title">6 · form 字段表单卡<span class="kind">kind=query · human_query 协议</span></div>
+  <div class="sec-grid">
+    <div class="spec">
+      <h4>使用链路</h4>
+      需要客户一次补齐多个结构化字段(联系方式/交付信息);字段少而短,不适合聊天逐条问。
+      <h4>数据契约</h4>
+      <li><code>{kind:'form', question:{title}, fields:[{key, label, type, placeholder}]}</code>;提交=「label=值」文本回流对话</li>
+      <h4 class="claude">Claude 对标点</h4>
+      <li class="claude">Claude 无此形态;保留理由:注册/交付类结构化补录,聊天逐条问效率过低。若确认砍掉可并入 #7</li>
+    </div>
+    <div class="stage">
+      <div class="hq-card">
+        <div class="hq-head"><span class="hq-badge">✎</span><span>补充交付信息</span></div>
+        <div class="hq-fields">
+          <div><label class="hq-field-label">收货地址</label><input class="hq-input" placeholder="省/市/区 + 详细地址"></div>
+          <div><label class="hq-field-label">期望到货时间</label><input class="hq-input" placeholder="如:2026-12-20 前"></div>
+        </div>
+        <div class="hq-actions"><button class="hq-btn hq-btn-primary" onclick="doneCard('hq6Wrap','补充交付信息','已提交')">提交</button></div>
+      </div>
+      <div class="am-q-done" id="hq6Wrap" style="display:none"><span class="am-q-done-check">✓</span><span class="am-q-done-text" id="hq6T"></span><span class="am-q-done-answer" id="hq6A"></span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 7 InputFormCard ═══════════ -->
+<section class="card-sec" id="c7">
+  <div class="sec-title">7 · InputFormCard 输入卡<span class="kind">kind=input_form · ask_user_card 工具</span></div>
+  <div class="sec-grid">
+    <div class="spec">
+      <h4>使用链路</h4>
+      方案助手(非需求分析链路)的通用表单收集:AI 用 <code>ask_user_card</code> 工具声明字段,系统保证弹出;提交后「label=值」文本回流,AI 据此继续。
+      <h4>数据契约</h4>
+      <li><code>{title, fields:[{key,label,type,placeholder}], hint}</code>;与 #6 高度同质——差异仅协议:本卡属对话工具契约,#6 属 human_query 状态槽。评审时可拍板:二保留一(建议保 #7,砍 #6)</li>
+      <h4>交互规则</h4>
+      <li>「提交后 AI 继续处理」提示;提交后卡内字段锁定,显示 ✓ 已提交 + 值摘要</li>
+    </div>
+    <div class="stage">
+      <div class="if-card">
+        <div class="if-head"><span class="if-badge">✎</span><span>补充服务器采购信息</span></div>
+        <div class="if-body">
+          <div><label class="if-label">采购数量</label><input class="if-input" type="number" placeholder="台数"></div>
+          <div><label class="if-label">期望到货时间</label><input class="if-input" placeholder="如:月底前"></div>
+          <p class="if-hint">不确定的字段可以留空,我按默认值处理。</p>
+        </div>
+        <div class="if-foot"><span>提交后 AI 继续处理</span><button class="am-q-submit" onclick="doneCard('if7Wrap','补充服务器采购信息','已提交:3 台 · 月底前')">提交</button></div>
+      </div>
+      <div class="am-q-done" id="if7Wrap" style="display:none"><span class="am-q-done-check">✓</span><span class="am-q-done-text" id="if7T"></span><span class="am-q-done-answer" id="if7A"></span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 契约总表 ═══════════ -->
+<section class="card-sec" id="contract">
+  <div class="sec-title">附 · 数据契约总表(接线依据)</div>
+  <table class="contract-table">
+    <tr><th>卡</th><th>消息 kind</th><th>生产者(现状)</th><th>回喂方式</th><th>接线状态</th></tr>
+    <tr><td>1 单问确认卡</td><td><code>input_options</code></td><td>ask_user 工具 / 引擎缺口(_emit_gap_card);<b>已吸收 choice(2026-11-04)</b></td><td>点选即回喂 select-option / Other 文本回车回喂</td><td class="mut">链路通,当前上游不带选项</td></tr>
+    <tr><td>2 配件行卡</td><td><code>input_options</code>(parts_card)</td><td>引擎行缺口 + card-pick 自选端点;<b>支持多行合批(2026-11-04)</b></td><td>单行:确认提交;合批:一次提交 submit-selections(多行 slot/label/qty)</td><td class="mut">单行链路通;合批待接线</td></tr>
+    <tr><td>3 多问向导卡</td><td><code>input_options</code>(multi_questions)</td><td class="mut">【缺】后端零生产者</td><td>一次提交 submit-selections(多 slot)</td><td>渲染端已有,生产者待做</td></tr>
+    <tr><td>4 consent</td><td><code>query</code></td><td>human_query 协议槽</td><td>「确认执行/取消」回槽</td><td class="mut">链路通</td></tr>
+    <tr><td>5 choice</td><td><code>query</code></td><td><b>已退役</b>——human_query choice 一律改用 #1 样式渲染</td><td>—</td><td>退役;前端 choice 分支与后端组装连带删除</td></tr>
+    <tr><td>6 form</td><td><code>query</code></td><td>human_query 协议槽</td><td>「label=值」回槽</td><td class="mut">与 #7 同质,建议评审砍一</td></tr>
+    <tr><td>7 InputFormCard</td><td><code>input_form</code></td><td>ask_user_card 工具</td><td>「label=值」回流对话</td><td class="mut">链路通</td></tr>
+  </table>
+  <p style="margin-top:var(--cpq-space-3); font-size:var(--cpq-font-size-sm); color:var(--cpq-text-muted)">
+    样式基线:卡宽 ≤640px;间距只用 --cpq-space-1..6;字号只用 xs/sm/base(11/12/13※/14px,13px 为 AskCard 存量,原型沿用);
+    选中态=inset 2px 蓝线+A8 底色;推荐徽标=蓝系胶囊;规则徽标=成功绿/警示黄胶囊;已答塌行=单行 w6 底。
+  </p>
+</section>
+
+<script>
+/* ── mock 交互:视觉评审用,非生产代码 ── */
+function pick(btn) {
+  const card = btn.closest('.am-q');
+  card.querySelectorAll('.am-q-opt').forEach(b => b.classList.remove('am-q-opt--picked'));
+  btn.classList.add('am-q-opt--picked');
+}
+const parts = { qty: 2, unitGb: 4096, picked: false };
+function pickParts(btn, unitGb) {
+  const card = document.getElementById('q2');
+  const on = btn.classList.contains('am-q-opt--picked');
+  card.querySelectorAll('.am-q-opt').forEach(b => b.classList.remove('am-q-opt--picked'));
+  if (on) { parts.picked = false; } else {
+    btn.classList.add('am-q-opt--picked'); parts.picked = true;
+    if (unitGb) { parts.unitGb = unitGb; parts.qty = Math.max(parts.qty, 1); }
+  }
+  document.getElementById('stepper2').style.display = (parts.picked && parts.unitGb) ? 'flex' : 'none';
+  partsTotal(); partsHint();
+}
+function stepQty(d) {
+  parts.qty = Math.min(4, Math.max(1, parts.qty + d));
+  document.getElementById('qty2').value = parts.qty; partsTotal();
+}
+function partsTotal() {
+  const t = parts.picked && parts.unitGb ? `共 ${(parts.qty * parts.unitGb / 1024).toFixed(0)}T 缓存容量` : '';
+  document.getElementById('total2').textContent = t;
+}
+function partsHint() {
+  document.getElementById('sub2').disabled = !parts.picked;
+  document.getElementById('hint2').textContent = parts.picked ? '已选,可调数量后提交' : '选择一个推荐项,或从配件库/手动输入型号';
+}
+/* ── 通用分页向导引擎(mock):普通题与配件行题同一套协议 ──
+   每题: options[] 竖排点选;parts=true 时选项可带 unitGb(步进器算总量)。
+   跳过=本题留空前进;最后一页「提交」一次回喂全部。 */
+function makeWizard(cfg) {
+  // cfg: {cardId, optsId, pageId, inputId, nextBtnId, stepper?{root,qty,total}, doneId, doneTextId, questions, nextLabel?, submitLabel?, skipLabel?}
+  const st = { idx: 0, picked: {}, qty: {}, texts: {} };
+  const q = () => cfg.questions[st.idx];
+  function render() {
+    const cur = q();
+    document.getElementById(cfg.textId).textContent = cur.text;
+    document.getElementById(cfg.pageId).textContent = `${st.idx + 1} / ${cfg.questions.length}`;
+    const input = document.getElementById(cfg.inputId); if (input) input.value = st.texts[cur.slot] || '';
+    const optHtml = cur.options.map((o, i) => {
+      const on = st.picked[cur.slot] === i;
+      return `<button class="am-q-opt ${on ? 'am-q-opt--picked' : ''} ${o.rec ? 'am-q-opt--rec' : ''}" onclick="${cfg.ns}Pick(${i})">
+        <span class="am-q-key">${on ? '✓' : i + 1}</span>
+        <span class="am-q-body"><span class="am-q-label">${o.label}${o.rec ? ' <span class="am-q-rec">推荐</span>' : ''}</span>
+        ${o.desc ? `<span class="am-q-desc">${o.desc}</span>` : ''}</span></button>`;
+    }).join('');
+    document.getElementById(cfg.optsId).innerHTML = optHtml;
+    const last = st.idx === cfg.questions.length - 1;
+    document.getElementById(cfg.nextBtnId).textContent = last ? (cfg.submitLabel || '提交') : (cfg.nextLabel || '下一题');
+    // parts 步进器:当前题为配件行且已点选项带 unitGb 时出现
+    if (cfg.stepper) {
+      const o = cur.options[st.picked[cur.slot]] || {};
+      const show = cur.parts && o.unitGb;
+      document.getElementById(cfg.stepper.root).style.display = show ? 'flex' : 'none';
+      if (show) { st.qty[cur.slot] = st.qty[cur.slot] || o.qty || 1; renderQty(); }
+    }
+  }
+  function renderQty() {
+    const cur = q(); const o = cur.options[st.picked[cur.slot]] || {};
+    document.getElementById(cfg.stepper.qty).value = st.qty[cur.slot];
+    const total = (st.qty[cur.slot] || 0) * (o.unitGb || 0);
+    const txt = total >= 1024 ? `${(total / 1024).toFixed(total % 1024 ? 1 : 0)}T` : `${total}G`;
+    document.getElementById(cfg.stepper.total).textContent = `共 ${txt}`;
+  }
+  const w = {
+    pick(i) {
+      const cur = q();
+      st.picked[cur.slot] = st.picked[cur.slot] === i ? undefined : i;
+      if (cfg.stepper) { const o = cur.options[i] || {}; if (cur.parts && o.unitGb) { st.qty[cur.slot] = o.qty || 1; } }
+      render();
+    },
+    step(d) {
+      const cur = q(); const o = cur.options[st.picked[cur.slot]] || {};
+      const max = o.qtyMax || 4;
+      st.qty[cur.slot] = Math.min(max, Math.max(1, (st.qty[cur.slot] || 1) + d));
+      renderQty();
+    },
+    next() {
+      const cur = q();
+      const input = document.getElementById(cfg.inputId);
+      if (input) st.texts[cur.slot] = input.value.trim();
+      if (st.idx < cfg.questions.length - 1) { st.idx++; render(); } else w.submit();
+    },
+    skip() {
+      const cur = q();
+      st.picked[cur.slot] = undefined; st.texts[cur.slot] = '';
+      if (st.idx < cfg.questions.length - 1) { st.idx++; render(); } else w.submit();
+    },
+    submit() {
+      const n = cfg.questions.filter(c => st.picked[c.slot] !== undefined || (st.texts[c.slot] || '').trim()).length;
+      document.getElementById(cfg.cardId).style.display = 'none';
+      const done = document.getElementById(cfg.doneId); if (done) done.style.display = 'flex';
+      const t = document.getElementById(cfg.doneTextId);
+      if (t) t.textContent = `已提交 ${n}/${cfg.questions.length} 项`;
+    },
+  };
+  window[cfg.ns + 'Pick'] = w.pick; window[cfg.ns + 'Step'] = w.step;
+  window[cfg.ns + 'Next'] = w.next; window[cfg.ns + 'Skip'] = w.skip;
+  const inp = document.getElementById(cfg.inputId);
+  if (inp) inp.addEventListener('keyup', e => { if (e.key === 'Enter') w.next(); });
+  render();
+  return w;
+}
+/* #1 Other 逃生门:展开自由输入行 */
+function toggleOther(btn, id) {
+  const row = document.getElementById(id);
+  const show = row.style.display === 'none';
+  row.style.display = show ? 'block' : 'none';
+  if (show) { row.querySelector('input').focus(); btn.classList.add('am-q-opt--picked'); }
+  else btn.classList.remove('am-q-opt--picked');
+}
+/* #3 多问向导卡:普通题 */
+const MQ = [
+  { slot: 'usage', text: '这台服务器主要跑什么业务?', options: [
+    { label: 'AI 训练/推理', desc: 'GPU 机型,显存与卡间互联优先', rec: true },
+    { label: '虚拟化/云平台', desc: '大内存高核数,CPU 通道优先' },
+    { label: '文件/对象存储', desc: '盘位与容量优先,计算其次' }]},
+  { slot: 'budget', text: '预算区间大概在哪个范围?', options: [
+    { label: '50 万以内', desc: '单机或小集群,国产平台为主' },
+    { label: '50–100 万', desc: '可含高端 GPU 与全闪配置', rec: true },
+    { label: '100 万以上', desc: '集群方案,需单独出架构设计' }]},
+  { slot: 'timeline', text: '期望的交付节奏?', options: [
+    { label: '一个月内', desc: '现货机型,配置从货架选' },
+    { label: '一个季度内', desc: '常规备货周期', rec: true },
+    { label: '不限', desc: '以方案最优为先' }]},
+];
+makeWizard({ ns: 'mq', cardId: 'mq', optsId: 'mqOpts', pageId: 'mqPage', textId: 'mqText',
+  inputId: 'mqInput', nextBtnId: 'mqNextBtn', doneId: 'mqDone', doneTextId: 'mqDoneText', questions: MQ });
+/* #2 合批配件行卡:配件行题(步进器+总量) */
+const PW = [
+  { slot: 'raid', parts: true, text: '第 1 行 · RAID 卡怎么配?', options: [
+    { label: 'LSI 9361-8i 2G', desc: '1G 缓存,支持 RAID 0/1/5/10', rec: true },
+    { label: 'MegaRAID 9460-8i 4G', desc: '4G 缓存,支持 RAID 6' }]},
+  { slot: 'mem', parts: true, text: '第 2 行 · 内存配到多大?', options: [
+    { label: '64G(16G×4)', desc: '国产内存条,四通道满配', rec: true, unitGb: 64, qtyMax: 2 },
+    { label: '128G(32G×4)', desc: '大内存,虚拟化/缓存场景', unitGb: 128, qtyMax: 2 }]},
+];
+makeWizard({ ns: 'pw', cardId: 'partsWizard', optsId: 'pwOpts', pageId: 'pwPage', textId: 'pwText',
+  inputId: 'pwInput', nextBtnId: 'pwNextBtn',
+  stepper: { root: 'pwStepper', qty: 'pwQty', total: 'pwTotal' },
+  doneId: 'pwDone', doneTextId: 'pwDoneText', questions: PW, nextLabel: '下一行', submitLabel: '提交' });
+/* 通用:提交后塌缩为已答塌行 */
+function doneCard(id, q, a) {
+  const done = document.getElementById(id); if (!done) return;
+  const src = done.previousElementSibling; if (src) src.style.display = 'none';
+  done.style.display = 'flex';
+  const t = document.getElementById(id + 'T') || done.querySelector('.am-q-done-text');
+  const ans = document.getElementById(id + 'A') || done.querySelector('.am-q-done-answer');
+  if (t) t.textContent = q; if (ans) ans.textContent = a;
+}
+</script>
+</body>
+</html>

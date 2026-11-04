@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>风扇部件 · P3 细节（弯刀叶片/提手/连接器）</title>
+<style>
+  :root{ --bg:#0e1626; --line:rgba(255,255,255,.12); --tx:#e8edf5; --tx2:#9aa7ba; --mint:#7ee0c3 }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
+  #stage{position:fixed;inset:0}
+  .hud{position:fixed;left:16px;top:14px;z-index:2}
+  .hud h1{font-size:16px;font-weight:700}
+  .hud p{font-size:12px;color:var(--tx2);margin-top:2px}
+  .panel{position:fixed;right:16px;top:14px;z-index:2;display:flex;flex-direction:column;gap:8px;width:230px}
+  .seg{display:flex;gap:6px}
+  .seg button{flex:1;padding:8px 6px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.04);
+              color:var(--tx2);font-size:12.5px;cursor:pointer;transition:.15s}
+  .seg button.on{background:rgba(126,224,195,.14);border-color:rgba(126,224,195,.55);color:var(--mint)}
+  .card{background:rgba(13,20,32,.8);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .kv{font-size:12px;color:var(--tx2)}
+  .kv b{color:var(--tx)}
+  .slider{width:100%;accent-color:#7ee0c3}
+  .note{position:fixed;left:16px;bottom:14px;z-index:2;font-size:12px;color:var(--tx2);max-width:520px}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div class="hud">
+  <h1>风扇部件 · P3 细节（弯刀叶片/提手/连接器）</h1>
+  <p>闸2 P3 · 细节验收，材质质感 P4 再做 · 单位 1unit = 1mm</p>
+</div>
+<div class="panel">
+  <div class="card"><div class="kv">包围盒 <b id="bbox">…</b></div></div>
+  <div class="seg" id="viewSeg">
+    <button data-v="top">顶视</button><button data-v="iso" class="on">45°</button><button data-v="front">正面</button>
+  </div>
+  <div class="card">
+    <div class="kv">爆炸 <b id="fv">0%</b></div>
+    <input type="range" class="slider" id="explode" min="0" max="100" value="0">
+  </div>
+</div>
+<div class="note">细节验收点：① 7叶弯刀转子（常转，爆炸停转）② 底缘提手+金手指连接器 ③ 扇框规格贴纸形 ④ 穿模已修（立在地台上方）</div>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+/* ===== 尺寸(mm,蓝图为唯一事实;8038×12 待核对) ===== */
+const FAN = 80            // 单扇外框
+const DEPTH = 38          // 8038 厚度
+const COLS = 6, ROWS = 2
+const PITCH = 82          // 格距(含缝)
+const GAP = 4             // 框板边带
+const WALL_W = COLS * PITCH + GAP * 2   // ≈500
+const WALL_H = ROWS * PITCH + GAP * 2   // ≈172
+const COL = { plate: 0xb7c1cd, frame: 0x15171c, rotor: 0x1a1d24, hub: 0x22262e, gold: 0xd4a94f, sticker: 0x3a3f4a }
+
+/* ===== 舞台 ===== */
+const app = document.getElementById('stage')
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setSize(innerWidth, innerHeight)
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+renderer.toneMapping = THREE.ACESFilmicToneMapping
+renderer.toneMappingExposure = 1.1
+app.appendChild(renderer.domElement)
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x0e1626)
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 1, 3000)
+camera.position.set(320, 280, 620)
+const controls = new OrbitControls(camera, renderer.domElement)
+controls.enableDamping = true
+controls.target.set(0, 0, 0)
+
+scene.add(new THREE.AmbientLight(0xbfd0e8, 1.1))
+const key = new THREE.DirectionalLight(0xffffff, 2.0); key.position.set(180, 320, 160); scene.add(key)
+const fill = new THREE.DirectionalLight(0x9fc0ff, 0.8); fill.position.set(-200, 120, -80); scene.add(fill)
+
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(500, 64),
+  new THREE.MeshStandardMaterial({ color: 0x121d31, roughness: 0.95 })
+)
+ground.rotation.x = -Math.PI / 2; ground.position.y = -0.05
+scene.add(ground)
+
+/* ===== 建模:风扇墙(XY 面,Z=风扇轴) ===== */
+const root = new THREE.Group(); root.userData.part = 'fan'; scene.add(root)
+root.position.y = WALL_H / 2 + 12   // 立在地台上方(底缘离地),防穿模
+const gGrille = new THREE.Group(), gFans = new THREE.Group(), gRotors = new THREE.Group()
+root.add(gGrille, gFans, gRotors)
+root.userData.explode = { gGrille, upGrille: 120 }
+
+function roundedHole(hx, hy, hw, hh, r) {
+  const p = new THREE.Path()
+  const x = hx - hw / 2, y = hy - hh / 2
+  p.moveTo(x + r, y)
+  p.lineTo(x + hw - r, y); p.absarc(x + hw - r, y + r, r, -Math.PI / 2, 0, false)
+  p.lineTo(x + hw, y + hh - r); p.absarc(x + hw - r, y + hh - r, r, 0, Math.PI / 2, false)
+  p.lineTo(x + r, y + hh); p.absarc(x + r, y + hh - r, r, Math.PI / 2, Math.PI, false)
+  p.lineTo(x, y + r); p.absarc(x + r, y + r, r, Math.PI, Math.PI * 1.5, false)
+  p.closePath()
+  return p
+}
+function shapeWithHoles(w, h, holes) {
+  const s = new THREE.Shape()
+  s.moveTo(-w / 2, -h / 2); s.lineTo(w / 2, -h / 2); s.lineTo(w / 2, h / 2); s.lineTo(-w / 2, h / 2); s.closePath()
+  for (const [hx, hy, hw, hh, r] of holes) s.holes.push(roundedHole(hx, hy, hw, hh, r || 4))
+  return s
+}
+
+/* L1 护罩框板:500×172×2,12 个圆角矩形开孔 */
+const holes = []
+for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  holes.push([-WALL_W / 2 + GAP + c * PITCH + PITCH / 2, WALL_H / 2 - GAP - r * PITCH - PITCH / 2, FAN - 2, FAN - 2, 8])
+}
+const grilleGeo = new THREE.ExtrudeGeometry(shapeWithHoles(WALL_W, WALL_H, holes), { depth: 2, bevelEnabled: true, bevelThickness: 0.6, bevelSize: 0.8, bevelSegments: 2 })
+const grille = new THREE.Mesh(grilleGeo, new THREE.MeshStandardMaterial({ color: COL.plate, roughness: 0.6 }))
+grille.position.z = DEPTH + 6         // 装配态贴在风扇前脸
+grille.castShadow = true
+gGrille.add(grille)
+
+/* L2 风扇模块×12:八角环框(圆开孔)+四角螺丝沉孔;转子=7叶弯刀(P3)+毂 */
+const rotorGroups = []
+function bladeShape() {
+  const s = new THREE.Shape()
+  s.absarc(0, 0, 33, 0, 0.62, false)
+  s.absarc(0, 0, 15, 0.62, 0, true)
+  s.closePath()
+  return s
+}
+function octagon(size, holeR) {
+  const c = size / 2, k = size * 0.18
+  const s = new THREE.Shape()
+  s.moveTo(-c + k, -c); s.lineTo(c - k, -c); s.lineTo(c, -c + k); s.lineTo(c, c - k)
+  s.lineTo(c - k, c); s.lineTo(-c + k, c); s.lineTo(-c, c - k); s.lineTo(-c, -c + k); s.closePath()
+  if (holeR) {
+    const p = new THREE.Path()
+    p.absarc(0, 0, holeR, 0, Math.PI * 2, true)
+    s.holes.push(p)
+  }
+  return s
+}
+const cellX = (c) => -WALL_W / 2 + GAP + c * PITCH + PITCH / 2
+const cellY = (r) => WALL_H / 2 - GAP - r * PITCH - PITCH / 2
+const frameMat = new THREE.MeshStandardMaterial({ color: COL.frame, roughness: 0.7 })
+const rotorMat = new THREE.MeshStandardMaterial({ color: COL.rotor, roughness: 0.6 })
+const hubMat = new THREE.MeshStandardMaterial({ color: COL.hub, roughness: 0.5 })
+const goldMat = new THREE.MeshStandardMaterial({ color: COL.gold, metalness: 0.8, roughness: 0.35 })
+for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  const g = new THREE.Group()
+  g.position.set(cellX(c), cellY(r), 0)
+  const frame = new THREE.Mesh(new THREE.ExtrudeGeometry(octagon(FAN, 34), { depth: DEPTH, bevelEnabled: false }), frameMat)
+  frame.castShadow = true
+  g.add(frame)
+  for (const [sx, sy] of [[28, 28], [-28, 28], [28, -28], [-28, -28]]) {
+    const screw = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 2.5, 12), hubMat)
+    screw.rotation.x = Math.PI / 2
+    screw.position.set(sx, sy, DEPTH - 1)
+    g.add(screw)
+  }
+  const rotor = new THREE.Group()
+  rotor.position.set(cellX(c), cellY(r), DEPTH / 2)
+  /* 7 叶弯刀:环形扇区挤出+倾角,绕毂复制7份 */
+  const blades = new THREE.Group()
+  for (let i = 0; i < 7; i++) {
+    const wrap = new THREE.Group()
+    wrap.rotation.z = i * Math.PI * 2 / 7 + 0.18
+    const b = new THREE.Mesh(new THREE.ExtrudeGeometry(bladeShape(), { depth: 2.4, bevelEnabled: false }), rotorMat)
+    b.rotation.x = 0.52
+    b.position.z = -1.2
+    b.castShadow = true
+    wrap.add(b)
+    blades.add(wrap)
+  }
+  rotor.add(blades)
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(12, 12, DEPTH - 14, 24), hubMat)
+  hub.rotation.x = Math.PI / 2
+  rotor.add(hub)
+  rotor.castShadow = true
+  gRotors.add(rotor)
+  gFans.add(g)
+  rotorGroups.push(rotor)
+}
+/* 扇框规格贴纸(只做形状不写字,避型号定调) */
+const stickerMat = new THREE.MeshStandardMaterial({ color: COL.sticker, roughness: 0.6 })
+for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  const sticker = new THREE.Mesh(new THREE.BoxGeometry(22, 9, 1), stickerMat)
+  sticker.position.set(cellX(c) + 22, cellY(r) + 28, DEPTH + 0.5)
+  gFans.add(sticker)
+}
+/* L4 提手+金手指连接器(底缘6组,随框板层) */
+for (let c = 0; c < COLS; c++) {
+  const h = new THREE.Group()
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(26, 12, 10), frameMat)
+  grip.position.set(cellX(c), -WALL_H / 2 - 2, DEPTH / 2)
+  h.add(grip)
+  const pcb = new THREE.Mesh(new THREE.BoxGeometry(18, 2, 26), hubMat)
+  pcb.position.set(cellX(c), -WALL_H / 2 - 1, -DEPTH / 2)
+  h.add(pcb)
+  for (let i = 0; i < 4; i++) {
+    const f = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.5, 14), goldMat)
+    f.position.set(cellX(c) - 6.75 + i * 4.5, -WALL_H / 2 - 2.5, -DEPTH / 2 + 3)
+    h.add(f)
+  }
+  gGrille.add(h)
+}
+
+/* ===== 爆炸/视角 ===== */
+let explodeTarget = 0, explode = 0
+function applyExplode() {
+  gGrille.position.z = explode * 120
+  gRotors.position.z = explode * 40
+  document.getElementById('fv').textContent = Math.round(explode * 100) + '%'
+  updateBbox()
+}
+function updateBbox() {
+  const bb = new THREE.Box3().setFromObject(root)
+  const sz = bb.getSize(new THREE.Vector3())
+  document.getElementById('bbox').textContent = `${sz.x.toFixed(0)} × ${sz.y.toFixed(0)} × ${sz.z.toFixed(0)} mm`
+}
+document.getElementById('explode').addEventListener('input', e => { explodeTarget = e.target.value / 100 })
+function setView(v) {
+  if (v === 'top') camera.position.set(0.01, 620, 0.01)
+  if (v === 'iso') camera.position.set(320, 280, 620)
+  if (v === 'front') camera.position.set(0, 0, 760)
+  controls.target.set(0, 0, DEPTH / 2)
+}
+document.getElementById('viewSeg').addEventListener('click', e => { if (e.target.dataset.v) { [...e.currentTarget.children].forEach(b => b.classList.remove('on')); e.target.classList.add('on'); setView(e.target.dataset.v) } })
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight) })
+
+const clock = new THREE.Clock()
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05)
+  explode += (explodeTarget - explode) * (1 - Math.exp(-dt * 5))
+  applyExplode()
+  if (explode < 0.02) for (const rg of rotorGroups) rg.rotation.z += dt * 1.2   // 常转;爆炸停转=断电教学语义
+  controls.update()
+  renderer.render(scene, camera)
+})
+updateBbox()
+</script>
+</body>
+</html>

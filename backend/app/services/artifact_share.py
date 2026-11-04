@@ -143,11 +143,13 @@ def render_entity_snapshot(opportunity_id: str, source_type: str, source_id: str
         if not q or q.opportunity_id != opportunity_id:
             raise HTTPException(status_code=404, detail="报价单不存在或不属于该商机")
         title = q.quotation_name or f"报价单v{q.version}"
-        data = load_preview_data(opportunity_id, str(source_id))
+        # bindings 必须传进 loader：config_summary.description 依赖模板的 selectedParts，
+        # 不传描述列恒为空（工作台预览同一管线传了 bindings 所以正常）
+        data = load_preview_data(opportunity_id, str(source_id), template["bindings"])
     else:
         title, configs = _load_configs(source_type, opportunity_id, str(source_id))
         source, items = quasi_source_from_configs(configs, title)
-        data = load_preview_data(opportunity_id, None, source=source, source_items=items)
+        data = load_preview_data(opportunity_id, None, template["bindings"], source=source, source_items=items)
 
     filled = fill_snapshot(
         template["workbook_snapshot"], template["bindings"], data,

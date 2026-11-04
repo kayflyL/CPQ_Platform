@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /**
- * 规则卡（节点抽屉·规则层统一卡片语法，与 ToolCard 同脸）：
+ * 规则卡（规则层统一卡片语法，与 ToolCard 同脸）：
  * kind=group（整组引入，组内新增自动跟进）/ rule（单条）；
- * idle=待选（卡底「＋ 加入」）、selected=已引入（卡底「移除」）；archived 灰显不可加入。
- * 规则本体的编辑在策略中心·需求分析规则页，此卡只做引入/移除。
+ * idle=待选（卡底「＋ 加入」）、selected=已引入（卡底「移除」）；非 active 状态右上灰标签（草稿/测试中/已停用）。
+ * 可选扩展：badge=徽标文案（默认「组/条」）、tone=徽标配色（默认随 kind）、#actions=卡底左侧插槽（需求规则页放编辑/删除）。
+ * 规则本体的编辑在策略中心·需求分析规则页，抽屉里的此卡只做引入/移除。
  */
 import { computed } from 'vue'
 
@@ -17,12 +18,17 @@ const props = withDefaults(defineProps<{
   status?: string
   state?: 'idle' | 'selected'
   interactive?: boolean
+  /** 徽标文案，默认按 kind 显示「组/条」 */
+  badge?: string
+  /** 徽标配色：group=蓝底、rule=中性灰，默认随 kind */
+  tone?: 'group' | 'rule'
 }>(), {
   meta: '',
   summary: '',
   status: 'active',
   state: 'idle',
   interactive: false,
+  badge: '',
 })
 
 const emit = defineEmits<{
@@ -31,6 +37,10 @@ const emit = defineEmits<{
 }>()
 
 const archived = computed(() => props.status !== 'active')
+const STATUS_LABELS: Record<string, string> = { draft: '草稿', testing: '测试中', archived: '已停用' }
+const statusLabel = computed(() => (props.status === 'active' ? '' : (STATUS_LABELS[props.status] || '已停用')))
+const badgeText = computed(() => props.badge || (props.kind === 'group' ? '组' : '条'))
+const toneCls = computed(() => (props.tone || props.kind) === 'group' ? 'rc-mono--group' : 'rc-mono--rule')
 
 function onAct() {
   if (!props.interactive) return
@@ -43,25 +53,26 @@ function onAct() {
 <template>
   <div class="rule-card" :class="[`is-${state}`, { 'is-archived': archived }]">
     <div class="rc-top">
-      <span class="rc-mono" :class="kind === 'group' ? 'rc-mono--group' : 'rc-mono--rule'">
-        {{ kind === 'group' ? '组' : '条' }}
-      </span>
-      <span v-if="archived" class="rc-state">已停用</span>
+      <span class="rc-mono" :class="toneCls">{{ badgeText }}</span>
+      <span v-if="statusLabel" class="rc-state">{{ statusLabel }}</span>
     </div>
     <div class="rc-title" :title="name">{{ name }}</div>
     <div v-if="meta" class="rc-meta">{{ meta }}</div>
     <div v-if="summary" class="rc-summary">{{ summary }}</div>
-    <div class="rc-foot">
-      <template v-if="interactive">
-        <span v-if="state === 'selected'" class="rc-mounted">已引入</span>
-        <button
-          type="button"
-          class="rc-act"
-          :class="state === 'selected' ? 'rc-act--remove' : 'rc-act--mount'"
-          :disabled="archived && state !== 'selected'"
-          @click.stop="onAct"
-        >{{ state === 'selected' ? '移除' : '＋ 加入' }}</button>
-      </template>
+    <div v-if="interactive || $slots.actions" class="rc-foot">
+      <span class="rc-side">
+        <slot name="actions">
+          <span v-if="state === 'selected'" class="rc-mounted">已引入</span>
+        </slot>
+      </span>
+      <button
+        v-if="interactive"
+        type="button"
+        class="rc-act"
+        :class="state === 'selected' ? 'rc-act--remove' : 'rc-act--mount'"
+        :disabled="archived && state !== 'selected'"
+        @click.stop="onAct"
+      >{{ state === 'selected' ? '移除' : '＋ 加入' }}</button>
     </div>
   </div>
 </template>
@@ -116,9 +127,9 @@ function onAct() {
   overflow: hidden;
 }
 .rc-foot {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  min-height: 24px;
+  display: flex; align-items: center; justify-content: space-between; min-height: 24px;
 }
+.rc-side { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
 .rc-mounted { font-size: 11.5px; color: var(--cpq-accent-primary, #6ea8ff); }
 .rc-act {
   padding: 1px 10px;

@@ -21,6 +21,14 @@ logger = logging.getLogger(__name__)
 _ANTHROPIC_VERSION = "2023-06-01"
 _CONNECT_TIMEOUT = 15.0
 
+# 通道容错（2026-11-03，CloudPrime 池化通道实测）：约 2/3 请求「HTTP 200 但 SSE 零事件
+# 秒收场」（死通道轮询），其非流式链路则恒回「合法壳但零内容」的空壳。空回/空壳成本
+# 极低（秒回），就地重试成功率高。间隔 0.5s 起步线性退避，避免连打加剧限流。
+# 智谱官方这类健康端点：流式必带真事件、非流式必有内容——重试/兜底路径永不进入，行为零变化。
+_STREAM_EMPTY_RETRIES = 4
+_STREAM_EMPTY_RETRY_DELAY_S = 0.5
+_NONSTREAM_EMPTY_RETRIES = 3
+
 _VERSIONED_RE = re.compile(r"/v\d+$")
 
 
@@ -197,6 +205,11 @@ async def chat(
 
     thinking: 透传 Anthropic thinking 参数（如 {"type":"disabled"}）。GLM 这类模型
     在该端点默认开思考——不显式关闭，每个工具轮先吐数千字符思考流，慢 5-10 倍。
+
+    空壳重试 + 流式兜底（2026-11-03）：CloudPrime 非流式链路整体损坏——HTTP 200 里
+    要么包错误体（_wrapped_error 拆包报错），要么回「合法壳但零内容」空壳（此前
+    _parse_nonstream 静默返回空，缺口转述/结构化抽取拿到的是空气）。空壳重试 ≤3 次
+    仍空则转流式聚合兜底。非流式本来就能通的供应商（智谱官方）永远不进重试/兜底。
     """
     url = messages_base(base_url) + "/messages"
     system, msgs = to_anthropic_messages(messages)
@@ -218,15 +231,61 @@ async def chat(
         "anthropic-version": _ANTHROPIC_VERSION,
         "content-type": "application/json",
     }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(_CONNECT_TIMEOUT, read=timeout, write=30, pool=30), trust_env=False) as client:
-        resp = await client.post(url, headers=headers, json=payload)
-        await _raise_for_status(resp, url)
-        data = resp.json()
-    wrapped = _wrapped_error(data)
-    if wrapped:
-        # 个别上游把错误包在 HTTP 200 里：不拆包就会静默返回空消息
-        raise AnthropicChannelError(f"Anthropic 上游错误 @ {url}: {wrapped}")
-    return _parse_nonstream(data)
+    for attempt in range(1 + _NONSTREAM_EMPTY_RETRIES):
+        if attempt:
+            await asyncio.sleep(_STREAM_EMPTY_RETRY_DELAY_S * attempt)
+        async with httpx.AsyncClient(timeout=httpx.Timeout(_CONNECT_TIMEOUT, read=timeout, write=30, pool=30), trust_env=False) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            await _raise_for_status(resp, url)
+            data = resp.json()
+        wrapped = _wrapped_error(data)
+        if wrapped:
+            # 个别上游把错误包在 HTTP 200 里：不拆包就会静默返回空消息。
+            # 真错误不重试（参数/权限错重试无意义），如实上抛交消费方收口。
+            raise AnthropicChannelError(f"Anthropic 上游错误 @ {url}: {wrapped}")
+        parsed = _parse_nonstream(data)
+        _msg = parsed.get("message") or {}
+        if str(_msg.get("content") or "").strip() or parsed.get("tool_calls"):
+            return parsed
+    # 非流式连续空壳 → 流式兜底（stream() 自带首事件缓冲重试）。
+    return await _stream_aggregate_fallback(
+        messages=messages, tools=tools, model=model, base_url=base_url, api_key=api_key,
+        max_tokens=max_tokens, temperature=temperature, timeout=timeout, thinking=thinking)
+
+
+async def _stream_aggregate_fallback(*, messages, tools, model, base_url, api_key,
+                                     max_tokens, temperature, timeout, thinking) -> Dict[str, Any]:
+    """非流式空壳兜底：同参转流式聚合，拼回 chat() 同契约的返回（raw_message 形状对齐）。"""
+    text_parts: List[str] = []
+    tool_calls: List[Dict[str, Any]] = []
+    raw_tool_calls: List[Dict[str, Any]] = []
+    stop_reason = ""
+    usage: Dict[str, int] = {}
+    async for ev in stream(messages=messages, tools=tools, model=model, base_url=base_url,
+                           api_key=api_key, max_tokens=max_tokens, temperature=temperature,
+                           timeout=timeout, thinking=thinking):
+        t = ev.get("type")
+        if t == "content":
+            text_parts.append(str(ev.get("delta") or ""))
+        elif t == "tool_calls":
+            for tc in ev.get("tool_calls") or []:
+                tool_calls.append({"id": str(tc.get("id") or ""), "name": str(tc.get("name") or ""),
+                                   "arguments": tc.get("arguments") if isinstance(tc.get("arguments"), dict) else {},
+                                   "arguments_raw": str(tc.get("arguments_raw") or "{}")})
+                raw_tool_calls.append({"id": str(tc.get("id") or ""), "type": "function",
+                                       "function": {"name": str(tc.get("name") or ""),
+                                                    "arguments": str(tc.get("arguments_raw") or "{}")}})
+        elif t == "meta":
+            stop_reason = str(ev.get("stop_reason") or "")
+            usage = ev.get("usage") or {}
+    raw_message = {
+        "role": "assistant",
+        "content": "".join(text_parts),
+        "tool_calls": raw_tool_calls,
+        "stop_reason": stop_reason or "end_turn",
+        "via": "stream_fallback",
+    }
+    return {"message": raw_message, "tool_calls": tool_calls}
 
 
 def _parse_nonstream(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -273,11 +332,78 @@ async def stream(
     overall_timeout: Optional[float] = None,
     thinking: Optional[dict] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
-    """流式 Anthropic 调用，yield 与 stream_agent_chat 一致的归一化事件：
+    """流式 Anthropic 调用（对外口），yield 与 stream_agent_chat 一致的归一化事件：
       {type:reasoning,delta} / {type:content,delta} / {type:tool_calls,tool_calls:[...]}
 
+    首事件缓冲重试（2026-11-03，CloudPrime 池化通道实测 63-72% 空回率）：缓冲到看到
+    第一个**有内容**的事件（content/reasoning/tool_calls）才向外 yield；流零事件收场
+    视为死响应自动重发（≤4 次，0.5s 起线性退避），耗尽后如实上抛 AnthropicChannelError
+    （消费方按 LLMError 收口，绝不静默空回）。真错误（200 包错误体/SSE error/超时）
+    不重试直接上抛。智谱官方这类健康端点流式必带真事件——缓冲即放行，行为零变化。
     thinking: 见 chat() 同名参数（GLM 默认思考需显式关闭）。
     """
+    for attempt in range(1 + _STREAM_EMPTY_RETRIES):
+        if attempt:
+            await asyncio.sleep(_STREAM_EMPTY_RETRY_DELAY_S * attempt)
+        queue: asyncio.Queue = asyncio.Queue()
+        saw_content = False
+
+        async def _pump() -> None:
+            try:
+                async for ev in _stream_once_gen(
+                    messages=messages, tools=tools, model=model, base_url=base_url,
+                    api_key=api_key, max_tokens=max_tokens, temperature=temperature,
+                    timeout=timeout, first_token_timeout=first_token_timeout,
+                    reasoning_effort=reasoning_effort, overall_timeout=overall_timeout,
+                    thinking=thinking):
+                    queue.put_nowait(ev)
+            except Exception as exc:  # 含 AnthropicTimeoutError/ChannelError，原样上抛
+                queue.put_nowait({"type": "_pump_error", "exc": exc})
+            finally:
+                queue.put_nowait(None)
+
+        pump = asyncio.create_task(_pump())
+        try:
+            while True:
+                ev = await queue.get()
+                if ev is None:
+                    break
+                t = ev.get("type") or ""
+                if t == "_pump_error":
+                    raise ev.get("exc")
+                if t in ("content", "reasoning", "tool_calls"):
+                    saw_content = True
+                if saw_content:
+                    yield ev
+                # 未见到内容前事件只缓冲不外放（死响应的零星 ping/空分片全部吞掉）
+            if saw_content:
+                return
+        finally:
+            if not pump.done():
+                pump.cancel()
+                try:
+                    await pump
+                except (asyncio.CancelledError, Exception):
+                    pass
+    raise AnthropicChannelError(
+        f"Anthropic 流式连续 {1 + _STREAM_EMPTY_RETRIES} 次零事件（上游死通道），已放弃本次流式请求")
+
+
+async def _stream_once_gen(
+    *, messages: List[Dict[str, Any]],
+    tools: Optional[List[Dict[str, Any]]] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    max_tokens: int = 4096,
+    temperature: Optional[float] = None,
+    timeout: float = 180.0,
+    first_token_timeout: Optional[float] = None,
+    reasoning_effort: Optional[str] = None,
+    overall_timeout: Optional[float] = None,
+    thinking: Optional[dict] = None,
+) -> AsyncGenerator[Dict[str, Any], None]:
+    """流式单次尝试（无重试）：一次 SSE 会话的归一化事件流。"""
     url = messages_base(base_url) + "/messages"
     system, msgs = to_anthropic_messages(messages)
     payload: Dict[str, Any] = {

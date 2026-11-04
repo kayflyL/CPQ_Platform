@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CPU 部件 · P1 块头（比例验证）</title>
+<style>
+  :root{ --bg:#0e1626; --line:rgba(255,255,255,.12); --tx:#e8edf5; --tx2:#9aa7ba; --mint:#7ee0c3 }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
+  #stage{position:fixed;inset:0}
+  .hud{position:fixed;left:16px;top:14px;z-index:2}
+  .hud h1{font-size:16px;font-weight:700}
+  .hud p{font-size:12px;color:var(--tx2);margin-top:2px}
+  .panel{position:fixed;right:16px;top:14px;z-index:2;display:flex;flex-direction:column;gap:8px;width:230px}
+  .seg{display:flex;gap:6px}
+  .seg button{flex:1;padding:8px 6px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.04);
+              color:var(--tx2);font-size:12.5px;cursor:pointer;transition:.15s}
+  .seg button.on{background:rgba(126,224,195,.14);border-color:rgba(126,224,195,.55);color:var(--mint)}
+  .card{background:rgba(13,20,32,.8);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .kv{font-size:12px;color:var(--tx2)}
+  .kv b{color:var(--tx)}
+  .slider{width:100%;accent-color:#7ee0c3}
+  .note{position:fixed;left:16px;bottom:14px;z-index:2;font-size:12px;color:var(--tx2);max-width:520px}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div class="hud">
+  <h1>CPU 部件 · P1 块头（比例验证）</h1>
+  <p>闸2 P1 · 只验比例与布局关系，非成品质感 · 单位 1unit = 1mm</p>
+</div>
+<div class="panel">
+  <div class="card"><div class="kv">包围盒 <b id="bbox">…</b></div></div>
+  <div class="seg" id="viewSeg">
+    <button data-v="top">顶视</button><button data-v="iso" class="on">45°</button><button data-v="front">正面</button>
+  </div>
+  <div class="seg" id="famSeg">
+    <button data-f="epyc" class="on">EPYC</button><button data-f="kh">兆芯</button>
+  </div>
+  <div class="card">
+    <div class="kv">爆炸 <b id="fv">0%</b></div>
+    <input type="range" class="slider" id="explode" min="0" max="100" value="0">
+  </div>
+</div>
+<div class="note">块头验收点：① 俯视正方形比例与 IHS 占比 ② 台阶沿位置 ③ chiplet 环绕 IOD 布点关系 ④ 爆炸轴向分层</div>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+/* ===== 尺寸（mm，蓝图为唯一事实；P1 只块头） ===== */
+const S = {            // SP5 族
+  sub:   [75, 1.2, 75],      // 封装基板
+  skirt: [69, 1.2, 69],      // IHS 台阶沿（框架层）
+  cap:   [55, 2.6, 55],      // IHS 顶盖
+  ccd:   [6.5, 0.6, 6.5],    // CCD 占位
+  iod:   [17, 0.7, 17],      // IOD 占位
+}
+const KH = {           // 兆芯族（近似，待核对）
+  sub: [74, 1.2, 74], skirt: [68, 1.2, 68], cap: [58, 2.6, 58],
+  die: [26, 0.8, 26],
+}
+const COL = { sub: 0x2e5f66, subKh: 0x2c4a34, ihs: 0xb9c1cc, chip: 0x1a2032, iod: 0x4a2a63 }
+
+/* ===== 舞台 ===== */
+const app = document.getElementById('stage')
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setSize(innerWidth, innerHeight)
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+renderer.toneMapping = THREE.ACESFilmicToneMapping
+renderer.toneMappingExposure = 1.1
+app.appendChild(renderer.domElement)
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x0e1626)
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 1, 2000)
+camera.position.set(80, 90, 110)
+const controls = new OrbitControls(camera, renderer.domElement)
+controls.enableDamping = true
+controls.target.set(0, 8, 0)
+
+scene.add(new THREE.AmbientLight(0xbfd0e8, 1.1))
+const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(60, 120, 40); scene.add(key)
+const fill = new THREE.DirectionalLight(0x9fc0ff, 0.9); fill.position.set(-70, 50, -30); scene.add(fill)
+
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(160, 64),
+  new THREE.MeshStandardMaterial({ color: 0x121d31, roughness: 0.95 })
+)
+ground.rotation.x = -Math.PI / 2; ground.position.y = -0.05
+scene.add(ground)
+
+/* ===== 建模（全部 userData 语义标注，契约同蓝本 §5） ===== */
+const root = new THREE.Group(); root.userData.part = 'cpu'; scene.add(root)
+const gSub = new THREE.Group(), gChips = new THREE.Group(), gIhs = new THREE.Group()
+root.add(gSub, gChips, gIhs)
+root.userData.explode = { gIhs, gChips, gSub, upIhs: 60, upChips: 28 }
+root.userData.parts = []
+
+function box(parent, dims, color, at, ud) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(...dims), new THREE.MeshStandardMaterial({ color, roughness: 0.6 }))
+  m.position.set(...at); m.userData = ud; m.name = ud.key
+  root.userData.parts.push(ud.key)
+  parent.add(m)
+  return m
+}
+
+/* SP5 族 */
+function buildEpyc() {
+  box(gSub, S.sub, COL.sub, [0, 0.6, 0], { key: 'pcb', name: '封装基板', spec: '约75×75mm', desc: 'LGA 触点阵在底面' })
+  // CCD 环绕 IOD（Genoa 布点示意）
+  const ring = 12
+  for (let i = 0; i < ring; i++) {
+    const a = (i / ring) * Math.PI * 2 + Math.PI / 12
+    const r = 26
+    box(gChips, S.ccd, COL.chip, [Math.cos(a) * r, 1.5, Math.sin(a) * r], { key: 'ccd', name: 'CCD', spec: 'Zen4核芯', desc: '环绕IOD布置' })
+  }
+  box(gChips, S.iod, COL.iod, [0, 1.55, 0], { key: 'iod', name: 'IOD', spec: 'I/O die', desc: '中央输入输出' })
+  box(gIhs, S.skirt, COL.ihs, [0, 1.8, 0], { key: 'ihs', name: 'IHS 台阶沿', spec: '69×69', desc: '四边缺口式框架层' })
+  box(gIhs, S.cap, COL.ihs, [0, 3.7, 0], { key: 'ihs', name: 'IHS 顶盖', spec: '55×55', desc: '刻字品牌字（P3）' })
+}
+/* 兆芯族 */
+function buildKh() {
+  box(gSub, KH.sub, COL.subKh, [0, 0.6, 0], { key: 'pcb', name: '封装基板', spec: '尺寸待核对', desc: '绿基板' })
+  box(gChips, KH.die, COL.chip, [0, 1.6, 0], { key: 'die', name: '单片大 die', spec: '占位', desc: '银盖下单die' })
+  box(gIhs, KH.skirt, COL.ihs, [0, 1.8, 0], { key: 'ihs', name: 'IHS 台阶沿', spec: '68×68', desc: '方盖框架' })
+  box(gIhs, KH.cap, COL.ihs, [0, 3.7, 0], { key: 'ihs', name: 'IHS 顶盖', spec: '58×58', desc: '刻字「兆芯」（P3）' })
+}
+
+/* ===== 族切换 / 爆炸 / 视角 ===== */
+let fam = 'epyc', built = null
+function clearGroup(g) { while (g.children.length) { const m = g.children.pop(); m.geometry.dispose(); m.material.dispose() } }
+function build(f) {
+  for (const g of [gSub, gChips, gIhs]) clearGroup(g)
+  if (f === 'epyc') buildEpyc(); else buildKh()
+  built = f; applyExplode(+document.getElementById('explode').value / 100)
+  updateBbox()
+}
+function updateBbox() {
+  const bb = new THREE.Box3().setFromObject(root)
+  const sz = bb.getSize(new THREE.Vector3())
+  document.getElementById('bbox').textContent = `${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)} mm`
+}
+function applyExplode(f) {
+  root.userData.explode.gIhs.position.y = f * 60
+  root.userData.explode.gChips.position.y = f * 28
+  root.userData.explode.gSub.position.y = 0
+  document.getElementById('fv').textContent = Math.round(f * 100) + '%'
+  updateBbox()
+}
+document.getElementById('explode').addEventListener('input', e => applyExplode(e.target.value / 100))
+function setView(v) {
+  if (v === 'top') camera.position.set(0.01, 280, 0.01)
+  if (v === 'iso') camera.position.set(80, 90, 110)
+  if (v === 'front') camera.position.set(0, 30, 170)
+  controls.target.set(0, 6, 0)
+}
+document.getElementById('viewSeg').addEventListener('click', e => { if (e.target.dataset.v) { [...e.currentTarget.children].forEach(b => b.classList.remove('on')); e.target.classList.add('on'); setView(e.target.dataset.v) } })
+document.getElementById('famSeg').addEventListener('click', e => {
+  if (e.target.dataset.f) { [...e.currentTarget.children].forEach(b => b.classList.remove('on')); e.target.classList.add('on'); build(e.target.dataset.f) }
+})
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight) })
+
+build('epyc')
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera) })
+console.log('[P1-selfcheck] parts =', [...new Set(root.userData.parts)].join(','))
+</script>
+</body>
+</html>

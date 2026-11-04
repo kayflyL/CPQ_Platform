@@ -78,6 +78,13 @@ def _gap_data_question(g: dict) -> str:
     if g.get("slot") == "kp_required":
         cats = "、".join(g.get("cats") or [])
         return f"还需要确认：{cats} 部件的需求（如某类不需要请说明）"
+    if g.get("parts_card"):
+        # 配件行卡：事实句用行的类目/描述，不吐原始槽位键（合批后 slot 带行 id 更不可直出）
+        pm = g.get("pick_meta") if isinstance(g.get("pick_meta"), dict) else {}
+        cat = str(pm.get("category") or "").strip()
+        spec = str(pm.get("request_spec") or "").strip()
+        head = "还需要确认配件：" + (f"「{cat}" if cat else "「配件") + (f" · {spec}」" if spec and spec != cat else "」")
+        return head + "怎么配？（选推荐项、库内自选或直接告诉我型号都可以）"
 
     def _opt_text(o):
         return str(o.get("label")) if isinstance(o, dict) else str(o)
@@ -572,6 +579,29 @@ class _ChatTurnRuntime:
             return q + "\n选项：" + " / ".join(KP_MODE_OPTIONS)
         return q
 
+    def _gap_catalog_facts(self, gap: dict) -> str:
+        """缺口涉及字段的在售目录候选（纯事实锚，逐值来自 catalog_whitelist/在售机型）。
+
+        终检转述是不带工具的一次性 LLM 调用，GAP_DATA 里只有机制 hint 时它没有值域可依，
+        会自由措辞编出目录外的选项例子（机架式/塔式实测）；目录字段缺口则把候选摆进数据。"""
+        try:
+            from ai_office.skill_node_plugins import catalog_dimension_candidates
+            ext = unwrap_doc(self.result_ctx.get("ext")) or self.ext
+            slot_key = str(gap.get("slot") or "").strip()
+            keys = [slot_key] if slot_key and slot_key != "brain_ask" else []
+            if not keys:
+                _missing_critical = hp.fn_port("slot_contract._missing_critical")
+                keys = [str(k) for k in (_missing_critical(ext) or [])]
+            lines = []
+            for k in keys[:4]:
+                cands = catalog_dimension_candidates({"ext": ext}, k)
+                if cands:
+                    lines.append(f"{slot_label(k)}在售目录候选：" + " / ".join(str(c) for c in cands[:8]))
+            return "\n".join(lines)
+        except Exception:
+            logger.exception("缺口目录事实锚构建失败")
+            return ""
+
     async def _transcribe_gap(self, gaps: list, skip_gap_ask: bool) -> tuple:
         """缺口转述（同一颗大脑的续话）→ 返回 (问句, 推荐 label)；不该转述时返回 ("", "")。
 
@@ -598,7 +628,7 @@ class _ChatTurnRuntime:
             # 这里只摆事实 + JSON 契约——代码不再自带第二套提示词。
             from ai_office.skill_step_runtime import manual_rules_block
             gap_prompt = ("（系统消息）配置引擎返回第一个缺口数据：\n"
-                          "<<ACK_RULE>>\n<<GAP_DATA>>\n"
+                          "<<ACK_RULE>>\n<<GAP_DATA>>\n<<CATALOG_FACTS>>\n"
                           "只输出 JSON：{\"reply\":\"你要发给客户的那句话\","
                           "\"recommend\":\"你推荐的选项 label 原文，没有把握就留空\"}。")
             _manual = str(((self.flow.get("graph") or {}).get("manual_rules")) or "")
@@ -610,7 +640,9 @@ class _ChatTurnRuntime:
                 {"role": "assistant", "content": self.reply or ""},
                 {"role": "user", "content": (gap_prompt
                             .replace("<<ACK_RULE>>", ack_rule)
-                            .replace("<<GAP_DATA>>", json.dumps(gaps[0], ensure_ascii=False)))},
+                            .replace("<<GAP_DATA>>", json.dumps(gaps[0], ensure_ascii=False))
+                            .replace("<<CATALOG_FACTS>>",
+                                     self._gap_catalog_facts(gaps[0]) or "（无）"))},
             ]
             try:
                 from ai_office import llm_client
@@ -651,89 +683,139 @@ class _ChatTurnRuntime:
                 question = ""
         return question, gap_recommend
 
+    def _card_options_for_gap(self, g: dict, slot_key: str, gap_recommend: str) -> tuple:
+        """一个缺口的选项 → 卡渲染数据 (cards, entries)：单卡与合批共用同一份映射。"""
+        group = slot_label(slot_key)
+        cards = []
+        entries = []
+        for o in (g.get("options") or []):
+            if isinstance(o, dict):
+                opt = {"label": str(o.get("label") or o.get("value") or ""),
+                       "value": str(o.get("value") or o.get("label") or ""),
+                       "desc": str(o.get("desc") or ""),
+                       "slot": str(o.get("slot") or slot_key),
+                       # 逃生项显式空组别（前端把非空组当卡头，逃生项不占组位）
+                       "group": str(o.get("group") if o.get("group") is not None else group)}
+                # 推荐标记（推荐制）：大脑话术 JSON 的 recommend 命中 value/label
+                if gap_recommend and gap_recommend in (opt["value"], opt["label"]):
+                    opt["recommended"] = True
+                if o.get("recommended"):
+                    opt["recommended"] = True
+                # 词典卡影子校验标注透传（「规则推荐/与规则不符」徽标数据）
+                if o.get("rule_match"):
+                    opt["rule_match"] = True
+                if isinstance(o.get("rule_conflict"), dict):
+                    opt["rule_conflict"] = o["rule_conflict"]
+                # 数量元数据透传（前端 stepper 边界+实时总量显示，纯展示参数非 signal）
+                for k in ("qty", "qty_max", "unit_gb"):
+                    v = o.get(k)
+                    if isinstance(v, int) and v > 0:
+                        opt[k] = v
+                cards.append(opt)
+                entry = {"slot": str(o.get("slot") or slot_key),
+                         "value": str(o.get("value") or o.get("label") or "")}
+                sig = o.get("signal")
+                if isinstance(sig, dict) and sig:
+                    entry["signal"] = sig
+                entries.append(entry)
+            else:
+                cards.append({"label": str(o), "value": str(o), "desc": "",
+                              "slot": slot_key, "group": group})
+                entries.append({"slot": slot_key, "value": str(o)})
+        return cards, entries
+
+    def _persist_last_card(self, options: list, pick_meta) -> None:
+        """last_card 留底（先落库再广播的「落库」半步）。
+
+        全量留底（含无 signal 的机型/逃生项）：had_pending_card 是点击快速路径的判定
+        条件，只留 signal 会让机型卡点击掉回 LLM 决策轮（点完又问「可以吗」）。
+        ext 必须取引擎产物（补抽会替换 ext 对象），用本地旧对象会把引擎补好的信号从
+        记忆里抹掉。"""
+        if not options:
+            return
+        lc = {"options": options}
+        if pick_meta:
+            lc["pick_meta"] = pick_meta
+        _save_mem(self.thread_id, self.role_key,
+                  {**self.mem, "ext": unwrap_doc(self.result_ctx.get("ext")) or self.ext,
+                   "last_card": lc})
+
     async def _emit_gap_card(self, gaps: list, questions: list, gap_recommend: str,
                              pick_meta) -> tuple:
         """结构化选项卡广播 + 载荷留底 → 返回 (card_emitted, card_opts)。
 
-        一缺口一卡（问题文本随卡落库，选项为空 = 开放回答）；旁白只随第一张卡落库
-        （emit_input_card 每收一次 narration 都会持久化一次）。
+        合批多问卡（2026-11-04 定调）：可答缺口 ≥2 时合成**一张分页卡**一次问完
+        （前端逐题作答、每题可跳过、末页一次提交），替代旧「一轮只发第一张、其余缺口
+        下回合再问」的逐条问。旧单焦点防的是并排多卡「点一张兄弟齐塌」，分页单卡
+        同一时刻只有一张卡，旧病不复现。零选项 brain_ask 缺口仍走 B4 文字兜底不进卡。
+        旁白只随卡落库一次（emit_input_card 每收一次 narration 都会持久化一次）。
         """
         card_emitted = False
         card_opts: list = []
         shared_narration = _merged_narration(self.result_ctx)
-        if self.emit_input_card is not None:
-            # 一轮只发第一张卡（逐条问）：card_opts/last_card 只留可见卡的选项，
-            # 点击快速路径 (slot,value) 与屏幕上的卡严格一致
-            for gi, g in enumerate(gaps[:1]):
-                slot_key = str(g.get("slot") or "general")
-                group = slot_label(slot_key)
-                cards = []
-                for o in (g.get("options") or []):
-                    if isinstance(o, dict):
-                        opt = {"label": str(o.get("label") or o.get("value") or ""),
-                               "value": str(o.get("value") or o.get("label") or ""),
-                               "desc": str(o.get("desc") or ""),
-                               "slot": str(o.get("slot") or slot_key),
-                               # 逃生项显式空组别（前端把非空组当卡头，逃生项不占组位）
-                               "group": str(o.get("group") if o.get("group") is not None else group)}
-                        # 推荐标记（推荐制）：大脑话术 JSON 的 recommend 命中 value/label
-                        if gap_recommend and gap_recommend in (opt["value"], opt["label"]):
-                            opt["recommended"] = True
-                        if o.get("recommended"):
-                            opt["recommended"] = True
-                        # 词典卡影子校验标注透传（「规则推荐/与规则不符」徽标数据）
-                        if o.get("rule_match"):
-                            opt["rule_match"] = True
-                        if isinstance(o.get("rule_conflict"), dict):
-                            opt["rule_conflict"] = o["rule_conflict"]
-                        # 数量元数据透传（前端 stepper 边界+实时总量显示，纯展示参数非 signal）
-                        for k in ("qty", "qty_max", "unit_gb"):
-                            v = o.get(k)
-                            if isinstance(v, int) and v > 0:
-                                opt[k] = v
-                        cards.append(opt)
-                        entry = {"slot": str(o.get("slot") or slot_key),
-                                 "value": str(o.get("value") or o.get("label") or "")}
-                        sig = o.get("signal")
-                        if isinstance(sig, dict) and sig:
-                            entry["signal"] = sig
-                        card_opts.append(entry)
-                    else:
-                        cards.append({"label": str(o), "value": str(o), "desc": "",
-                                      "slot": slot_key, "group": group})
-                        card_opts.append({"slot": slot_key, "value": str(o)})
-                q = questions[gi]
-                # B4 兜底：终检机制缺口（brain_ask 且零选项）不许渲染成「点不掉/答不进」的死卡，
-                # 降级为普通文字问句（走聊天回复，不占 last_card 选项卡）。
-                if not cards and str(g.get("reason_code") or "") == "brain_ask":
-                    continue
-                try:
-                    _payload = {"question": q, "options": cards,
-                                "slot_options": {slot_key: cards},
-                                "why": "", "missing_fields": [slot_key],
-                                "narration": (shared_narration if gi == 0 else "")}
-                    # 卡能力声明（2026-09-06 插头化）：parts_card=True → 前端渲染表单卡
-                    # （自选下拉+数量步进+手动型号+提交）；渲染器零业务词，能力全由数据声明
+        if self.emit_input_card is None:
+            return card_emitted, card_opts
+        # 逐缺口建卡数据（单卡与合批共用同一份选项映射）；B4 兜底：终检机制缺口
+        # （brain_ask 且零选项）不许渲染成「点不掉/答不进」的死卡，跳过不进卡。
+        built = []  # (gap, slot_key, cards, entries, question)
+        for gi, g in enumerate(gaps[:4]):
+            slot_key = str(g.get("slot") or "general")
+            cards, entries = self._card_options_for_gap(g, slot_key, gap_recommend)
+            if not cards and str(g.get("reason_code") or "") == "brain_ask":
+                continue
+            built.append((g, slot_key, cards, entries, questions[gi]))
+        if not built:
+            return card_emitted, card_opts
+        try:
+            # 先落留底再广播（2026-10-15 修复）：用户秒点选项/自选下拉时，card-pick
+            # 与 (slot,value) 匹配读的就是已持久化的 last_card——旧序「先广播后落库」
+            # 让秒点 409「不支持自选」，前端表现为空下拉+一行小字错误。
+            # 全量留底（含无 signal 的机型/逃生项）：had_pending_card 是点击快速路径
+            # 的判定条件，只留 signal 会让机型卡点击掉回 LLM 决策轮（点完又问「可以吗」）。
+            # ext 必须取引擎产物（补抽会替换 ext 对象），用本地旧对象会把引擎补好的
+            # 信号从记忆里抹掉。
+            if len(built) == 1:
+                g, slot_key, cards, entries, q = built[0]
+                _payload = {"question": q, "options": cards,
+                            "slot_options": {slot_key: cards},
+                            "why": "", "missing_fields": [slot_key],
+                            "narration": shared_narration}
+                # 卡能力声明（2026-09-06 插头化）：parts_card=True → 前端渲染表单卡
+                # （自选下拉+数量步进+手动型号+提交）；渲染器零业务词，能力全由数据声明
+                if g.get("parts_card"):
+                    _payload.update({"parts_card": True, "row": str(g.get("row") or ""),
+                                     "qty": g.get("qty"), "qty_max": g.get("qty_max"),
+                                     "unit_label": str(g.get("unit_label") or "")})
+                self._persist_last_card(card_opts + entries, g.get("pick_meta") or pick_meta)
+                await self.emit_input_card(q, _payload)
+                card_opts = card_opts + entries
+                card_emitted = True
+            else:
+                multi = []
+                pick_by_slot: dict = {}
+                for bi, (g, slot_key, cards, entries, q) in enumerate(built):
+                    mq = {"slot": slot_key, "question": q, "options": cards}
                     if g.get("parts_card"):
-                        _payload.update({"parts_card": True, "row": str(g.get("row") or ""),
-                                         "qty": g.get("qty"), "qty_max": g.get("qty_max"),
-                                         "unit_label": str(g.get("unit_label") or "")})
-                    # 先落留底再广播（2026-10-15 修复）：用户秒点选项/自选下拉时，card-pick
-                    # 与 (slot,value) 匹配读的就是已持久化的 last_card——旧序「先广播后落库」
-                    # 让秒点 409「不支持自选」，前端表现为空下拉+一行小字错误。
-                    # 全量留底（含无 signal 的机型/逃生项）：had_pending_card 是点击快速路径
-                    # 的判定条件，只留 signal 会让机型卡点击掉回 LLM 决策轮（点完又问「可以吗」）。
-                    # ext 必须取引擎产物（补抽会替换 ext 对象），用本地旧对象会把引擎补好的
-                    # 信号从记忆里抹掉。
-                    if card_opts:
-                        _save_mem(self.thread_id, self.role_key,
-                                  {**self.mem, "ext": unwrap_doc(self.result_ctx.get("ext")) or self.ext,
-                                   "last_card": {"options": card_opts,
-                                                 **({"pick_meta": pick_meta} if pick_meta else {})}})
-                    await self.emit_input_card(q, _payload)
-                    card_emitted = True
-                except Exception:
-                    logger.exception("选项卡广播失败 slot=%s", slot_key)
+                        mq.update({"parts_card": True, "row": str(g.get("row") or ""),
+                                   "qty": g.get("qty"), "qty_max": g.get("qty_max"),
+                                   "unit_label": str(g.get("unit_label") or "")})
+                        pm = g.get("pick_meta")
+                        if not isinstance(pm, dict) and bi == 0 and isinstance(pick_meta, dict):
+                            pm = pick_meta  # _annotate_gaps 从首个带 meta 的缺口上 pop，归还给它
+                        if isinstance(pm, dict):
+                            pick_by_slot[slot_key] = pm
+                    multi.append(mq)
+                    card_opts = card_opts + entries
+                _payload = {"multi_questions": multi, "why": "",
+                            "missing_fields": [m["slot"] for m in multi],
+                            "narration": shared_narration}
+                self._persist_last_card(
+                    card_opts,
+                    {"__multi__": True, "slots": pick_by_slot} if pick_by_slot else pick_meta)
+                await self.emit_input_card(built[0][4], _payload)
+                card_emitted = True
+        except Exception:
+            logger.exception("选项卡广播失败 slots=%s", [b[1] for b in built])
         return card_emitted, card_opts
 
     async def _emit_gaps(self, er: dict, brain_asks: list) -> dict:

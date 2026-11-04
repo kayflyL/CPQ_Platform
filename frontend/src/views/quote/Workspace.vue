@@ -1495,11 +1495,11 @@ async function handleDownloadExport() {
     const { resolvedWorkbookToXlsx } = await import('@/utils/xlsx-exporter')
     const blob = await resolvedWorkbookToXlsx(wb)
     const oid = store.opportunityInfo?.opportunity_id || '报价单'
-    // 业务命名：业务名-报价单日期-报价单-客户名_v版本[_对内版]；精确商机号不进文件名——明细页 B1 印着、归档元数据可查
+    // 业务命名：业务名-报价单日期-报价单_v版本[_对内版]；客户名/精确商机号不进文件名——明细页 B1 印着、归档元数据可查
     const oi = store.opportunityInfo || ({} as any)
     const date = String(oi.date || '').replace(/-/g, '') || dayjs().format('YYYYMMDD')
     const ver = parseInt(String(oi.version ?? '').replace(/^v/i, ''), 10)
-    const fname = `${safeFilenamePart(oi.sales_person, '未分配')}-${date}-报价单-${safeFilenamePart(oi.customer_name, '未命名客户')}_v${ver > 0 ? ver : 1}${isInternalVersion.value ? '_对内版' : ''}.xlsx`
+    const fname = `${safeFilenamePart(oi.sales_person, '未分配')}-${date}-报价单_v${ver > 0 ? ver : 1}${isInternalVersion.value ? '_对内版' : ''}.xlsx`
     downloadBlob(blob, fname)
     if (isInternalVersion.value) {
       // 对内版（含成本/利润率）：只归档到内部附件，不冻结报价单、不落策略快照

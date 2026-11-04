@@ -18,9 +18,13 @@ class Server3dModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String, default="")
+    # 模型类别:machine=整机(默认,可绑机型上配置页);part=部件库(独立预览,不参与机型绑定)
+    kind: Mapped[Optional[str]] = mapped_column(String, default="machine")
+    # kind='part' 时的部件类型:cpu|gpu|...(对应 server3d/parts/* 工厂)
+    part_type: Mapped[Optional[str]] = mapped_column(String, default=None)
     # 关联 l6.server_models.id;NULL=未关联(仅登记,不出现在配置页)
     model_id: Mapped[Optional[int]] = mapped_column(Integer, default=None, index=True)
-    # 前端不透明JSON:布局覆盖(可空=用前端内置默认布局)
+    # 前端不透明JSON:布局覆盖(可空=用前端内置默认布局;部件模型可带 {family:'kh'} 选形态族)
     layout_config: Mapped[Optional[str]] = mapped_column(Text, default=None)
     # 绑定 model_id 即上架(配置页中部显示该3D场景),解绑即隐藏——无独立上下架状态
     created_at: Mapped[Optional[str]] = mapped_column(String, default=None)

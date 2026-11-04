@@ -40,6 +40,7 @@ const myRole = computed(() => auth.user?.role || '')
 const ACTS = [
   { key: 'opp-all', title: '商机线索', desc: '全公司商机池与驾驶舱', to: '/opportunities', perm: 'page.opportunities_all', icon: 'board' },
   { key: 'leads', title: '线索池', desc: '公开线索汇聚与转化分配', to: '/leads', perm: 'page.leads', icon: 'board' },
+  { key: 'approvals', title: '报价外发审批', desc: '外发许可收件箱与裁决', to: '/approvals', perm: 'action.flow.approve.pricing', icon: 'doccheck' },
   { key: 'workspace', title: '报价工作台', desc: '整单报价与导出', to: '/workspace', perm: 'field.quote.price', icon: 'doc' },
   { key: 'servers', title: '服务器', desc: '查看服务器产品库', to: '/servers', perm: 'page.servers', icon: 'tower' },
   { key: 'parts', title: '配件', desc: '查看配件与兼容性', to: '/parts', perm: 'page.parts', icon: 'bins' },

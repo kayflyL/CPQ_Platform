@@ -9,10 +9,31 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { STAGE_THEMES, glow } from './themes'
-import { createMachine, DEFAULT_MACHINE_CONFIG, PART_INFO, KEY_ALIAS, type MachineConfig } from './machine'
+import { createMachine, DEFAULT_MACHINE_CONFIG, type MachineConfig } from './machine'
+import { createCpuModel, type CpuSpec } from './parts/cpu'
+import { createFanModel, type FanSpec } from './parts/fan'
 
 export type StageView = 'front' | 'rear' | 'top' | 'inner'
+
+/** 整机/部件统一舞台契约:machine 与 parts/* 工厂都满足,stage 只按此驱动 */
+interface StageModel {
+  root: THREE.Group
+  /** 仅整机有:主题可换色的共享材质组(machine.applyTheme 缺省时走这里) */
+  M?: Record<string, any>
+  PART_INFO: Record<string, { name: string; spec: string; desc: string }>
+  KEY_ALIAS?: Record<string, string | null>
+  setCounts(c: { gpus?: number; cpus?: number; dimms?: number; bays?: number }): void
+  setExploded(on: boolean): void
+  updateTick(dt: number, t: number): void
+  setHover(key: string | null): void
+  setGlassBase?(v: number): void
+  /** 部件自定主题钩子(按需取色表字段;整机无此钩子,走 M 材质换色)。参数放宽:any 主题表都可传 */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  applyTheme?(t: any, name: 'dark' | 'light'): void
+  get explodeRatio(): number
+}
 
 /** 视角预设 = 方向向量(相对整机中心),距离由 auto-fit 按包围球实时推算 */
 const VIEW_DIRS: Record<StageView, [number, number, number]> = {
@@ -22,7 +43,8 @@ const VIEW_DIRS: Record<StageView, [number, number, number]> = {
   inner: [0.58, 0.42, 0.7],
 }
 
-export function createServerStage(container: HTMLElement, cfg: MachineConfig = DEFAULT_MACHINE_CONFIG) {
+export function createServerStage(container: HTMLElement, cfg: MachineConfig = DEFAULT_MACHINE_CONFIG,
+  opts: { partType?: 'cpu' | 'fan'; partSpec?: CpuSpec | FanSpec } = {}) {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.setSize(container.clientWidth || 800, container.clientHeight || 480)
@@ -35,6 +57,10 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
   const scene = new THREE.Scene()
   scene.background = new THREE.Color('#0a1526')
   scene.fog = new THREE.FogExp2('#0a1526', 0.022)
+  // 室内环境反射:镀镍/金属件(metalness 1)没有 env 会渲染成近黑(部件库 CPU 闸4教训)
+  const pmrem = new THREE.PMREMGenerator(renderer)
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+  scene.environmentIntensity = 0.45
 
   const camera = new THREE.PerspectiveCamera(42, (container.clientWidth || 800) / (container.clientHeight || 480), 0.1, 200)
   camera.position.set(20, 13, 20)
@@ -45,7 +71,7 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
   controls.dampingFactor = 0.07
   controls.minDistance = 3.5
   controls.maxDistance = 40
-  controls.maxPolarAngle = Math.PI * 0.52
+  controls.maxPolarAngle = opts.partType ? Math.PI * 0.95 : Math.PI * 0.52
   controls.autoRotate = true
   controls.autoRotateSpeed = 0.85
 
@@ -124,7 +150,9 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
   }))
   scene.add(dust)
 
-  const machine = createMachine(cfg)
+  const machine = (opts.partType === 'cpu' ? createCpuModel(opts.partSpec)
+    : opts.partType === 'fan' ? createFanModel(opts.partSpec as FanSpec)
+    : createMachine(cfg)) as StageModel
   scene.add(machine.root)
 
   function applyTheme(name: 'dark' | 'light') {
@@ -133,18 +161,23 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
     ;(scene.fog as THREE.FogExp2).color.set(t.bg)
     floor.material.color.set(t.floor)
     buildGrid(t.grid1, t.grid2)
-    machine.M.body.color.set(t.body)
-    machine.M.dark.color.set(t.dark)
-    machine.M.fin.color.set(t.fin)
-    machine.M.glass.color.set(t.glass)
-    machine.M.board.color.set(t.board)
-    machine.M.boardDk.color.set(t.boardDk)
-    machine.setGlassBase(t.glassBase)
+    if (machine.applyTheme) {
+      machine.applyTheme(t, name)
+    } else {
+      machine.M!.body.color.set(t.body)
+      machine.M!.dark.color.set(t.dark)
+      machine.M!.fin.color.set(t.fin)
+      machine.M!.glass.color.set(t.glass)
+      machine.M!.board.color.set(t.board)
+      machine.M!.boardDk.color.set(t.boardDk)
+      machine.setGlassBase!(t.glassBase)
+    }
     ambient.intensity = t.amb
     key.intensity = t.key
     fillTop.intensity = t.fill
     rimCyan.intensity = t.rimC
     rimViolet.intensity = t.rimV
+    scene.environmentIntensity = t.env
     bloom.strength = t.bloom
     bloom.threshold = t.bloomThr
     renderer.toneMappingExposure = t.exp
@@ -193,7 +226,8 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
     while (o && o !== scene) {
       if (o.userData && o.userData.part != null) {
         const k = o.userData.part as string
-        return KEY_ALIAS[k] !== undefined ? KEY_ALIAS[k] : (PART_INFO[k] ? k : null)
+        const ka = machine.KEY_ALIAS ?? {}
+        return ka[k] !== undefined ? ka[k]! : (machine.PART_INFO[k] ? k : null)
       }
       o = o.parent
     }
@@ -281,11 +315,21 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
 
   return {
     machine,
+    camera, controls,
     applyTheme,
     flyTo,
     setOnHover,
     setAutoRotate(on: boolean) { controls.autoRotate = on },
     setExploded(on: boolean) { machine.setExploded(on) },
+    /** 调试口:后台页 rAF 暂停时手动步进一帧(排障/E2E 截图用) */
+    renderOnce(dt = 0.016) {
+      const t = clock.elapsedTime + dt
+      clock.getDelta()
+      machine.updateTick(dt, t)
+      machine.setHover(hovered)
+      controls.update()
+      composer.render()
+    },
     onResize: resize,
     dispose() {
       disposed = true

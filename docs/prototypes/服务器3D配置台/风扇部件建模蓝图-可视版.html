@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>风扇部件建模蓝图 · 闸1 可视版</title>
+<style>
+  :root{ --bg:#0d1420; --card:rgba(255,255,255,.055); --line:rgba(255,255,255,.12);
+         --tx:#e8edf5; --tx2:#9aa7ba; --mint:#7ee0c3 }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(1200px 600px at 70% -10%, #16233a 0%, var(--bg) 55%);color:var(--tx);
+       font:15px/1.65 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;padding:40px 24px 80px}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:26px;font-weight:700}
+  .sub{color:var(--tx2);margin-top:6px}
+  .gates{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+  .gate{font-size:12px;padding:5px 12px;border:1px solid var(--line);border-radius:999px;color:var(--tx2)}
+  .gate.on{background:rgba(126,224,195,.12);border-color:rgba(126,224,200,.5);color:var(--mint)}
+  section{margin-top:44px}
+  h2{font-size:17px;font-weight:700;display:flex;align-items:center;gap:10px}
+  h2 .no{font-size:11px;color:var(--mint);border:1px solid rgba(126,224,195,.4);border-radius:6px;padding:2px 7px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:14px;
+        backdrop-filter:blur(8px)}
+  .note{color:var(--tx2);font-size:13px;margin-top:8px}
+  .refs{display:grid;grid-template-columns:1.2fr 1fr;gap:14px}
+  @media(max-width:760px){.refs{grid-template-columns:1fr}}
+  .ref img{width:100%;border-radius:10px;display:block;border:1px solid var(--line)}
+  .ref p{font-size:12.5px;color:var(--tx2);margin-top:8px}
+  .ref b{color:var(--tx);font-size:13.5px}
+  .databox{height:100%;display:flex;flex-direction:column;justify-content:center;border:1px dashed var(--line);
+           border-radius:10px;padding:16px}
+  .databox b{color:var(--amber,#e8b45a);font-size:14px}
+  .databox p{font-size:13px;color:var(--tx2);margin-top:10px;line-height:1.7}
+  .databox code{background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px}
+  .stage{display:grid;grid-template-columns:1fr 300px;gap:18px}
+  @media(max-width:860px){.stage{grid-template-columns:1fr}}
+  .view{position:relative;height:400px;border-radius:14px;overflow:hidden;
+        background:radial-gradient(600px 320px at 50% 42%,#182540 0%,#0e1626 70%);
+        border:1px solid var(--line)}
+  .scene{position:absolute;left:50%;top:52%;width:0;height:0;perspective:1100px}
+  .world{position:absolute;left:0;top:0;transform-style:preserve-3d;transition:transform .8s ease}
+  .layer{position:absolute;left:0;top:0;transform-style:preserve-3d;transition:transform .8s cubic-bezier(.6,.1,.2,1)}
+  .tag{position:absolute;font-size:11.5px;padding:3px 9px;border-radius:999px;white-space:nowrap;
+       background:rgba(13,20,32,.85);border:1px solid var(--line);color:var(--tx2)}
+  .tag b{color:var(--tx)}
+  .hint{font-size:12.5px;color:var(--tx2)}
+  .kv{font-size:13px;color:var(--tx2)}
+  .kv b{color:var(--tx);font-weight:600}
+  .slider{width:100%;accent-color:#7ee0c3}
+  .widebtn{width:100%;padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.04);
+           color:var(--tx2);font-size:13px;cursor:pointer;text-align:left;transition:.2s}
+  .widebtn:hover{border-color:rgba(126,224,195,.5);color:var(--tx)}
+  .mats{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+  .mat{display:flex;gap:12px;align-items:center}
+  .chip{width:46px;height:46px;border-radius:10px;flex:none;border:1px solid rgba(255,255,255,.15)}
+  .mat b{font-size:13.5px;display:block}
+  .mat span{font-size:12px;color:var(--tx2)}
+  pre{background:#0b1120;border:1px solid var(--line);border-radius:12px;padding:16px;font:12.5px/1.6 Consolas,monospace;
+      overflow:auto;color:#c6d3e6}
+  pre .c{color:#5f7a94}pre .k{color:#7ee0c3}pre .s{color:#e8b45a}
+  .passes{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:860px){.passes{display:grid;grid-template-columns:1fr 1fr}}
+  @media(max-width:520px){.passes{grid-template-columns:1fr}}
+  .pass{border:1px solid var(--line);border-radius:14px;padding:14px;background:rgba(255,255,255,.035)}
+  .pass .pn{font-size:11px;color:var(--mint);letter-spacing:1px}
+  .pass b{display:block;font-size:14px;margin:6px 0}
+  .pass p{font-size:12.5px;color:var(--tx2)}
+  .todo li{margin:6px 0 0 18px;font-size:14px;color:var(--tx2)}
+  .todo li b{color:var(--tx)}
+  /* ===== 示意台部件 ===== */
+  .plate{position:absolute}
+  .fanframe{background:#15171c;clip-path:polygon(30% 0,70% 0,100% 30%,100% 70%,70% 100%,30% 100%,0 70%,0 30%)}
+  .blades{position:absolute;left:50%;top:50%;border-radius:50%;
+    background:repeating-conic-gradient(#1a1d24 0 38deg,#2e333e 38deg 51.4deg);
+    animation:spin 1.4s linear infinite}
+  @keyframes spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+  .hub{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#22262e;
+    border-radius:50%;border:2px solid #3a3f4a;box-shadow:0 0 6px rgba(0,0,0,.6)}
+  .grille{position:absolute;background:linear-gradient(135deg,#d5dde6,#a9b6c4);
+    border:1px solid rgba(255,255,255,.25);border-radius:6px}
+  .hole{position:absolute;background:#0b1220;box-shadow:inset 0 0 6px rgba(0,0,0,.8);border-radius:6px}
+  .handle{width:28px;height:12px;background:#1a1d24;border-radius:3px;border:1px solid #2e333e}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>风扇部件建模蓝图</h1>
+  <div class="sub">闸1 · 待确认 —— 参照 ZTE R6530 G3 拆解页风扇墙；确认后进闸2 P1（阵列比例）</div>
+  <div class="gates">
+    <span class="gate on">① 蓝图（本页）</span><span class="gate">② 分pass·每pass确认</span>
+    <span class="gate">③ 接入部件库</span><span class="gate">④ build+E2E 终审</span><span class="gate">⑤ 固化</span>
+  </div>
+
+  <section>
+    <h2><span class="no">01</span>参考素材与数据结论</h2>
+    <div class="card refs">
+      <div class="ref">
+        <img src="refs/zte-r6530-g3-fans.png" alt="ZTE R6530 G3 风扇墙">
+        <p><b>ZTE R6530 G3 拆解页 · 风扇</b>——2行×6列共12颗黑八角风扇，银白金属框板，底缘一排热插拔提手。照此形态建模。</p>
+      </div>
+      <div class="ref">
+        <div class="databox">
+          <b>GLB 数据可达性：不可达</b>
+          <p>ZTE 站点的产品 JSON/GLB 清单在 <code>config/</code> 目录，实测公网全部返回兜底页（WAF/下线），只有 <code>doc/</code> 静态资源可下。尺寸反推 = 截图比例 + 行业标准 <b>8038（80×80×38mm）</b>，毫米数标「待核对」，拿到实件/规格书即替换。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="no">02</span>结构分层与拆解（示意台，可交互）</h2>
+    <div class="card">
+      <div class="stage">
+        <div class="view">
+          <div class="scene"><div class="world" id="world"></div></div>
+          <div class="tag" style="left:14px;top:14px" id="stateTag"><b>装配态</b> · 转子运转中</div>
+          <div class="tag" style="right:14px;top:14px"><b>风扇墙</b> · 2行×6列 · 8038</div>
+        </div>
+        <div class="ctrl">
+          <div>
+            <div class="hint" style="margin-bottom:6px">爆炸进度 <span id="fv" style="color:var(--tx)">0%</span></div>
+            <input type="range" class="slider" id="explode" min="0" max="100" value="0">
+          </div>
+          <button class="widebtn" id="spinBtn">⏸ 暂停转子（爆炸态自动停转=断电教学语义）</button>
+          <div class="kv"><b>爆炸行为</b>：轴向（风扇轴=Z）——护罩框前移、12颗扇框原位微浮、转子沿轴拔出、提手随框板层。禁止径向散射。</div>
+          <div class="kv" id="layerInfo"><b>层次</b>：L1 网格护罩框（银白金属板阵列开孔）→ L2 扇框×12（黑塑胶八角）→ L3 转子（7叶弯刀+端盖毂）→ L4 提手/金手指连接器（底缘6组）。</div>
+        </div>
+      </div>
+      <p class="note">示意台表达<b>层次与爆炸逻辑</b>；7叶弯刀、八角造型、贴纸形等在闸2 按 pass 落地。转子爆炸态停转 = 拆下即断电的教学语义。</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="no">03</span>材质方案（全程序化，防炸白入参）</h2>
+    <div class="card mats">
+      <div class="mat"><div class="chip" style="background:#15171c"></div><div><b>扇框/转子/提手</b><span>黑哑光塑胶 roughness 0.7 · metalness 0</span></div></div>
+      <div class="mat"><div class="chip" style="background:linear-gradient(135deg,#e8ecf2,#b7c1cd)"></div><div><b>护罩框板</b><span>银白金属漆 metalness 0.6 · roughness 0.5（≤0.6 防顶视炸白）</span></div></div>
+      <div class="mat"><div class="chip" style="background:#0d0f14"></div><div><b>叶片</b><span>半光黑 roughness 0.45，可选微 iridescence</span></div></div>
+      <div class="mat"><div class="chip" style="background:#3a3f4a"></div><div><b>规格贴纸</b><span>只做贴纸形状不写字（避型号定调）</span></div></div>
+      <div class="mat"><div class="chip" style="background:linear-gradient(135deg,#d8b56a,#8a6c2e)"></div><div><b>金手指连接器</b><span>PCB小板+金手指条纹，程序化</span></div></div>
+      <div class="mat"><div class="chip" style="background:linear-gradient(135deg,#16233a,#0d1420);border-color:rgba(126,224,195,.4)"></div><div><b>双主题</b><span>dark=原型色；light=框板/塑胶提亮防糊；顶视中心亮度<200 验收</span></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="no">04</span>工厂接口（同 cpu.ts 契约）</h2>
+    <div class="card">
+<pre><span class="c">// frontend/src/server3d/parts/fan.ts —— StageModel 同形句柄,轴向爆炸,语义标注,双主题钩子</span>
+<span class="k">export function</span> createFanModel(spec: FanSpec = {}): THREE.Group
+<span class="c">// FanSpec = { cols?: <span class="s">6</span>, rows?: <span class="s">2</span>, size?: <span class="s">80</span>, brand?: <span class="s">string</span> }</span>
+<span class="c">// PART_INFO 语义键: grille护罩框 / fanframe扇框 / rotor转子 / hub端盖毂 / handle提手 / connector连接器 / screw螺丝</span>
+<span class="c">// part_type='fan' → 迁移种子行「风扇墙模块」,管理页部件库自动出现</span></pre>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="no">05</span>闸2 分pass 计划</h2>
+    <div class="card passes">
+      <div class="pass"><span class="pn">P1 块头</span><b>阵列比例</b><p>2×6 阵列间距、框板/风扇占比、整体宽高比</p></div>
+      <div class="pass"><span class="pn">P2 结构</span><b>八角框与转子</b><p>八角造型读得出来、转子居中、护罩开孔</p></div>
+      <div class="pass"><span class="pn">P3 细节</span><b>弯刀与提手</b><p>7叶弯刀弧面、提手/金手指、螺丝孔、贴纸形</p></div>
+      <div class="pass"><span class="pn">P4 材质</span><b>质感与运转</b><p>哑黑/银白/转子旋转/双主题，顶视<200，对照 ZTE 截图</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="no">06</span>待你拍板</h2>
+    <div class="card">
+      <ul class="todo">
+        <li><b>8038 尺寸假设</b>（80×80×38mm，行业标准反推）接受吗？拿到实件数字随时替换</li>
+        <li><b>模块划分</b>：按截图 12 颗独立风扇（非 6 模组×双扇），OK？</li>
+        <li><b>转子常转+爆炸停转</b>的断电教学语义，OK？</li>
+        <li>确认后进 <b>闸2 P1</b>（阵列比例截图）</li>
+      </ul>
+    </div>
+  </section>
+</div>
+<script>
+/* ===== 示意台:CSS 3D 风扇墙(2×6) ===== */
+const world = document.getElementById('world')
+const stateTag = document.getElementById('stateTag')
+const fv = document.getElementById('fv')
+
+const COLS = 6, ROWS = 2
+const CELL = 74, FAN = 62          // 示意px:格距/风扇外径
+const OCT = 'polygon(30% 0,70% 0,100% 30%,100% 70%,70% 100%,30% 100%,0 70%,0 30%)'
+
+let spin = true, frac = 0, flipped = false
+const rotors = []
+
+function mkFan(cellX, cellY) {
+  const fan = document.createElement('div')
+  fan.className = 'layer'
+  fan.style.transform = `translate3d(${cellX}px,${cellY}px,14px)`
+  // 扇框(黑八角)
+  const fr = document.createElement('div')
+  fr.className = 'plate fanframe'
+  fr.style.width = fr.style.height = FAN + 'px'
+  fan.appendChild(fr)
+  // 转子(独立层,爆炸时前拔)
+  const rotor = document.createElement('div')
+  rotor.className = 'layer rotor'
+  rotor.style.transform = `translateZ(10px)`
+  const blade = document.createElement('div')
+  blade.className = 'blades'
+  blade.style.width = blade.style.height = (FAN - 18) + 'px'
+  rotor.appendChild(blade)
+  const hub = document.createElement('div')
+  hub.className = 'hub'
+  hub.style.width = hub.style.height = (FAN * 0.3) + 'px'
+  rotor.appendChild(hub)
+  fan.appendChild(rotor)
+  rotors.push(rotor)
+  return fan
+}
+
+function build() {
+  world.innerHTML = ''
+  rotors.length = 0
+  const W = COLS * CELL, H = ROWS * CELL
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    // L2+L3 风扇(框+转子),绕原点居中布点
+    const fx = -W / 2 + c * CELL + CELL / 2, fy = -H / 2 + r * CELL + CELL / 2
+    world.appendChild(mkFan(fx, fy))
+  }
+  // L1 护罩框板(银白,透格)
+  const grille = document.createElement('div')
+  grille.className = 'layer grille'
+  grille.style.width = (W + 16) + 'px'; grille.style.height = (H + 16) + 'px'
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const hole = document.createElement('div')
+    hole.className = 'hole'
+    hole.style.left = (8 + c * CELL + (CELL - FAN) / 2) + 'px'
+    hole.style.top = (8 + r * CELL + (CELL - FAN) / 2) + 'px'
+    hole.style.width = hole.style.height = FAN + 'px'
+    grille.appendChild(hole)
+  }
+  world.appendChild(grille)
+  // L4 提手行(底缘)
+  for (let c = 0; c < COLS; c++) {
+    const h = document.createElement('div')
+    h.className = 'layer handle'
+    const hx = -W / 2 + c * CELL + CELL / 2 - 14, hy = H / 2 + 8
+    h.dataset.x = hx; h.dataset.y = hy
+    world.appendChild(h)
+  }
+  render()
+}
+
+function render() {
+  const W = COLS * CELL, H = ROWS * CELL
+  world.style.transform = `rotateX(58deg) scale(${0.92 - frac * 0.15})`
+  world.querySelectorAll('.grille').forEach(el => el.style.transform = `translate(-50%,-50%) translateZ(${26 + frac * 90}px)`)
+  world.querySelectorAll('.rotor').forEach(el => el.style.transform = `translateZ(${10 + frac * 40}px)`)
+  world.querySelectorAll('.handle').forEach(el => el.style.transform = `translate3d(${el.dataset.x}px,${el.dataset.y}px,${6 + frac * 90}px)`)
+  fv.textContent = Math.round(frac * 100) + '%'
+  stateTag.innerHTML = frac < 0.02 ? (spin ? '<b>装配态</b> · 转子运转中' : '<b>装配态</b> · 转子停转')
+    : '<b>爆炸</b> · ' + Math.round(frac * 100) + '% · 转子停转'
+}
+
+document.getElementById('explode').addEventListener('input', e => { frac = e.target.value / 100; render() })
+document.getElementById('spinBtn').addEventListener('click', () => { spin = !spin; render() })
+/* 转子旋转动画(CSS) + 爆炸态停转 */
+setInterval(() => {
+  rotors.forEach((r, i) => {
+    const b = r.querySelector('.blades')
+    if (b) b.style.animationPlayState = (spin && frac < 0.02) ? 'running' : 'paused'
+  })
+}, 400)
+
+build()
+</script>
+</body>
+</html>

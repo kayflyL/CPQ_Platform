@@ -283,3 +283,70 @@ def _plugin_wiring_engine() -> dict:
                 "lock_handler": "lock_baseline",
             }}}}
 
+
+
+# ── 凡推断必求证的引擎兜底卡（2026-11-04：确认从大脑自觉改为系统出卡）──────────
+
+
+def _fill_engine() -> dict:
+    return {"ext": {"server_type": "通用计算服务器", "platform_type": "Orion",
+                    "chassis_form": "2U", "purchase_qty": 1}}
+
+
+def test_fill_premise_gap_offers_catalog_candidates_with_inferred_recommended(monkeypatch):
+    """前提字段无客户确认 → 系统出确认卡：目录系列候选、推断值标推荐、点选=登记字段确认。"""
+    plugin = plugin_for("agent_fill")
+    monkeypatch.setattr(plugin, "_catalog_dimension_candidates",
+                        lambda engine, key: ["Orion", "Polaris", "Vega"])
+    gaps = plugin.system_gaps(_fill_engine())
+    assert len(gaps) == 1
+    g = gaps[0]
+    assert g["slot"] == "platform_type" and g["reason_code"] == "premise_confirm"
+    assert [o["value"] for o in g["options"]] == ["Orion", "Polaris", "Vega"]
+    rec = [o for o in g["options"] if o.get("recommended")]
+    assert len(rec) == 1 and rec[0]["value"] == "Orion"
+    # 点选信号走统一出口：slot/value = 登记表字段确认（点击通道写 confirmed_slots）
+    from ai_office.skill_plan_runtime import ask_option_signal
+    assert ask_option_signal("", g["options"][0], "") == {"platform_type": "Orion"}
+
+
+def test_fill_premise_gap_silent_when_confirmed_or_delegated_or_incomplete(monkeypatch):
+    """三种不弹卡的合法情形：客户已确认 / 整单委托 / 登记没填完（先让大脑补登记）。"""
+    plugin = plugin_for("agent_fill")
+    monkeypatch.setattr(plugin, "_catalog_dimension_candidates", lambda engine, key: ["Orion"])
+    eng = _fill_engine()
+    eng["ext"]["confirmed_slots"] = {"platform_type": "Orion"}
+    assert plugin.system_gaps(eng) == []
+    eng2 = _fill_engine()
+    eng2["ext"]["delegation"] = "full"
+    assert plugin.system_gaps(eng2) == []
+    eng3 = _fill_engine()
+    del eng3["ext"]["purchase_qty"]  # 必填字段缺失=登记未完成
+    assert plugin.system_gaps(eng3) == []
+
+
+def test_model_card_still_fires_when_locked_without_customer_confirmation(monkeypatch):
+    """大脑 choose_model 自锁/唯一命中直锁=系统推断：候选卡照出，锁定值置顶标推荐。"""
+    import ai_office.skill_node_plugins as npl
+
+    plugin = plugin_for("model_reason")
+    eng = {"ext": {"server_model": "ZS220 V2"},
+           "baselines_pool": [{"name": "ZS210 V2"}, {"name": "ZS220 V2"}],
+           "_locked_baseline": {"name": "ZS220 V2"}}
+
+    def _fake_port(path):
+        if path == "skill_phases.model_gap":
+            return lambda pool, include_price=True: {
+                "slot": "server_model", "reason_code": "model_candidates",
+                "options": [{"label": c["name"], "value": c["name"],
+                             "slot": "server_model", "group": "机型"} for c in pool]}
+        raise AssertionError(f"unexpected port {path}")
+
+    monkeypatch.setattr(npl.hp, "fn_port", _fake_port)
+    g = plugin.delivery_gap(eng)
+    assert g and g["options"][0]["value"] == "ZS220 V2" and g["options"][0].get("recommended")
+    assert [o["value"] for o in g["options"]] == ["ZS220 V2", "ZS210 V2"], "锁定值必须置顶"
+    # 客户已确认当前锁定 → 免卡
+    eng2 = {**eng, "ext": {"server_model": "ZS220 V2",
+                           "confirmed_slots": {"server_model": "ZS220 V2"}}}
+    assert plugin.delivery_gap(eng2) is None

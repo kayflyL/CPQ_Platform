@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>机箱部件建模蓝图 · 闸1 可视版</title>
+<style>
+  :root{ --bg:#0e1626; --line:rgba(255,255,255,.12); --tx:#e8edf5; --tx2:#9aa7ba; --mint:#7ee0c3 }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
+  #stage{position:fixed;inset:0}
+  .hud h1{font-size:16px;font-weight:700}
+  .hud p{font-size:12px;color:var(--tx2);margin-top:2px}
+  .hud{position:fixed;left:16px;top:14px;z-index:2}
+  .panel{position:fixed;right:16px;top:14px;z-index:2;display:flex;flex-direction:column;gap:8px;width:230px}
+  .seg{display:flex;gap:6px}
+  .seg button{flex:1;padding:8px 6px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.04);
+              color:var(--tx2);font-size:12.5px;cursor:pointer;transition:.15s}
+  .seg button.on{background:rgba(126,224,195,.14);border-color:rgba(126,224,195,.55);color:var(--mint)}
+  .card{background:rgba(13,20,32,.8);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .kv{font-size:12px;color:var(--tx2)}
+  .kv b{color:var(--tx)}
+  .slider{width:100%;accent-color:#7ee0c3}
+  .note{position:fixed;left:16px;bottom:14px;z-index:2;font-size:12px;color:var(--tx2);max-width:560px}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div class="hud">
+  <h1>机箱部件（机框 + 上盖）· 闸1 可视版</h1>
+  <p>448 × 178 × 650mm（深待核对）· 参照 ZSA240 V2 4U 渲染图 · 单位 1unit = 1mm</p>
+</div>
+<div class="panel">
+  <div class="card"><div class="kv">包围盒 <b id="bbox">…</b></div></div>
+  <div class="seg" id="viewSeg">
+    <button data-v="top">顶视</button><button data-v="iso" class="on">45°</button><button data-v="front">正面</button><button data-v="rear">背面</button>
+  </div>
+  <div class="card">
+    <div class="kv">开盖 <b id="fv">0%</b></div>
+    <input type="range" class="slider" id="explode" min="0" max="100" value="0">
+  </div>
+</div>
+<div class="note">闸1 验收点：① 整箱比例三视图对照渲染图 ② 盖板两片贴合方向（长边=深度650 沿Z）③ 前bezel四分区与盘位蓝条（每盘右缘一颗×12）④ 六角网孔质感</div>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+
+/* ===== 尺寸(mm,宽448/高178锁定,深650待核对) ===== */
+const W = 448, H = 178, D = 650
+const T = 4                                    // 板材厚度
+const COL = {
+  alu: '#c9ced6', aluDark: '#9aa4b2', bezel: '#101216', panel: '#14161c',
+  dark: '#181b22', blue: '#2b5cb8', usb: '#3b8fd4', gold: '#d4a94f', warn: '#e8c93e',
+}
+
+/* ===== 舞台 ===== */
+const app = document.getElementById('stage')
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setSize(innerWidth, innerHeight)
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+renderer.toneMapping = THREE.ACESFilmicToneMapping
+renderer.toneMappingExposure = 1.1
+app.appendChild(renderer.domElement)
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x0e1626)
+const pmrem = new THREE.PMREMGenerator(renderer)
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+scene.environmentIntensity = 0.45
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 1, 4000)
+camera.position.set(520, 420, 780)
+const controls = new OrbitControls(camera, renderer.domElement)
+controls.enableDamping = true
+controls.target.set(0, 60, 0)
+
+const amb = new THREE.AmbientLight(0xbfd0e8, 1.0); scene.add(amb)
+const key = new THREE.DirectionalLight(0xffffff, 2.0); key.position.set(300, 520, 260); scene.add(key)
+const fill = new THREE.DirectionalLight(0x9fc0ff, 0.8); fill.position.set(-360, 200, -160); scene.add(fill)
+
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(1400, 72),
+  new THREE.MeshStandardMaterial({ color: 0x121d31, roughness: 0.95, envMapIntensity: 0.1 })
+)
+ground.rotation.x = -Math.PI / 2; ground.position.y = -0.05
+scene.add(ground)
+
+/* ===== 材质 ===== */
+function brushedTex() {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 256
+  const g = cv.getContext('2d')
+  g.fillStyle = '#c9ced6'; g.fillRect(0, 0, 256, 256)
+  for (let i = 0; i < 420; i++) {
+    const y = Math.random() * 256
+    g.strokeStyle = `rgba(${Math.random() < 0.5 ? '255,255,255' : '120,128,140'},${0.06 + Math.random() * 0.1})`
+    g.lineWidth = 0.7
+    g.beginPath(); g.moveTo(0, y); g.lineTo(256, y); g.stroke()
+  }
+  const tex = new THREE.CanvasTexture(cv)
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping
+  tex.repeat.set(2, 6)
+  return tex
+}
+const aluMat = new THREE.MeshPhysicalMaterial({
+  color: COL.alu, metalness: 0.85, roughness: 0.4, envMapIntensity: 0.5,
+  anisotropy: 0.6, roughnessMap: brushedTex(), anisotropyRotation: Math.PI / 2,
+})
+const bezelMat = new THREE.MeshPhysicalMaterial({ color: COL.bezel, roughness: 0.6, metalness: 0.2, envMapIntensity: 0.2 })
+const panelMat = new THREE.MeshPhysicalMaterial({ color: COL.panel, roughness: 0.65, envMapIntensity: 0.15 })
+const darkMat = new THREE.MeshPhysicalMaterial({ color: COL.dark, roughness: 0.7, envMapIntensity: 0.15 })
+const blueMat = new THREE.MeshPhysicalMaterial({ color: COL.blue, roughness: 0.45, envMapIntensity: 0.3 })
+const usbMat = new THREE.MeshPhysicalMaterial({ color: COL.usb, roughness: 0.45, envMapIntensity: 0.3 })
+const warnMat = new THREE.MeshBasicMaterial({ color: COL.warn })
+const earMat = new THREE.MeshPhysicalMaterial({ color: 0x0e1014, roughness: 0.6, envMapIntensity: 0.15 })
+
+/* ===== 机框(壳体骨架+前bezel,开孔透空) ===== */
+const root = new THREE.Group(); root.userData.part = 'chassis_frame'; scene.add(root)
+const gLid = new THREE.Group()                  // 上盖(独立演示,将来独立部件)
+gLid.position.y = H
+scene.add(gLid)
+
+function box(parent, w, h, d, mat, at, ud) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat)
+  m.position.set(...at); m.castShadow = true; m.receiveShadow = true
+  if (ud) m.userData = ud
+  parent.add(m)
+  return m
+}
+
+/* 底板+左右侧板+后板 */
+box(root, W, T, D, aluMat, [0, T / 2, 0])
+for (const s of [-1, 1]) {
+  box(root, T, H, D, aluMat, [s * (W / 2 - T / 2), H / 2, 0])
+  /* 侧板折页提手×2(前后各一,银色扣手) */
+  for (const zz of [-D / 2 + 90, D / 2 - 90]) {
+    const hd = new THREE.Mesh(new THREE.BoxGeometry(8, 34, 52), aluMat)
+    hd.position.set(s * (W / 2 + 2), H * 0.62, zz)
+    hd.castShadow = true
+    root.add(hd)
+  }
+  /* 黄色警示标签形 */
+  const warn = new THREE.Mesh(new THREE.BoxGeometry(1.5, 26, 18), warnMat)
+  warn.position.set(s * (W / 2 + 1.5), H * 0.7, -40)
+  root.add(warn)
+}
+/* 后板:PCIe 挡板长条区(浅灰条纹)+黑挂耳×2(子件用 rear 局部坐标) */
+const rear = box(root, W, H, T, aluMat, [0, H / 2, -D / 2])
+for (let i = 0; i < 5; i++) {
+  const slot = new THREE.Mesh(new THREE.BoxGeometry(34, 96, 2), darkMat)
+  slot.position.set(-W / 2 + 60 + i * 76, 21, 2)
+  rear.add(slot)
+}
+for (const s of [-1, 1]) box(root, 16, H + 8, 24, earMat, [s * (W / 2 - 6), H / 2 + 2, -D / 2 + 8])
+
+/* ===== 前面板总成(黑,四分区,Z 前脸=+D/2;子件一律 bezel 局部坐标,y∈±89) ===== */
+const bezel = box(root, W, H, 8, bezelMat, [0, H / 2, D / 2 - 4])
+/* 左控制面板区(按钮/灯位) */
+{
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(64, H, 4), panelMat)
+  panel.position.set(-W / 2 + 34, 0, 2.5)
+  bezel.add(panel)
+  const btn = new THREE.Mesh(new THREE.CylinderGeometry(7, 7, 2, 20), aluMat)
+  btn.rotation.x = Math.PI / 2; btn.position.set(-W / 2 + 34, 40, 4.5)
+  bezel.add(btn)
+  for (const [dy, c] of [[-10, 0x8fb7ff], [-20, 0x666c78]]) {
+    const dot = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 1.5, 12), new THREE.MeshStandardMaterial({ color: c }))
+    dot.rotation.x = Math.PI / 2; dot.position.set(-W / 2 + 34, 40 + dy, 4.5)
+    bezel.add(dot)
+  }
+}
+/* 六角网孔区(通风,CanvasTexture 蜂窝) */
+function hexTex() {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128
+  const g = cv.getContext('2d')
+  g.fillStyle = '#0c0e12'; g.fillRect(0, 0, 128, 128)
+  g.strokeStyle = '#39404d'; g.lineWidth = 3
+  for (let row = 0; row < 9; row++) for (let col = 0; col < 9; col++) {
+    const cx = col * 14 + (row % 2 ? 7 : 0), cy = row * 12 + 6
+    g.beginPath()
+    for (let k = 0; k < 6; k++) {
+      const a = Math.PI / 3 * k + Math.PI / 6
+      const px = cx + Math.cos(a) * 5.4, py = cy + Math.sin(a) * 5.4
+      k ? g.lineTo(px, py) : g.moveTo(px, py)
+    }
+    g.closePath(); g.stroke()
+  }
+  const t = new THREE.CanvasTexture(cv)
+  t.wrapS = t.wrapT = THREE.RepeatWrapping
+  t.repeat.set(4, 1)
+  return t
+}
+const hexPlate = new THREE.Mesh(new THREE.BoxGeometry(340, 100, 3), new THREE.MeshStandardMaterial({ map: hexTex(), roughness: 0.75, color: 0xffffff }))
+hexPlate.position.set(18, 38, 3)
+bezel.add(hexPlate)
+/* 12盘位开孔区(4列×3行,每盘右缘蓝条;盘位=3.5" 前脸 76×22) */
+{
+  const bw = 76, bh = 22, gap = 6
+  const zone = new THREE.Mesh(new THREE.BoxGeometry((bw + gap) * 4 + 6, (bh + gap) * 3 + 6, 3), panelMat)
+  zone.position.set(4, -45, 3)
+  bezel.add(zone)
+  for (let rr = 0; rr < 3; rr++) for (let cc = 0; cc < 4; cc++) {
+    const bay = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 3.4), darkMat)
+    bay.position.set(4 + (cc - 1.5) * (bw + gap), -45 + (1 - rr) * (bh + gap), 1.2)
+    bezel.add(bay)
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(2.2, bh - 10, 1.2), blueMat)
+    strip.position.set(bay.position.x + bw / 2 - 7, bay.position.y, 2.6)
+    bezel.add(strip)
+  }
+}
+/* 右 IO 柱(VGA/USB) */
+{
+  const io = new THREE.Mesh(new THREE.BoxGeometry(52, H, 4), panelMat)
+  io.position.set(W / 2 - 28, 0, 2.5)
+  bezel.add(io)
+  const vga = new THREE.Mesh(new THREE.BoxGeometry(22, 12, 1.5), blueMat)
+  vga.position.set(W / 2 - 28, 40, 4.5)
+  bezel.add(vga)
+  for (let i = 0; i < 2; i++) {
+    const u = new THREE.Mesh(new THREE.BoxGeometry(20, 6, 1.5), usbMat)
+    u.position.set(W / 2 - 28, 24 - i * 12, 4.5)
+    bezel.add(u)
+  }
+}
+
+/* ===== 上盖(两片式:左窄盖+主盖,长边=深度650 沿Z;细节按 ZTE 真实盖板截图) ===== */
+const whiteMat = new THREE.MeshStandardMaterial({ color: 0xeef0f3, roughness: 0.5 })
+const screwDotMat = new THREE.MeshStandardMaterial({ color: 0x5a636e, roughness: 0.5 })
+const orangeMat = new THREE.MeshStandardMaterial({ color: 0xe07038, roughness: 0.6 })
+/* 左窄盖:盖住控制面板区,白底配置标签(图形示意,无文字)+4 沉头螺丝 */
+const lidSide = new THREE.Mesh(new THREE.BoxGeometry(76, 2, D - 10), aluMat)
+lidSide.position.set(-W / 2 + 40, H + 1, 0)
+lidSide.castShadow = true
+gLid.add(lidSide)
+{
+  const label = new THREE.Mesh(new THREE.BoxGeometry(56, 1, 78), whiteMat)
+  label.position.set(0, 1.2, -D / 2 + 78)
+  lidSide.add(label)
+  /* 配置标签上的橙红图形条(示意,不写字) */
+  for (let i = 0; i < 4; i++) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(40, 0.6, 6), orangeMat)
+    bar.position.set(0, 1.8, -D / 2 + 56 + i * 9)
+    lidSide.add(bar)
+  }
+  for (const [sx, sz] of [[-26, -D / 2 + 24], [26, -D / 2 + 24], [-26, -D / 2 + 140], [26, -D / 2 + 140]]) {
+    const sc = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 1.2, 10), screwDotMat)
+    sc.position.set(sx, 1.1, sz)
+    lidSide.add(sc)
+  }
+}
+/* 主盖:左侧蓝箭头标(开盖方向) + 右侧蓝环旋钮锁扣 + 沉头螺丝 + 底缘警示条 */
+const lidMain = new THREE.Mesh(new THREE.BoxGeometry(W - 76 - 6, 2, D - 10), aluMat)
+lidMain.position.set(W / 2 - (W - 76 - 6) / 2 - 3, H + 1, 0)
+lidMain.castShadow = true
+gLid.add(lidMain)
+{
+  const cx = lidMain.position.x
+  /* 蓝箭头标:胶囊 + 白色向下箭头(三角+杆,指示开盖推动方向) */
+  const arrowCap = new THREE.Mesh(new THREE.CapsuleGeometry(11, 16, 4, 16), blueMat)
+  arrowCap.rotation.x = Math.PI / 2
+  arrowCap.position.set(cx - 40, H + 2.5, -30)
+  gLid.add(arrowCap)
+  const shaft = new THREE.Mesh(new THREE.BoxGeometry(3, 0.8, 10), whiteMat)
+  shaft.position.set(cx - 40, H + 3.2, -27)
+  gLid.add(shaft)
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(4.5, 6, 3), whiteMat)
+  tip.rotation.x = Math.PI
+  tip.rotation.y = Math.PI / 4
+  tip.scale.set(1.2, 1, 0.7)
+  tip.position.set(cx - 40, H + 3.2, -33)
+  gLid.add(tip)
+  /* 蓝环旋钮锁扣:环 + 白色中心钮 */
+  const knobRing = new THREE.Mesh(new THREE.TorusGeometry(10, 3.4, 10, 28), blueMat)
+  knobRing.rotation.x = Math.PI / 2
+  knobRing.position.set(cx + 60, H + 2.5, -30)
+  gLid.add(knobRing)
+  const knob = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 6.5, 2.5, 20), whiteMat)
+  knob.position.set(cx + 60, H + 2.5, -30)
+  gLid.add(knob)
+  /* 沉头螺丝×4 */
+  for (const [sx, sz] of [[cx - 130, -D / 2 + 24], [cx + 130, -D / 2 + 24], [cx - 130, D / 2 - 24], [cx + 130, D / 2 - 24]]) {
+    const sc = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 1.2, 10), screwDotMat)
+    sc.position.set(sx, H + 1.1, sz)
+    gLid.add(sc)
+  }
+  /* 底缘(前脸侧)两条黄色警示标签 */
+  for (const sx of [cx - 100, cx + 110]) {
+    const warn = new THREE.Mesh(new THREE.BoxGeometry(46, 0.8, 9), warnMat)
+    warn.position.set(sx, H + 1.2, D / 2 - 22)
+    gLid.add(warn)
+  }
+}
+
+/* ===== 开盖/视角/包围盒 ===== */
+let explodeTarget = 0, explode = 0
+function applyExplode() {
+  /* 窄盖先起(松卡扣),主盖后起 */
+  lidSide.position.y = H + 1 + explode * 55
+  lidMain.position.y = H + 1 + explode * 30
+  document.getElementById('fv').textContent = Math.round(explode * 100) + '%'
+  updateBbox()
+}
+function updateBbox() {
+  const bb = new THREE.Box3().setFromObject(root)
+  const sz = bb.getSize(new THREE.Vector3())
+  document.getElementById('bbox').textContent = `${sz.x.toFixed(0)} × ${sz.y.toFixed(0)} × ${sz.z.toFixed(0)} mm`
+}
+document.getElementById('explode').addEventListener('input', e => { explodeTarget = e.target.value / 100 })
+function setView(v) {
+  if (v === 'top') camera.position.set(0.01, 900, 60)
+  if (v === 'iso') camera.position.set(520, 420, 780)
+  if (v === 'front') camera.position.set(0, 90, 1100)
+  if (v === 'rear') camera.position.set(0, 90, -1100)
+  controls.target.set(0, 60, 0)
+}
+document.getElementById('viewSeg').addEventListener('click', e => { if (e.target.dataset.v) { [...e.currentTarget.children].forEach(b => b.classList.remove('on')); e.target.classList.add('on'); setView(e.target.dataset.v) } })
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight) })
+
+renderer.setAnimationLoop(() => {
+  const dt = Math.min((window.performance.now() % 100) / 1000 + 0.008, 0.05)
+  explode += (explodeTarget - explode) * (1 - Math.exp(-dt * 5))
+  applyExplode()
+  controls.update()
+  renderer.render(scene, camera)
+})
+updateBbox()
+window.__chassis = { root }
+</script>
+</body>
+</html>

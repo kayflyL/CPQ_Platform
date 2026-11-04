@@ -155,6 +155,7 @@ class OpportunityRepository:
             cts = [s.strip() for s in order_type.split(',') if s.strip()]
             if cts:
                 q = q.filter(Opportunity.order_type.in_(cts))
+        search = (search or "").strip()  # 复制粘贴常带不可见尾空白，未 trim 会静默搜不到
         if search:
             q = q.filter(
                 Opportunity.customer_name.ilike(f"%{search}%") |
@@ -265,6 +266,7 @@ class OpportunityRepository:
             q = q.filter(or_(*owner_cond))
         elif owner_sales_person:
             q = q.filter(Opportunity.sales_person == owner_sales_person)
+        search = (search or "").strip()  # 同业务列表：先去首尾空白再匹配
         if search:
             q = q.filter(Opportunity.customer_name.ilike(f"%{search}%"))
         q = q.order_by(Opportunity.updated_at.desc())

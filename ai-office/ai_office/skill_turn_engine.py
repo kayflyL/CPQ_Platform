@@ -91,7 +91,8 @@ async def run_brain_attempts(user_msg: str, *, loop_kwargs: dict, settle,
                              emit_status=None, deadline_s: float = 420.0,
                              max_attempts: int = 3,
                              round_timeout_s: float = 180.0,
-                             findings_out: Optional[dict] = None) -> tuple:
+                             findings_out: Optional[dict] = None,
+                             on_attempt=None) -> tuple:
     """大脑回合 + 收口校验的循环（编排壳本体，不知道任何节点）。
 
     每轮：跑一次大脑流式循环 → 工具被拒就把工具真实返回喂回重试 → 否则交 settle 判定
@@ -101,6 +102,7 @@ async def run_brain_attempts(user_msg: str, *, loop_kwargs: dict, settle,
 
     检索战果复用：每次尝试的工具结论（去重压缩）注入下一次尝试的消息里——重试不再从零
     重查；findings_out（可选 dict）带出本步全部尝试合并后的战果，供调用方跨回合持久化。
+    on_attempt(attempt)：每次尝试开跑前的同步回调（回喂重试时调用方清上一尝试的旁白）。
 
     返回 (最后一次大脑结果, 收口动作)：动作 "wait" = settle 已把引擎置为暂停态；
     "timeout" = 到点/单轮挂死被断，本步**未必**没产出（是否完成由调用方按产物判定，
@@ -114,6 +116,11 @@ async def run_brain_attempts(user_msg: str, *, loop_kwargs: dict, settle,
     total = max(1, int(max_attempts))
     action = "retry"
     for attempt in range(total):
+        if on_attempt is not None:
+            try:
+                on_attempt(attempt)
+            except Exception:
+                logger.exception("尝试回调失败 attempt=%s", attempt)
         budget = float(deadline_s)
         if attempt > 0:
             budget = deadline - time.monotonic()
@@ -202,7 +209,6 @@ class _SkillTurnRuntime:
         self.flow_configs: dict = {}
         self.steps: list = []
         self.manual_rules = ""
-        self.narration: list = []
         self.node_narration: dict = {}
         self._cur_step: dict = {}
         self._cur_step_started = 0.0
@@ -299,10 +305,11 @@ class _SkillTurnRuntime:
         # 大脑节点与旁白键来自节点插件注册表（编排壳不认识任何节点名）。
         # 函数体内 import：插件注册表参与模块环（skill_node_plugins ↔ 本模块）——延后到调用时解析。
         from ai_office.skill_node_plugins import (
-            first_delivery_gap, first_stuck_gap, narration_key_of, plugin_for)
+            first_delivery_gap, first_stuck_gap, narration_key_of, plugin_for, stuck_gaps)
         self.plugin_for = plugin_for
         self.first_delivery_gap = first_delivery_gap
         self.first_stuck_gap = first_stuck_gap
+        self.stuck_gaps = stuck_gaps
         self.narration_key_of = narration_key_of
 
         self.flow_configs = flow_configs
@@ -324,7 +331,6 @@ class _SkillTurnRuntime:
         """
         sub = (payload or {}).get("sub") or {}
         if sub.get("kind") == "chunk" and sub.get("delta"):
-            self.narration.append(sub["delta"])
             self.node_narration.setdefault(self._cur_step.get("key") or "_", []).append(sub["delta"])
             return
         if self.event_sink:
@@ -340,9 +346,14 @@ class _SkillTurnRuntime:
         if isinstance(cur, dict) and "ext" in cur:
             cur["ext"] = self.engine.get("ext")
 
+    def _reset_step_narration(self, step_key: str) -> None:
+        """回喂重试开新尝试：清掉上一尝试的旁白——重试里对同一问题的重复措辞不拼进
+        客户消息（实测 7 轮重试的「收到——请确认服务器类型」全部串成一条长文落库），
+        旁白只保留最终那次尝试的叙述。"""
+        self.node_narration.pop(step_key, None)
+
     def _finalize_engine(self) -> None:
         engine = self.engine
-        engine["agent_narration"] = "".join(self.narration).strip()
         for k, v in self.node_narration.items():
             engine[self.narration_key_of(k) or k] = "".join(v).strip()
         engine["steps_done_list"] = sorted(engine["steps_done"])
@@ -408,6 +419,19 @@ class _SkillTurnRuntime:
         """
         k = str(node_key or "").strip()
         return self.plugin_for(k).delivery_gap(self.engine) if k else self.first_delivery_gap(self.engine)
+
+    def _system_gaps(self, node_key: str = "") -> list:
+        """同 _system_gap 的复数形态（合批多问卡数据源）：节点插件的全部系统确认卡。"""
+        k = str(node_key or "").strip()
+        if k:
+            try:
+                return [g for g in self.plugin_for(k).system_gaps(self.engine)
+                        if isinstance(g, dict) and g]
+            except Exception:
+                logger.exception("节点系统确认卡生成失败 step=%s", k)
+                return []
+        g = self.first_delivery_gap(self.engine)
+        return [g] if isinstance(g, dict) and g else []
 
     async def _emit_pipeline_phase(self, kind: str, **extra) -> None:
         """编排相位广播（waiting/done 等）：事件槽缺席时静默跳过，广播失败不掀翻回合。"""
@@ -663,7 +687,7 @@ class _SkillTurnRuntime:
             _note()
             engine["engine_result"] = "gaps"
             engine["awaiting_input"] = True
-            engine["engine_gaps"] = gaps[:1]
+            engine["engine_gaps"] = gaps[:4]
             engine["kp_asks"] = asks
             _g0 = gaps[0] if gaps and isinstance(gaps[0], dict) else {}
             await self._emit_pause(
@@ -678,11 +702,11 @@ class _SkillTurnRuntime:
         if asks:
             return await _pause([self._ask_gap(a) for a in asks[:1]], asks)
 
-        # 目录字段由 AI 自己判值/提问（唯一大脑），引擎不再硬发目录缺口卡；
-        # 仅保留机型候选未锁定 → 结构化候选卡（数据驱动，非话术）。
-        _mg = self._system_gap(step_key)
-        if _mg is not None:
-            return await _pause([_mg], [])
+        # 系统确认卡（节点插件声明）：前提字段求证、机型候选拍板等——出路一就绪即刻交
+        # 客户（数据驱动非话术），全量交出（≤4 合批）；凡推断必求证是引擎闸门，不靠大脑自觉。
+        _mgs = self._system_gaps(step_key)
+        if _mgs:
+            return await _pause(_mgs[:4], [])
 
         from ai_office.skill_plan_runtime import validate_step_end
         try:
@@ -821,11 +845,14 @@ class _SkillTurnRuntime:
         _act = "retry"
         _findings: dict = {}
         try:
+            def _on_attempt(attempt: int) -> None:
+                if attempt:
+                    self._reset_step_narration(step_key)
             _final_result, _act = await run_brain_attempts(
                 user_msg, loop_kwargs=loop_kwargs,
                 settle=lambda r: self._settle(r, step_key),
                 emit_status=lambda _t: _emit_brain_status(self._capturing_sink, _t),
-                findings_out=_findings)
+                findings_out=_findings, on_attempt=_on_attempt)
             self._restore_ext()
             # 检索战果落 mem（步骤落定即清、未落定带着续跑），必须在 wait 早退之前
             self._keep_step_findings(step_key, _act, _findings.get("text") or "")
@@ -874,9 +901,10 @@ class _SkillTurnRuntime:
             engine["awaiting_input"] = True
             # 卡住时优先问**节点自己的结构化出路卡**（插座兜底：配件行拍板卡等）——
             # 有卡才有活儿给客户干，机制文案也就没有机会被转述成客户话术。
+            # 全部出路一起交（≤4，合批多问卡一次拍板；发卡层决定单卡还是分页多问卡）。
             # 节点确实没有可给的出路时，才退回「机制提示交同一颗大脑重述」的零选项暂停。
-            _sg = self.first_stuck_gap(engine)
-            engine["engine_gaps"] = [_sg] if isinstance(_sg, dict) and _sg else \
+            _sgs = self.stuck_gaps(engine)
+            engine["engine_gaps"] = _sgs if _sgs else \
                 [{"slot": "brain_ask", "reason_code": "brain_ask",
                   "question": self._stuck["hint"] or "本步尚未完成",
                   "options": []}]

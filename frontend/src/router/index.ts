@@ -62,6 +62,12 @@ const routes = [
         meta: { title: '线索池', perm: 'page.leads' }
       },
       {
+        path: '/approvals',
+        name: 'QuoteApprovals',
+        component: () => import('@/views/approval/QuoteApprovalPool.vue'),
+        meta: { title: '报价外发审批', perm: 'action.flow.approve.pricing' }
+      },
+      {
         path: '/leads/:leadId',
         name: 'LeadDetail',
         component: () => import('@/views/lead/LeadDetailPage.vue'),

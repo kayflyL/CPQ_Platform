@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>报价外发审批独立页 · 原型</title>
+<style>
+/* ============================================================
+   原型 · 报价外发审批独立页（/approvals · 参照线索池形态）
+   视觉基准：tokens.css 浅色主题逐值搬运（间距 4/8/12/16/24/32 · 字阶 11/12/14/16/20/24 ·
+   圆角 2/4/6/8/12 · 工业蓝 #1677FF · 白玻璃卡片 · 禁左侧彩色装饰条）
+   规格要点：
+   · 独立路由 /approvals（admin 或 action.flow.approve.pricing）· 调度页删审批卡，统计条留「待审批 N」跳转卡
+   · 状态分栏收件箱：待审批 / 已超时 / 已批准 / 已驳回 + 搜索
+   · 批准 = 对当前内容指纹签发外发许可（改价即失效需重批）· 驳回必填理由 · 催办只提醒不改归属
+   · 行内按钮按视角显隐：审批总监可见 批准/驳回；提交人/管理员可见 催办
+   · 后端：复用 /pricing-approvals/{id}/decide；队列端点权限放宽为 admin+审批总监（总监只看指派给自己的）
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --accent: #1677FF;
+  --accent-light: #4096ff;
+  --t1: #1d2129; --t2: #4e5969; --t3: #86909c; --t4: #c9cdd4;
+  --line: rgba(22, 119, 255, 0.10);
+  --line-strong: rgba(22, 119, 255, 0.16);
+  --danger: #e5484d;
+  --danger-bg: rgba(255, 107, 107, 0.12);
+  --amber: #d48806;
+  --amber-bg: rgba(250, 173, 20, 0.14);
+  --green: #2f9d78;
+  --green-bg: rgba(82, 201, 160, 0.14);
+  --glass-card-bg: linear-gradient(135deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.24) 40%, rgba(255,255,255,0.44) 100%);
+  --glass-border: rgba(120, 144, 176, 0.38);
+  --glass-shadow: 0 10px 30px rgba(22, 119, 255, 0.08), inset 0 1px 0 rgba(255,255,255,0.62);
+  --blur: 14px;
+  --r-xs: 2px; --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 12px;
+}
+body {
+  font-family: var(--font); color: var(--t1); font-size: 14px; line-height: 1.6;
+  background:
+    radial-gradient(ellipse 80% 60% at 12% 0%, rgba(22, 119, 255, 0.16), transparent 55%),
+    radial-gradient(ellipse 65% 55% at 95% 15%, rgba(91, 143, 249, 0.12), transparent 60%),
+    linear-gradient(180deg, #DCE9F8 0%, #E9F0FA 45%, #F2F6FC 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+.proto-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 999;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--line); font-size: 13px;
+}
+.proto-bar .pb-title { font-weight: 700; margin-right: 8px; }
+.proto-bar .pb-title small { font-weight: 400; color: var(--t3); margin-left: 6px; }
+.pb-btn {
+  padding: 5px 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: rgba(255,255,255,0.5);
+  color: var(--t2); font-size: 12.5px; font-family: inherit; transition: all .2s;
+}
+.pb-btn:hover { border-color: var(--line-strong); color: var(--t1); }
+.pb-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.proto-bar .pb-hint { margin-left: auto; color: var(--t3); font-size: 11.5px; }
+
+.page { padding: 74px 32px 60px; max-width: 1280px; margin: 0 auto; }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.page-head h1 { font-size: 24px; font-weight: 700; line-height: 1.25; }
+.page-head .desc { font-size: 13px; color: var(--t3); margin-top: 4px; }
+.head-stats { display: flex; gap: 8px; }
+.stat-chip {
+  display: flex; flex-direction: column; align-items: center; padding: 8px 18px;
+  background: var(--glass-card-bg); border: 1px solid var(--glass-border);
+  border-radius: var(--r-lg); backdrop-filter: blur(var(--blur)); box-shadow: var(--glass-shadow);
+}
+.stat-chip b { font-family: var(--mono); font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat-chip span { font-size: 11px; color: var(--t3); }
+.stat-chip.warn b { color: var(--amber); }
+.stat-chip.danger b { color: var(--danger); }
+
+.filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.tab-chip {
+  padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; font-family: inherit;
+  border: 1px solid transparent; background: rgba(255,255,255,0.4); color: var(--t2); transition: all .2s;
+}
+.tab-chip:hover { color: var(--t1); }
+.tab-chip.on { background: var(--accent); color: #fff; font-weight: 600; box-shadow: 0 4px 12px rgba(22,119,255,0.25); }
+.tab-chip .n { opacity: 0.65; font-size: 12px; margin-left: 2px; }
+.tab-chip.warn.on { background: var(--amber); }
+.search-input {
+  margin-left: auto; width: 240px; padding: 7px 12px; font-size: 13px; font-family: inherit;
+  border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  background: rgba(255,255,255,0.6); color: var(--t1); outline: none;
+}
+.search-input:focus { border-color: var(--accent); }
+
+.table-card {
+  background: var(--glass-card-bg); border: 1px solid var(--glass-border);
+  border-radius: var(--r-xl); backdrop-filter: blur(var(--blur)); box-shadow: var(--glass-shadow);
+  overflow: hidden;
+}
+table.ap-tb { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ap-tb thead th {
+  text-align: left; padding: 11px 14px; font-size: 12px; font-weight: 600; color: var(--t3);
+  background: rgba(255,255,255,0.35); border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.ap-tb tbody td { padding: 12px 14px; border-bottom: 1px solid rgba(22,119,255,0.06); vertical-align: middle; }
+.ap-tb tbody tr { cursor: pointer; transition: background .15s; }
+.ap-tb tbody tr:hover { background: rgba(255,255,255,0.48); }
+.ap-tb tbody tr:last-child td { border-bottom: none; }
+.cell-main { font-weight: 600; color: var(--t1); }
+.cell-sub { font-size: 12px; color: var(--t3); margin-top: 1px; }
+.mono { font-family: var(--mono); font-size: 12px; color: var(--t2); font-variant-numeric: tabular-nums; }
+.pill {
+  display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+}
+.pill.pending { background: var(--amber-bg); color: var(--amber); }
+.pill.escalated { background: var(--danger-bg); color: var(--danger); }
+.pill.approved { background: var(--green-bg); color: var(--green); }
+.pill.rejected { background: var(--danger-bg); color: var(--danger); }
+.wait-hot { color: var(--danger); font-weight: 700; }
+.margin-low { color: var(--amber); font-weight: 600; }
+.op-row { display: flex; gap: 6px; justify-content: flex-end; }
+.op-btn {
+  padding: 4px 12px; border-radius: var(--r-md); cursor: pointer; font-family: inherit; font-size: 12px;
+  border: 1px solid var(--line-strong); background: rgba(255,255,255,0.6); color: var(--t2); transition: all .2s;
+}
+.op-btn:hover { border-color: var(--accent); color: var(--accent); }
+.op-btn.go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.op-btn.go:hover { background: var(--accent-light); }
+.op-btn.no { border-color: rgba(255,107,107,0.4); color: var(--danger); }
+.op-btn.no:hover { background: var(--danger-bg); }
+.empty-row td { text-align: center; color: var(--t3); padding: 32px; cursor: default; }
+
+/* 抽屉：审批单详情 + 裁决 */
+.drawer-mask {
+  position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,0.28);
+  opacity: 0; pointer-events: none; transition: opacity .25s;
+}
+.drawer-mask.on { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 501; width: 460px; max-width: 92vw;
+  background: rgba(255,255,255,0.94); backdrop-filter: blur(18px);
+  border-left: 1px solid var(--glass-border); box-shadow: -12px 0 40px rgba(22,119,255,0.10);
+  transform: translateX(102%); transition: transform .3s cubic-bezier(.16,1,.3,1);
+  display: flex; flex-direction: column;
+}
+.drawer.on { transform: translateX(0); }
+.drawer-head { display: flex; align-items: center; gap: 12px; padding: 20px 20px 14px; }
+.drawer-head h2 { font-size: 20px; font-weight: 700; }
+.drawer-head .close {
+  margin-left: auto; width: 28px; height: 28px; border-radius: 999px; border: 1px solid var(--line);
+  background: rgba(255,255,255,0.5); color: var(--t2); cursor: pointer; font-size: 14px; font-family: inherit;
+}
+.drawer-body { flex: 1; overflow-y: auto; padding: 0 20px 20px; }
+.d-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-bottom: 16px; }
+.d-item .k { font-size: 11px; color: var(--t3); }
+.d-item .v { font-size: 13.5px; font-weight: 600; margin-top: 2px; }
+.note-block {
+  padding: 10px 14px; background: rgba(255,255,255,0.55); border: 1px solid rgba(22,119,255,0.08);
+  border-radius: var(--r-md); font-size: 13px; color: var(--t2); margin-bottom: 16px;
+}
+.margin-track { margin: 6px 0 16px; }
+.margin-track .bar { height: 6px; border-radius: 999px; background: rgba(22,119,255,0.10); position: relative; }
+.margin-track .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--amber); }
+.margin-track .bar em {
+  position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--danger); border-radius: 999px;
+}
+.margin-track .lab { display: flex; justify-content: space-between; font-size: 11px; color: var(--t3); margin-top: 4px; }
+.hash-line { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--t2); margin-bottom: 16px; }
+.hash-line code { font-family: var(--mono); font-size: 11.5px; background: rgba(22,119,255,0.06); padding: 2px 8px; border-radius: var(--r-sm); }
+.hash-ok { color: var(--green); font-weight: 600; }
+.decide-note { width: 100%; padding: 8px 12px; font-size: 13px; font-family: inherit; margin-bottom: 12px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-md); background: rgba(255,255,255,0.7); color: var(--t1); outline: none; }
+.decide-note:focus { border-color: var(--accent); }
+.d-ops { display: flex; gap: 8px; }
+.btn {
+  padding: 7px 16px; border-radius: var(--r-md); cursor: pointer; font-family: inherit; font-size: 13px;
+  border: 1px solid var(--line-strong); background: rgba(255,255,255,0.6); color: var(--t2); transition: all .2s;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.primary:hover { background: var(--accent-light); }
+.btn.no { border-color: rgba(255,107,107,0.4); color: var(--danger); }
+.btn.no:hover { background: var(--danger-bg); }
+.gate-note { font-size: 11.5px; color: var(--t3); margin-top: 12px; line-height: 1.7; }
+
+/* 驳回弹窗 */
+.modal-mask { position: fixed; inset: 0; z-index: 800; background: rgba(0,0,0,0.32);
+  display: none; align-items: center; justify-content: center; }
+.modal-mask.on { display: flex; }
+.modal {
+  width: 420px; padding: 20px; background: rgba(255,255,255,0.96); backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border); border-radius: var(--r-xl); box-shadow: 0 20px 60px rgba(22,119,255,0.18);
+}
+.modal h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.modal p { font-size: 12.5px; color: var(--t3); margin-bottom: 12px; }
+.toast {
+  position: fixed; left: 50%; bottom: 32px; z-index: 900; transform: translateX(-50%) translateY(20px);
+  padding: 10px 20px; border-radius: var(--r-lg); font-size: 13px;
+  background: rgba(29,33,41,0.92); color: #fff; opacity: 0; pointer-events: none;
+  transition: all .3s cubic-bezier(.16,1,.3,1);
+}
+.toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <span class="pb-title">报价外发审批独立页 · 原型<small>路由 /approvals · 状态分栏收件箱 · 总监就地裁决</small></span>
+  <span class="pb-btn-group" style="display:flex;gap:6px;align-items:center;">
+    视角：
+    <button class="pb-btn on" data-role="director">审批总监（可裁决）</button>
+    <button class="pb-btn" data-role="requester">提交人（只读+催办）</button>
+  </span>
+  <span class="pb-hint">点行开详情抽屉 · 批准=对内容指纹签发外发许可 · 驳回必填理由</span>
+</div>
+
+<div class="page">
+  <div class="page-head">
+    <div>
+      <h1>报价外发审批</h1>
+      <div class="desc">报价单出门（客户版导出 / 平台内发送 / 规格书 PDF）前须总监批准 · 等待越久越醒目 · 系统永不自动批/拒</div>
+    </div>
+    <div class="head-stats">
+      <div class="stat-chip"><b>4</b><span>待审批</span></div>
+      <div class="stat-chip danger"><b>1</b><span>已超时提醒</span></div>
+      <div class="stat-chip"><b>2</b><span>今日已批</span></div>
+      <div class="stat-chip"><b>6.5h</b><span>平均等待</span></div>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <button class="tab-chip on" data-tab="pending">待审批<span class="n">4</span></button>
+    <button class="tab-chip warn" data-tab="escalated">已超时<span class="n">1</span></button>
+    <button class="tab-chip" data-tab="approved">已批准<span class="n">12</span></button>
+    <button class="tab-chip" data-tab="rejected">已驳回<span class="n">3</span></button>
+    <input class="search-input" placeholder="搜索客户 / 报价单号 / 提交人" />
+  </div>
+
+  <div class="table-card">
+    <table class="ap-tb">
+      <thead>
+        <tr>
+          <th>客户 / 商机</th><th>报价单</th><th>提交人</th><th>责任总监</th>
+          <th>毛利率</th><th>已等待</th><th>状态</th><th style="text-align:right">操作</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 详情抽屉 -->
+<div class="drawer-mask" id="mask"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div><h2 id="dvTitle">审批单详情</h2><div style="font-size:12px;color:var(--t3);" id="dvSub">—</div></div>
+    <button class="close" data-close>×</button>
+  </div>
+  <div class="drawer-body">
+    <div class="note-block" id="dvNote">—</div>
+    <div class="d-grid">
+      <div class="d-item"><div class="k">商机</div><div class="v" id="dvOpp">—</div></div>
+      <div class="d-item"><div class="k">报价单</div><div class="v mono" id="dvQuote">—</div></div>
+      <div class="d-item"><div class="k">提交人</div><div class="v" id="dvReq">—</div></div>
+      <div class="d-item"><div class="k">责任总监</div><div class="v" id="dvDir">—</div></div>
+      <div class="d-item"><div class="k">发起时间</div><div class="v mono" id="dvTime">—</div></div>
+      <div class="d-item"><div class="k">已等待</div><div class="v mono" id="dvWait">—</div></div>
+    </div>
+    <div class="margin-track">
+      <div class="bar"><i id="dvBarFill" style="width:60%"></i><em id="dvBarMark" style="left:70%"></em></div>
+      <div class="lab"><span id="dvMargin">毛利率 —</span><span style="color:var(--danger);">批准阈值 25%</span></div>
+    </div>
+    <div class="hash-line"><span>内容指纹</span><code id="dvHash">a3f2…c901</code><span class="hash-ok" id="dvHashOk">✓ 与发起时一致</span></div>
+    <div class="d-grid">
+      <div class="d-item"><div class="k">路由快照</div><div class="v" id="dvRoute" style="font-weight:400;font-size:12.5px;">—</div></div>
+      <div class="d-item"><div class="k">触发原因</div><div class="v" id="dvReason">—</div></div>
+    </div>
+    <div id="dvDecide">
+      <input class="decide-note" id="dvInput" placeholder="备注（选填，会以评论形式进入商机协作流）" />
+      <div class="d-ops">
+        <button class="btn primary" id="dvApprove">批准外发</button>
+        <button class="btn no" id="dvReject">驳回</button>
+      </div>
+      <div class="gate-note">
+        批准 = 对当前内容指纹签发外发许可：客户版导出 / 平台内发送 / 规格书 PDF 放行；<br>
+        批准后改价或改动报价内容，许可自动失效，需重新发起审批。驳回必填理由，打回改价。
+      </div>
+    </div>
+    <div id="dvDecided" style="display:none;">
+      <div class="note-block" id="dvVerdict">—</div>
+    </div>
+  </div>
+</aside>
+
+<!-- 驳回弹窗 -->
+<div class="modal-mask" id="rejectModal">
+  <div class="modal">
+    <h3>驳回审批单</h3>
+    <p>驳回会打回给提交人改价，理由将以【状态变更】评论进入商机协作流。</p>
+    <input class="decide-note" id="rejectReason" placeholder="驳回理由（必填，例如：毛利率低于红线，调整后重报）" />
+    <div class="d-ops">
+      <button class="btn no" id="rejectGo">确认驳回</button>
+      <button class="btn" id="rejectCancel">取消</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── mock 数据 ── */
+const ROWS = [
+  { id: 1, tab: 'pending', opp: '华东智算中心 · 智算一体机集群', quote: 'QT-2026-1103-012', req: '林悦', dir: '王总监',
+    margin: 18.2, wait: '3.2 小时', hash: 'a3f2…c901', reason: '外发 + 低于阈值',
+    note: '客户要求今天给正式报价 PDF，毛利率低于阈值请王总把关。' },
+  { id: 2, tab: 'pending', opp: '华南医疗二期 · 推理服务器', quote: 'QT-2026-1102-009', req: '吴凯', dir: '王总监',
+    margin: 27.4, wait: '5.1 小时', hash: '77be…04d2', reason: '外发',
+    note: '毛利率达标，纯外发许可。' },
+  { id: 3, tab: 'pending', opp: '西南教育集群 · 训推一体机', quote: 'QT-2026-1102-011', req: '周婷', dir: '王总监',
+    margin: 22.6, wait: '8.4 小时', hash: 'e08c…5b3a', reason: '外发 + 低于阈值',
+    note: '教育季冲量，价格已到底，请批。' },
+  { id: 4, tab: 'pending', tab2: 'escalated', opp: '华北交通枢纽 · 边缘计算一体机', quote: 'QT-2026-1101-004', req: '赵磊', dir: '李总监',
+    margin: 21.8, wait: '26 小时', hash: '9d14…77f0', reason: '外发 + 低于阈值', escalated: true,
+    note: '节假日出行高峰窗口期，迟了就没意义了，请尽快。' },
+  { id: 5, tab: 'approved', opp: '渠道年度框架 · GPU 服务器', quote: 'QT-2026-1030-002', req: '林悦', dir: '王总监',
+    margin: 31.0, wait: '—', hash: '4c81…2be9', reason: '外发',
+    verdict: '已批准 · 王总监 · 今天 10:24 — 「同意，注意交付排期」' },
+  { id: 6, tab: 'rejected', opp: '直销样板局 · 存储服务器', quote: 'QT-2026-1029-007', req: '吴凯', dir: '王总监',
+    margin: 12.4, wait: '—', hash: 'b550…8e17', reason: '低于阈值',
+    verdict: '已驳回 · 王总监 · 昨天 16:02 — 「毛利率低于红线 15%，调整后重报」' },
+]
+const THRESHOLD = 25
+let role = 'director'   // director=审批总监(可裁决) / requester=提交人(只读+催办)
+let curTab = 'pending'
+
+const $ = (s) => document.querySelector(s)
+
+function rowsFor(tab) {
+  return ROWS.filter(r => r.tab === tab || (tab === 'escalated' && r.tab2 === 'escalated'))
+}
+function render() {
+  const list = rowsFor(curTab)
+  $('#tbody').innerHTML = list.length ? list.map(r => {
+    const low = r.margin < THRESHOLD
+    const canDecide = role === 'director' && r.dir === '王总监' && (r.tab === 'pending' || r.tab2 === 'escalated')
+    const canRemind = role === 'requester' ? (r.tab === 'pending' && r.req === '林悦') : true
+    const statusPill = r.tab === 'pending'
+      ? (r.tab2 === 'escalated' ? '<span class="pill escalated">已超时提醒</span>' : '<span class="pill pending">待审批</span>')
+      : r.tab === 'approved' ? '<span class="pill approved">已批准</span>' : '<span class="pill rejected">已驳回</span>'
+    return `
+    <tr data-row="${r.id}">
+      <td><div class="cell-main">${r.opp}</div><div class="cell-sub">${r.req} 发起 · ${r.reason}</div></td>
+      <td class="mono">${r.quote}</td>
+      <td>${r.req}</td>
+      <td>${r.dir}</td>
+      <td class="${low ? 'margin-low' : ''}">${r.margin.toFixed(1)}%${low ? ' · 低于阈值' : ''}</td>
+      <td class="mono ${r.tab2 === 'escalated' ? 'wait-hot' : ''}">${r.wait}</td>
+      <td>${statusPill}</td>
+      <td><div class="op-row">
+        ${canDecide ? `<button class="op-btn go" data-act="approve" data-row="${r.id}">批准</button>
+                       <button class="op-btn no" data-act="reject" data-row="${r.id}">驳回</button>` : ''}
+        ${canRemind && (r.tab === 'pending' || r.tab2 === 'escalated') ? `<button class="op-btn" data-act="remind" data-row="${r.id}">催办</button>` : ''}
+      </div></td>
+    </tr>`
+  }).join('') : '<tr class="empty-row"><td colspan="8">该状态下暂无审批单</td></tr>'
+}
+
+/* 筛选 / 视角 */
+document.querySelectorAll('.tab-chip').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tab-chip').forEach(x => x.classList.remove('on'))
+  b.classList.add('on'); curTab = b.dataset.tab; render()
+}))
+document.querySelectorAll('[data-role]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-role]').forEach(x => x.classList.remove('on'))
+  b.classList.add('on'); role = b.dataset.role; render()
+  toast(role === 'director' ? '切换为审批总监视角：可见批准/驳回' : '切换为提交人视角：只读 + 自己的单可催办')
+}))
+
+/* 行点击 → 抽屉；行内按钮 */
+$('#tbody').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-act]')
+  const row = ROWS.find(r => r.id === Number(e.target.closest('tr')?.dataset.row))
+  if (btn) {
+    e.stopPropagation()
+    if (btn.dataset.act === 'remind') { toast('已催办（通知责任总监）（演示）'); return }
+    if (btn.dataset.act === 'approve') { approve(row); return }
+    if (btn.dataset.act === 'reject') { openReject(row); return }
+  }
+  if (row) openDrawer(row)
+})
+
+/* 抽屉 */
+function openDrawer(r) {
+  $('#dvTitle').textContent = r.opp
+  $('#dvSub').textContent = `${r.quote} · ${r.req} 发起`
+  $('#dvNote').textContent = r.note || '（无发起说明）'
+  $('#dvOpp').textContent = r.opp.split(' · ')[0]
+  $('#dvQuote').textContent = r.quote
+  $('#dvReq').textContent = r.req
+  $('#dvDir').textContent = r.dir
+  $('#dvTime').textContent = r.tab === 'pending' ? '今天 ' + (12 - r.id) + ':0' + r.id : '2026-10-30'
+  $('#dvWait').textContent = r.wait
+  const pct = Math.min(100, r.margin / 40 * 100)
+  $('#dvBarFill').style.width = pct + '%'
+  $('#dvBarFill').style.background = r.margin >= THRESHOLD ? 'var(--green)' : 'var(--amber)'
+  $('#dvBarMark').style.left = THRESHOLD / 40 * 100 + '%'
+  $('#dvMargin').textContent = `毛利率 ${r.margin.toFixed(1)}%`
+  $('#dvHash').textContent = r.hash
+  $('#dvRoute').textContent = `${r.dir}（按报价人所属总监）`
+  $('#dvReason').textContent = r.reason
+  const pending = r.tab === 'pending' || r.tab2 === 'escalated'
+  $('#dvDecide').style.display = (pending && role === 'director' && r.dir === '王总监') ? '' : 'none'
+  $('#dvDecided').style.display = pending ? 'none' : ''
+  if (!pending) $('#dvVerdict').textContent = r.verdict
+  $('#drawer').classList.add('on'); $('#mask').classList.add('on')
+}
+function closeDrawer() { $('#drawer').classList.remove('on'); $('#mask').classList.remove('on') }
+$('#mask').addEventListener('click', closeDrawer)
+document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeDrawer))
+
+/* 批准 / 驳回 */
+function approve(r) {
+  closeDrawer()
+  toast(`已批准「${r.quote}」：外发许可已签发，导出/发送放行；改价后自动失效需重批（演示）`)
+}
+let rejectRow = null
+function openReject(r) {
+  rejectRow = r; $('#rejectReason').value = ''
+  $('#rejectModal').classList.add('on')
+}
+$('#rejectCancel').onclick = () => $('#rejectModal').classList.remove('on')
+$('#rejectGo').onclick = () => {
+  if (!$('#rejectReason').value.trim()) { toast('驳回理由必填'); return }
+  $('#rejectModal').classList.remove('on'); closeDrawer()
+  toast(`已驳回「${rejectRow.quote}」，理由将以【状态变更】评论进入协作流（演示）`)
+}
+
+/* toast */
+let toastTimer = null
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('on')
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 2800)
+}
+
+render()
+</script>
+</body>
+</html>

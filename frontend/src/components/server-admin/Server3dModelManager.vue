@@ -2,7 +2,7 @@
 /** 服务器3D模型管理 · 目录页 — 卡片列表(ServerModelCard 同款);点卡片进模型编辑页。
  *  3D模型由代码/种子产出,页面只做编辑(名称/绑定/分区标注),不提供网页新建。
  *  模型页(独立路由 /servers/3d-models/:id):名称/多选绑定机型/分区标注/3D预览。 */
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { server3dApi, type Server3dModel } from '@/api/server3d'
@@ -13,6 +13,10 @@ const router = useRouter()
 const loading = ref(false)
 const models = ref<Server3dModel[]>([])
 const modelNames = ref<Record<number, string>>({})
+/** 按 kind 分组:整机(可绑机型上配置页)/ 部件库(独立预览,CPU/GPU…逐步扩) */
+const machines = computed(() => models.value.filter(m => (m.kind ?? 'machine') === 'machine'))
+const parts = computed(() => models.value.filter(m => m.kind === 'part'))
+const PART_LABEL: Record<string, string> = { cpu: '部件库 · CPU', fan: '部件库 · 风扇墙' }
 
 const boundLabel = (m: Server3dModel) => {
   const ids = m.model_ids || []
@@ -75,24 +79,49 @@ onMounted(load)
       </div>
     </div>
     <a-spin :spinning="loading">
-      <div class="s3dm-grid">
-        <ServerModelCard
-          v-for="m in models"
-          :key="m.id"
-          :model="toCardModel(m)"
-          :type-name="boundLabel(m)"
-          :show-image="false"
-          :show-lifecycle="false"
-          :show-specs="false"
-          :show-tagline="false"
-          :show-base-config="false"
-          :show-actions="true"
-          :show-publish="false"
-          :clickable="true"
-          @click="goEdit(m)"
-          @edit="goEdit(m)"
-          @delete="remove(m)"
-        />
+      <div class="s3dm-section">
+        <h4 class="s3dm-sec-title">整机模型</h4>
+        <div class="s3dm-grid">
+          <ServerModelCard
+            v-for="m in machines"
+            :key="m.id"
+            :model="toCardModel(m)"
+            :type-name="boundLabel(m)"
+            :show-image="false"
+            :show-lifecycle="false"
+            :show-specs="false"
+            :show-tagline="false"
+            :show-base-config="false"
+            :show-actions="true"
+            :show-publish="false"
+            :clickable="true"
+            @click="goEdit(m)"
+            @edit="goEdit(m)"
+            @delete="remove(m)"
+          />
+        </div>
+      </div>
+      <div v-if="parts.length" class="s3dm-section">
+        <h4 class="s3dm-sec-title">部件库</h4>
+        <div class="s3dm-grid">
+          <ServerModelCard
+            v-for="m in parts"
+            :key="m.id"
+            :model="toCardModel(m)"
+            :type-name="PART_LABEL[m.part_type || ''] || '部件库'"
+            :show-image="false"
+            :show-lifecycle="false"
+            :show-specs="false"
+            :show-tagline="false"
+            :show-base-config="false"
+            :show-actions="true"
+            :show-publish="false"
+            :clickable="true"
+            @click="goEdit(m)"
+            @edit="goEdit(m)"
+            @delete="remove(m)"
+          />
+        </div>
       </div>
     </a-spin>
   </div>
@@ -118,5 +147,14 @@ onMounted(load)
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(252px, 1fr));
   gap: 16px;
+}
+.s3dm-section + .s3dm-section {
+  margin-top: var(--cpq-space-5);
+}
+.s3dm-sec-title {
+  margin: 0 0 var(--cpq-space-2);
+  color: var(--cpq-text-secondary);
+  font-size: var(--cpq-font-size-sm);
+  font-weight: 600;
 }
 </style>

@@ -20,6 +20,11 @@ const loading = ref(false)
 const saving = ref(false)
 const name = ref('')
 const modelIds = ref<number[]>([])
+/** 部件模型(kind='part'):独立预览,不参与机型绑定与分区标注覆盖 */
+const isPart = ref(false)
+const partType = ref<'cpu' | 'fan' | null>(null)
+const PART_LABEL: Record<string, string> = { cpu: 'CPU', fan: '风扇墙' }
+const partSpec = ref<{ family?: 'sp5' | 'kh' } | null>(null)
 /** 分区标注覆盖:仅记录用户填过的字段 */
 const labelForm = ref<Record<string, { name: string; spec: string; desc: string }>>({})
 const labelsOpen = ref(true)
@@ -61,8 +66,11 @@ async function load() {
     }
     name.value = m.name
     modelIds.value = [...(m.model_ids || [])]
+    isPart.value = m.kind === 'part'
+    partType.value = (m.kind === 'part' && (m.part_type === 'cpu' || m.part_type === 'fan')) ? m.part_type : null
     try {
       const lc = m.layout_config ? JSON.parse(m.layout_config) : null
+      partSpec.value = lc?.family ? { family: lc.family } : null
       const lf: Record<string, { name: string; spec: string; desc: string }> = {}
       for (const { key, def, defSpec, defDesc } of PART_KEYS) {
         const o = lc?.labels?.[key] || {}
@@ -95,12 +103,15 @@ async function save() {
   if (!name.value.trim()) return message.warning('请填写模型名称')
   saving.value = true
   try {
-    await server3dApi.update(id.value, {
-      name: name.value.trim(),
-      model_ids: modelIds.value,
-      layout_config: layoutConfig.value,
-    })
-    message.success(boundNames.value.length ? `已保存,${boundNames.value.length} 台机型配置页将显示该3D场景` : '已保存(未关联机型,配置页暂不显示)')
+    // 部件模型:只改名(不触碰绑定与布局,形态族等由工厂/layout_config 预置)
+    await server3dApi.update(id.value, isPart.value
+      ? { name: name.value.trim(), model_ids: [] }
+      : {
+          name: name.value.trim(),
+          model_ids: modelIds.value,
+          layout_config: layoutConfig.value,
+        })
+    message.success(isPart.value ? '已保存' : boundNames.value.length ? `已保存,${boundNames.value.length} 台机型配置页将显示该3D场景` : '已保存(未关联机型,配置页暂不显示)')
   } catch (e: any) {
     message.error(e?.response?.data?.detail || '保存失败')
   } finally {
@@ -136,7 +147,12 @@ const previewCounts = { gpus: 8, cpus: 2, dimms: 24, bays: 12 }
 <template>
   <div class="s3de-root">
     <div class="s3de-stage">
-      <ServerStage3D :counts="previewCounts" :labels="previewLabels" class="s3de-stage3d" height="100%" />
+      <ServerStage3D
+        v-if="!isPart" :counts="previewCounts" :labels="previewLabels" class="s3de-stage3d" height="100%"
+      />
+      <ServerStage3D
+        v-else :part-type="partType" :part-spec="partSpec" class="s3de-stage3d" height="100%"
+      />
 
       <!-- 左上:返回 + 模型信息 -->
       <div class="s3de-hud s3de-hud-tl">
@@ -146,7 +162,8 @@ const previewCounts = { gpus: 8, cpus: 2, dimms: 24, bays: 12 }
         </button>
         <div class="s3de-hud-name">{{ name || '未命名3D模型' }}</div>
         <div class="s3de-hud-sub">
-          <template v-if="boundNames.length">
+          <template v-if="isPart">部件模型 · {{ PART_LABEL[partType || ''] || partType }}</template>
+          <template v-else-if="boundNames.length">
             关联机型 · <b>{{ boundNames[0] }}</b><span v-if="boundNames.length > 1"> 等 {{ boundNames.length }} 台</span>
           </template>
           <template v-else>未关联机型(配置页不显示)</template>
@@ -160,7 +177,7 @@ const previewCounts = { gpus: 8, cpus: 2, dimms: 24, bays: 12 }
           <label class="s3de-label">模型名称</label>
           <a-input v-model:value="name" placeholder="如:4U8卡服务器模型" @pressEnter="save" />
         </div>
-        <div class="s3de-field">
+        <div class="s3de-field" v-if="!isPart">
           <label class="s3de-label">关联机型(可多选,绑定即上架)</label>
           <a-select
             v-model:value="modelIds"
@@ -174,7 +191,7 @@ const previewCounts = { gpus: 8, cpus: 2, dimms: 24, bays: 12 }
           />
         </div>
 
-        <div class="s3de-lsec">
+        <div class="s3de-lsec" v-if="!isPart">
           <div class="s3de-lsec-head" @click="labelsOpen = !labelsOpen">
             <span>分区标注 · 悬停提示文案</span>
             <UpOutlined class="s3de-chev" :class="{ open: labelsOpen }" />

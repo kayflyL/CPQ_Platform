@@ -328,6 +328,7 @@ def list_portal_opps(page: int = 1, page_size: int = 20, search: str = "",
 
 def _opp_search_hit(opp: dict, kw: str, opp_id: str) -> bool:
     """搜索口径与 opportunity_repo.list_opportunities 一致：客户 / 业务 / 商机ID 子串（不分大小写）。"""
+    kw = (kw or "").strip()  # 复制粘贴常带不可见尾空白，未 trim 会静默搜不到
     return (kw in str(opp.get("customer_name") or "").lower()
             or kw in str(opp.get("sales_person") or "").lower()
             or kw in (opp_id or "").lower())
@@ -2600,13 +2601,21 @@ def pricing_approval_approvers(user: dict = Depends(get_current_user)):
 
 
 @router.get("/api/portal/pricing-approvals/queue")
-def pricing_approval_queue(user: dict = Depends(require_admin)):
-    """调度页「待审批」队列：跨商机审批单（pending 在前）；读取时触发懒超时提醒。"""
+def pricing_approval_queue(user: dict = Depends(get_current_user)):
+    """审批收件箱队列（独立页 /approvals + 调度页待审批计数）：跨商机审批单（pending 在前）。
+    权限：admin 看全量；审批总监只看指派给自己的 + 自己提交的（催办要用）。
+    读取时触发懒超时提醒（超过 remind_hours 未批的 pending 单再推一次责任人）。"""
     repo = PricingApprovalRepository()
     try:
         rows = repo.list_recent(50)
     finally:
         repo.close()
+    if not _portal_is_admin(user):
+        my_uid = user.get("user_id") or ""
+        my_name = user.get("name") or ""
+        rows = [a for a in rows
+                if (a.get("assigned_to") or "") == my_uid
+                or (a.get("requested_by") or "") == my_name]
     outbound_gate.maybe_escalate(rows, notify=notify_users)
     opp_repo = OpportunityRepository()
     names: dict = {}

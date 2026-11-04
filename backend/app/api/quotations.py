@@ -91,10 +91,12 @@ def get_quotation(quotation_id: str, reparse: bool = False,
         
         result = quotation.to_dict()
         
-        # Include opportunity info (customer_name)
+        # Include opportunity info (customer_name/sales_person/fae)；Quotation 表无这些列，业务员/FAE 只能从商机带出
         opportunity = opp_repo.get_opportunity(quotation.opportunity_id)
         if opportunity:
             result["customer_name"] = opportunity.get("customer_name", "") or ""
+            result["sales_person"] = opportunity.get("sales_person", "") or ""
+            result["fae"] = opportunity.get("fae", "") or ""
         
         # Add date field (from quotation_date or created_at)
         result["date"] = result.get("quotation_date", "") or (result.get("created_at", "")[:10] if result.get("created_at") else "")

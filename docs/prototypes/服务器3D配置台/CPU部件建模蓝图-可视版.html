@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CPU 部件建模蓝图 · 闸1 可视版</title>
+<style>
+  :root{
+    --bg:#0d1420; --bg2:#111a2a; --card:rgba(255,255,255,.055); --line:rgba(255,255,255,.12);
+    --tx:#e8edf5; --tx2:#9aa7ba; --mint:#7ee0c3; --amber:#e8b45a;
+    --ihs:#c9ced6; --die:#1c2233; --sub:#2e5f66; --gold:#d4a94f; --cap:#2a2f3a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(1200px 600px at 70% -10%, #16233a 0%, var(--bg) 55%);color:var(--tx);
+       font:15px/1.65 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;padding:40px 24px 80px}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:26px;font-weight:700;letter-spacing:.5px}
+  .sub{color:var(--tx2);margin-top:6px}
+  .gates{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+  .gate{font-size:12px;padding:5px 12px;border:1px solid var(--line);border-radius:999px;color:var(--tx2)}
+  .gate.on{background:rgba(126,224,195,.12);border-color:rgba(126,224,195,.5);color:var(--mint)}
+  section{margin-top:44px}
+  h2{font-size:17px;font-weight:700;display:flex;align-items:center;gap:10px}
+  h2 .no{font-size:11px;color:var(--mint);border:1px solid rgba(126,224,195,.4);border-radius:6px;padding:2px 7px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:14px;
+        backdrop-filter:blur(8px)}
+  .note{color:var(--tx2);font-size:13px;margin-top:8px}
+  .refs{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:760px){.refs{grid-template-columns:1fr}}
+  .ref img{width:100%;border-radius:10px;display:block;border:1px solid var(--line)}
+  .ref p{font-size:12.5px;color:var(--tx2);margin-top:8px}
+  .ref b{color:var(--tx);font-size:13.5px}
+
+  /* ===== 3D 示意台 ===== */
+  .stage{display:grid;grid-template-columns:1fr 300px;gap:18px}
+  @media(max-width:860px){.stage{grid-template-columns:1fr}}
+  .view{position:relative;height:420px;border-radius:14px;overflow:hidden;
+        background:radial-gradient(600px 320px at 50% 42%,#182540 0%,#0e1626 70%);
+        border:1px solid var(--line)}
+  .scene{position:absolute;left:50%;top:52%;width:0;height:0;transform-style:preserve-3d}
+  .world{position:absolute;left:0;top:0;transform-style:preserve-3d;transition:transform .9s cubic-bezier(.6,.1,.2,1)}
+  .layer{position:absolute;left:0;top:0;transform-style:preserve-3d;transition:transform .9s cubic-bezier(.6,.1,.2,1)}
+  .plate{position:absolute;transform:translate(-50%,-50%);border-radius:10px;box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
+  .label{position:absolute;transform:translate(-50%,-50%) translateZ(30px);font-size:12px;color:var(--tx2);
+         white-space:nowrap;pointer-events:none}
+  .tag{position:absolute;font-size:11.5px;padding:3px 9px;border-radius:999px;white-space:nowrap;
+       background:rgba(13,20,32,.85);border:1px solid var(--line);color:var(--tx2)}
+  .tag b{color:var(--tx)}
+  .footprint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:250px;height:250px;border-radius:14px;
+             border:1px dashed rgba(255,255,255,.18)}
+  .ctrl{display:flex;flex-direction:column;gap:14px}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{flex:1;min-width:96px;padding:9px 10px;border-radius:10px;border:1px solid var(--line);cursor:pointer;
+              background:transparent;color:var(--tx2);font-size:13px;transition:.2s}
+  .seg button.on{background:rgba(126,224,195,.14);border-color:rgba(126,224,195,.55);color:var(--mint)}
+  .slider{width:100%;accent-color:#7ee0c3}
+  .kv{font-size:13px;color:var(--tx2)}
+  .kv b{color:var(--tx);font-weight:600}
+  .hint{font-size:12.5px;color:var(--tx2)}
+
+  /* ===== 材质色板 ===== */
+  .mats{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+  .mat{display:flex;gap:12px;align-items:center}
+  .chip{width:46px;height:46px;border-radius:10px;flex:none;border:1px solid rgba(255,255,255,.15)}
+  .mat b{font-size:13.5px;display:block}
+  .mat span{font-size:12px;color:var(--tx2)}
+
+  /* ===== 接口 / 管理 / pass ===== */
+  pre{background:#0b1120;border:1px solid var(--line);border-radius:12px;padding:16px;font:12.5px/1.6 Consolas,monospace;
+      overflow:auto;color:#c6d3e6}
+  pre .c{color:#5f7a94}pre .k{color:#7ee0c3}pre .s{color:#e8b45a}
+  .adminmock{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:700px){.adminmock{grid-template-columns:1fr}}
+  .group h3{font-size:13px;color:var(--tx2);font-weight:600;margin-bottom:10px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+  .tile{border:1px solid var(--line);border-radius:12px;padding:12px;background:rgba(255,255,255,.04)}
+  .tile .t{font-size:13.5px;font-weight:600}
+  .tile .d{font-size:11.5px;color:var(--tx2);margin-top:4px}
+  .tile.part .t::before{content:"◈ ";color:var(--mint)}
+  .passes{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:860px){.passes{grid-template-columns:1fr 1fr}}
+  @media(max-width:520px){.passes{grid-template-columns:1fr}}
+  .pass{position:relative;border:1px solid var(--line);border-radius:14px;padding:14px;background:rgba(255,255,255,.035)}
+  .pass .pn{font-size:11px;color:var(--mint);letter-spacing:1px}
+  .pass b{display:block;font-size:14px;margin:6px 0}
+  .pass p{font-size:12.5px;color:var(--tx2)}
+  .todo li{margin:6px 0 0 18px;font-size:14px;color:var(--tx2)}
+  .todo li b{color:var(--tx)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>CPU 部件建模蓝图</h1>
+  <div class="sub">闸1 · 待确认 —— 确认后进闸2 P1（块头比例），确认前不写 3D 代码</div>
+  <div class="gates">
+    <span class="gate on">① 蓝图（本页）</span><span class="gate">② 分pass 建造·每pass截图确认</span>
+    <span class="gate">③ 接入3D模型管理页</span><span class="gate">④ build+E2E 终审</span><span class="gate">⑤ 固化流程为项目skill</span>
+  </div>
+
+  <!-- 1 参考素材 -->
+  <section>
+    <h2><span class="no">01</span>参考素材（视觉参照，非贴图来源）</h2>
+    <div class="card refs">
+      <div class="ref">
+        <img src="refs/amd-epyc-9004-sp5.jpg" alt="AMD EPYC 9004">
+        <p><b>AMD EPYC 9004 · SP5 封装</b>（AMD 官方渲染图）——主型号：四边缺口掀盖式 IHS、底部基板露出双 CCD + 中央 IOD、电容排、金三角。结构层次最清晰，作为第一族。</p>
+      </div>
+      <div class="ref">
+        <img src="refs/zhaoxin-kh-40000-32.jpg" alt="兆芯 KH-40000">
+        <p><b>兆芯 KH-40000/32</b>（兆芯官网）——第二变体族：单片 die 银色方盖、绿基板，形态与 AMD 差异大，用来验证部件工厂的通用性。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 结构分层 -->
+  <section>
+    <h2><span class="no">02</span>结构分层与拆解（示意台，可交互）</h2>
+    <div class="card">
+      <div class="stage">
+        <div class="view">
+          <div class="scene">
+            <div class="world" id="world">
+              <!-- 各层由 JS 生成 -->
+            </div>
+          </div>
+          <div class="tag" style="left:14px;top:14px" id="stateTag"><b>装配态</b> · 各层就位</div>
+          <div class="tag" style="right:14px;top:14px" id="famTag"><b>EPYC 9004</b> · SP5</div>
+        </div>
+        <div class="ctrl">
+          <div>
+            <div class="hint" style="margin-bottom:6px">形态族</div>
+            <div class="seg" id="famSeg">
+              <button class="on" data-fam="epyc">EPYC 9004（掀盖+chiplet）</button>
+              <button data-fam="kh">兆芯 KH-40000（单die银盖）</button>
+            </div>
+          </div>
+          <div>
+            <div class="hint" style="margin-bottom:6px">状态</div>
+            <div class="seg" id="stateSeg">
+              <button class="on" data-s="asm">装配</button>
+              <button data-s="lift">IHS 抬起</button>
+              <button data-s="exp">三层爆炸</button>
+            </div>
+          </div>
+          <div>
+            <div class="hint" style="margin-bottom:6px">爆炸进度 <span id="fv" style="color:var(--tx)">0%</span></div>
+            <input type="range" class="slider" id="explode" min="0" max="100" value="0">
+          </div>
+          <button class="seg" style="padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--tx2);cursor:pointer;font-size:13px" id="flip">⟲ 翻转看底面（LGA 触点阵）</button>
+          <div class="kv">
+            <b>爆炸行为定调</b>：沿轴向分层——IHS 上浮、chiplets 层原位微浮、基板下沉。<b>不做径向散射</b>，与整机的中心缩放爆炸并存（两种机制按模型 kind 自动选择）。
+          </div>
+          <div class="kv" id="layerInfo">
+            <b>当前族层次</b>：IHS 顶盖（刻字）→ CCD×N 环绕中央 IOD → 封装基板（金三角 pin1）→ 电容排（instanced）→ 底面 LGA 触点阵（instanced 金焊盘）。
+          </div>
+        </div>
+      </div>
+      <p class="note">示意台只表达<b>层次关系与爆炸逻辑</b>，不代表闸2 成品质感；真实比例、缺口边缘、刻字、触点密度在闸2 按 pass 落地。尺寸依据：SP5 封装约 75×75mm · LGA-4094（<b>待核对</b>）；KH-40000 封装尺寸官方未公开，先按同数量级近似建模，拿到实件数字即替换——不发明假精确值。</p>
+    </div>
+  </section>
+
+  <!-- 3 材质 -->
+  <section>
+    <h2><span class="no">03</span>材质方案（全程序化，零贴图文件）</h2>
+    <div class="card mats">
+      <div class="mat"><div class="chip" style="background:linear-gradient(135deg,#e7ebf1,#b9c1cc)"></div><div><b>IHS 镀镍金属</b><span>高 metalness · 低 roughness，刻字 CanvasTexture 程序生成，型号文字参数化</span></div></div>
+      <div class="mat"><div class="chip" style="background:linear-gradient(135deg,#232a3f,#141a2b)"></div><div><b>Die 芯片</b><span>深色基底+微彩 iridescence 反光，CCD/IOD 靠几何位置区分，不画电路纹理</span></div></div>
+      <div class="mat"><div class="chip" style="background:#2e5f66"></div><div><b>封装基板</b><span>哑光蓝绿（KH 族为绿），金三角 pin1 小金贴片</span></div></div>
+      <div class="mat"><div class="chip" style="background:repeating-radial-gradient(circle at 8px 8px,#d4a94f 0 2px,transparent 2px 9px)"></div><div><b>LGA 触点阵</b><span>InstancedMesh 数千金焊盘，底面才可见</span></div></div>
+      <div class="mat"><div class="chip" style="background:#2a2f3a"></div><div><b>SMD 电容排</b><span>InstancedMesh 小长方体沿 IHS 开窗沿口一圈</span></div></div>
+      <div class="mat"><div class="chip" style="background:linear-gradient(135deg,#16233a,#0d1420);border-color:rgba(126,224,195,.4)"></div><div><b>双主题</b><span>跟随 server3d THEMES 机制；浅色主题压 IHS 高光曝光防糊白</span></div></div>
+    </div>
+  </section>
+
+  <!-- 4 工厂接口 -->
+  <section>
+    <h2><span class="no">04</span>部件工厂接口（部件库契约）</h2>
+    <div class="card">
+<pre><span class="c">// frontend/src/server3d/parts/cpu.ts —— 与整机 machine.ts 同坐标系，将来蓝图装配零改造</span>
+<span class="k">export function</span> createCpuModel(spec: CpuSpec): THREE.Group
+<span class="c">// CpuSpec = { family: <span class="s">'sp5' | 'kh'</span>, label: <span class="s">string</span>, ccds?: <span class="s">number</span> }</span>
+
+<span class="c">// 契约：</span>
+<span class="c">// 1. 根 Group  userData.part = <span class="s">'cpu'</span>，userData.explode = 轴向分层表（IHS/chip/基板 三档位移）</span>
+<span class="c">// 2. 每子件 userData = { key: <span class="s">'ihs'|'ccd'|'iod'|'pcb'|'caps'|'pads'</span>, name, spec, desc }</span>
+<span class="c">//    → 与现有 PART_INFO 悬浮标注同一套渲染；培训知识卡（拆装步骤/故障）后续挂 knowledge 字段</span>
+<span class="c">// 3. GPU/DIMM/盘位… 以后各自一个 parts/*.ts，同一契约</span></pre>
+    </div>
+  </section>
+
+  <!-- 5 管理界面 -->
+  <section>
+    <h2><span class="no">05</span>3D模型管理页扩展（闸3 范围）</h2>
+    <div class="card">
+      <div class="adminmock">
+        <div class="group">
+          <h3>目录页 · 按 kind 分组</h3>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div class="tiles">
+              <div class="tile"><div class="t">ESA240 V3</div><div class="d">整机 · 关联机型 16</div></div>
+            </div>
+            <div class="tiles">
+              <div class="tile part"><div class="t">CPU · AMD EPYC 9004</div><div class="d">部件 · SP5 族</div></div>
+              <div class="tile part"><div class="t">CPU · 兆芯 KH-40000</div><div class="d">部件 · KH 族</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="group">
+          <h3>数据与页面</h3>
+          <p class="kv" style="line-height:1.8">
+            <b>表</b>：l6.server_3d_models 加 <b>kind</b>（machine|part）+ <b>part_type</b>（cpu|gpu|…），一份迁移 SQL，旧数据零影响<br>
+            <b>模型页</b>：四视角/爆炸/悬浮标注复用现有 ServerStage3D 能力，部件爆炸由 explode 层级表驱动<br>
+            <b>新增入口</b>：沿用定调——部件由代码/种子产出，<b>不做网页新建</b>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 pass 计划 -->
+  <section>
+    <h2><span class="no">06</span>闸2 分pass 计划（每pass出对照截图，确认后进下一pass）</h2>
+    <div class="card passes">
+      <div class="pass"><span class="pn">P1 块头</span><b>轮廓与比例</b><p>俯视正方形、圆角缺口、IHS 占比——错了改两个数字，成本十分钟</p></div>
+      <div class="pass"><span class="pn">P2 结构</span><b>分层与布点</b><p>IHS/基板/chiplets 分层、CCD 环绕 IOD 布位、电容排位</p></div>
+      <div class="pass"><span class="pn">P3 细节</span><b>刻字与触点</b><p>激光刻字可读、金三角、LGA 触点阵密度、die 布点</p></div>
+      <div class="pass"><span class="pn">P4 材质</span><b>质感与成片</b><p>镀镍反光、双主题、四视角终版与参考图并排对照</p></div>
+    </div>
+  </section>
+
+  <!-- 7 待确认 -->
+  <section>
+    <h2><span class="no">07</span>待你确认</h2>
+    <div class="card">
+      <ul class="todo">
+        <li><b>结构分层与爆炸行为</b>：按 02 区示意（轴向分层、IHS 抬起态）？</li>
+        <li><b>尺寸待核对项</b>：KH-40000 封装尺寸先按近似建模、后补数字，可以吗？</li>
+        <li><b>管理页 kind 方案</b>：整机/部件库两组 + kind 列迁移，可以吗？</li>
+        <li>确认后进 <b>闸2 P1</b>（块头比例截图）</li>
+      </ul>
+    </div>
+  </section>
+
+</div>
+
+<script>
+/* ========= 示意台：CSS 3D 分层 CPU ========= */
+const world = document.getElementById('world')
+const stateTag = document.getElementById('stateTag')
+const famTag = document.getElementById('famTag')
+const layerInfo = document.getElementById('layerInfo')
+const fv = document.getElementById('fv')
+const flipBtn = document.getElementById('flip')
+
+const FAMS = {
+  epyc: {
+    tag: '<b>EPYC 9004</b> · SP5',
+    info: '<b>当前族层次</b>：IHS 顶盖（刻字）→ CCD×N 环绕中央 IOD → 封装基板（金三角 pin1）→ 电容排（instanced）→ 底面 LGA 触点阵（instanced 金焊盘）。',
+    // [类, z装配, z爆炸, 颜色/内容, 标注, 标注偏移]
+    layers: [
+      { cls:'ihs', z0:26, z1:120, label:'L1 · IHS 顶盖', lx:-165 },
+      { cls:'caps', z0:22, z1:88, label:'L4 · 电容排', lx:-158 },
+      { cls:'chips', z0:12, z1:56, label:'L2 · CCD×N + IOD', lx:-176 },
+      { cls:'sub', z0:2, z1:-48, label:'L3 · 封装基板', lx:-165 },
+      { cls:'pads', z0:0, z1:-52, label:'底面 · LGA 触点阵', lx:-176, hide:true },
+    ],
+  },
+  kh: {
+    tag: '<b>兆芯 KH-40000/32</b>',
+    info: '<b>当前族层次</b>：银色方形 IHS（刻字品牌字「兆芯」）→ 单片大 die → 绿色封装基板 → 底面触点阵。刻字只出品牌不出现型号（用户定调）。',
+    layers: [
+      { cls:'ihs-kh', z0:24, z1:110, label:'L1 · 银色 IHS', lx:-150 },
+      { cls:'die', z0:10, z1:52, label:'L2 · 单片大 die', lx:-146 },
+      { cls:'sub-kh', z0:2, z1:-44, label:'L3 · 绿基板', lx:-146 },
+      { cls:'pads', z0:0, z1:-48, label:'底面 · 触点阵', lx:-156, hide:true },
+    ],
+  },
+}
+
+function mkLayer(def){
+  const l = document.createElement('div')
+  l.className = 'layer'
+  const p = document.createElement('div')
+  p.className = 'plate ' + def.cls
+  p.style.width = p.style.height = def.cls.startsWith('ihs')||def.cls.includes('sub') ? '230px' : '215px'
+  l.appendChild(p)
+
+  if (def.cls==='ihs'){ // EPYC 掀盖：四边缺口 + 刻字
+    p.style.clipPath = 'polygon(0 18%,10% 18%,10% 0,90% 0,90% 18%,100% 18%,100% 82%,90% 82%,90% 100%,10% 100%,10% 82%,0 82%)'
+    p.style.background = 'linear-gradient(135deg,#eef2f7,#a9b2bf)'
+    p.style.borderRadius = '6px'
+    const t = document.createElement('div')
+    t.style.cssText='position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#5a6472;font-weight:700;font-size:15px;letter-spacing:1px'
+    t.innerHTML = '<span style="font-size:24px">AMD</span>'
+    p.appendChild(t)
+  }
+  if (def.cls==='ihs-kh'){
+    p.style.background = 'linear-gradient(135deg,#dfe5ec,#9aa4b2)'
+    const t = document.createElement('div')
+    t.style.cssText='position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#4d5766;font-weight:700'
+    t.innerHTML = '<span style="font-size:20px">兆芯</span>'
+    p.appendChild(t)
+  }
+  if (def.cls==='caps'){ // 电容排：沿口一圈小块
+    p.style.background='transparent'; p.style.boxShadow='none'
+    for(let i=0;i<28;i++){
+      const side = i%4, k = Math.floor(i/4)
+      const c = document.createElement('div')
+      c.style.cssText='position:absolute;width:9px;height:5px;background:#2a2f3a;border-radius:1px;box-shadow:0 0 0 1px rgba(255,255,255,.1) inset'
+      const t0 = 22 + k*46
+      if(side===0) c.style.cssText += `left:${t0}px;top:6px`
+      if(side===1) c.style.cssText += `right:6px;top:${t0}px;width:5px;height:9px`
+      if(side===2) c.style.cssText += `left:${t0}px;bottom:6px`
+      if(side===3) c.style.cssText += `left:6px;top:${t0}px;width:5px;height:9px`
+      p.appendChild(c)
+    }
+  }
+  if (def.cls==='chips'){ // CCD 环绕 IOD
+    p.style.background='transparent'; p.style.boxShadow='none'
+    const ring = [[36,36],[105,30],[174,36],[178,105],[174,174],[105,180],[36,174],[32,105],[36,105],[174,105],[105,36],[105,174]]
+    ring.forEach(([x,y],i)=>{
+      const c = document.createElement('div')
+      c.style.cssText=`position:absolute;left:${x}px;top:${y}px;width:26px;height:26px;border-radius:4px;
+        background:linear-gradient(135deg,#2b3350,#161c30);box-shadow:0 0 8px rgba(120,160,255,.35)`
+      p.appendChild(c)
+    })
+    const iod = document.createElement('div')
+    iod.style.cssText='position:absolute;left:76px;top:76px;width:62px;height:62px;border-radius:8px;background:linear-gradient(135deg,#5a2f7a,#31184a);box-shadow:0 0 14px rgba(190,110,255,.45)'
+    p.appendChild(iod)
+  }
+  if (def.cls==='die'){
+    p.style.background='transparent'; p.style.boxShadow='none'
+    const d = document.createElement('div')
+    d.style.cssText='position:absolute;left:58px;top:58px;width:114px;height:114px;border-radius:6px;background:linear-gradient(135deg,#274a30,#132417);box-shadow:0 0 10px rgba(110,220,140,.3)'
+    p.appendChild(d)
+  }
+  if (def.cls==='sub'||def.cls==='sub-kh'){
+    p.style.background = def.cls==='sub' ? '#2e5f66' : '#2c4a34'
+    const tri = document.createElement('div') // 金三角 pin1
+    tri.style.cssText='position:absolute;left:8px;bottom:8px;width:0;height:0;border-left:12px solid #d4a94f;border-top:12px solid transparent'
+    p.appendChild(tri)
+  }
+  if (def.cls==='pads'){ // 底面触点阵
+    p.style.background='repeating-radial-gradient(circle at 6px 6px,#d4a94f 0 1.6px,transparent 1.6px 8px),#274a52'
+    p.style.borderRadius='10px'
+  }
+  if (!def.hide){
+    const tag = document.createElement('div')
+    tag.className='tag'; tag.innerHTML = '<b>'+def.label+'</b>'
+    tag.style.left = def.lx+'px'; tag.style.top = '50%'
+    tag.style.transform = 'translate(0,-50%)'
+    l.appendChild(tag)
+  }
+  return l
+}
+
+let fam='epyc', frac=0, flipped=false
+function render(){
+  world.innerHTML=''
+  const F = FAMS[fam]
+  F.layers.forEach(def=>{
+    const l = mkLayer(def)
+    const z = def.z0 + (def.z1-def.z0)*frac
+    l.style.transform = `translateZ(${z}px)`
+    world.appendChild(l)
+  })
+  const view = document.querySelector('.view')
+  view.style.perspective='1100px'
+  world.style.transform = `rotateX(${flipped?-62:62}deg) rotateZ(38deg)`
+  famTag.innerHTML = F.tag
+  layerInfo.innerHTML = F.info
+  fv.textContent = Math.round(frac*100)+'%'
+  stateTag.innerHTML = frac<0.02 ? '<b>装配态</b> · 各层就位'
+    : flipped ? '<b>翻转</b> · 底面触点阵' : (frac>0.9 ? '<b>三层爆炸</b> · 轴向分离' : '<b>分解中</b> · '+Math.round(frac*100)+'%')
+}
+function setState(s){
+  const target = s==='asm'?0 : s==='lift'?0.42 : 1
+  document.getElementById('explode').value = target*100
+  frac = target; render()
+}
+document.getElementById('stateSeg').addEventListener('click', e=>{
+  if(e.target.dataset.s){ [...e.currentTarget.children].forEach(b=>b.classList.remove('on')); e.target.classList.add('on'); setState(e.target.dataset.s) }
+})
+document.getElementById('famSeg').addEventListener('click', e=>{
+  if(e.target.dataset.fam){ [...e.currentTarget.children].forEach(b=>b.classList.remove('on')); e.target.classList.add('on'); fam=e.target.dataset.fam; render() }
+})
+document.getElementById('explode').addEventListener('input', e=>{ frac=e.target.value/100; render() })
+flipBtn.addEventListener('click', ()=>{ flipped=!flipped; render() })
+render()
+</script>
+</body>
+</html>

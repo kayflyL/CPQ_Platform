@@ -1,5 +1,81 @@
 <template>
-  <template v-if="question">
+  <!-- 多问卡（2026-11-03 批量提问）：一张卡 ≤4 个并列问题，分页 Skip/Next，一次提交
+       （Claude Code 式；替代「一问一暂停」让用户反复盯窗）。 -->
+  <template v-if="multiQ && multiQ.length > 1">
+    <div v-if="!optionAnswered" class="am-q" :class="{ 'am-q--locked': !optionInteractive }">
+      <div class="am-q-head">
+        <span class="am-q-badge">?</span>
+        <span class="am-q-text">{{ mqCur?.text }}</span>
+        <span class="am-q-page">{{ mqPage + 1 }} / {{ multiQ.length }}</span>
+      </div>
+      <template v-for="(opt, i) in mqCur?.options || []" :key="`${mqCur?.slot}-${opt.value}`">
+        <div v-if="i === 0 && mqCur?.options.some(o2 => o2.group)" class="am-q-group-label"><span>{{ opt.group }}</span></div>
+        <div v-else-if="i > 0 && opt.group && opt.group !== (mqCur?.options[i-1]?.group || '')" class="am-q-group-label"><span>{{ opt.group }}</span></div>
+        <button
+          type="button"
+          class="am-q-opt"
+          :class="{ 'am-q-opt--picked': mqIsPicked(opt), 'am-q-opt--rec': opt.recommended, 'am-q-opt--escape': isEscape(opt) }"
+          :disabled="!optionInteractive"
+          @click="mqPick(opt)"
+        >
+          <span class="am-q-key">{{ mqIsPicked(opt) ? '✓' : i + 1 }}</span>
+          <span class="am-q-body">
+            <span class="am-q-label">{{ opt.label }}<span v-if="opt.recommended" class="am-q-rec">推荐</span><span
+              v-if="opt.rule_match"
+              class="am-q-rule am-q-rule--match"
+              title="规则硬命中与该选项一致"
+            >规则推荐</span><span
+              v-if="opt.rule_conflict"
+              class="am-q-rule am-q-rule--conflict"
+              :title="`平台归置规则硬命中 ${opt.rule_conflict.rule_value}，该选项与规则不符，请核对`"
+            >与规则不符</span></span>
+            <span v-if="opt.desc" class="am-q-desc">{{ opt.desc }}</span>
+          </span>
+        </button>
+      </template>
+      <div v-if="mqStepperVisible" class="am-q-stepper">
+        <span class="am-q-stepper-label">数量</span>
+        <button type="button" class="am-q-step-btn" :disabled="mqQty <= 1" @click="mqQty = Math.max(1, mqQty - 1)">−</button>
+        <input
+          class="am-q-step-input"
+          type="number"
+          min="1"
+          :max="mqQtyMax"
+          v-model.number="mqQty"
+          @blur="mqClampQty"
+        />
+        <button type="button" class="am-q-step-btn" :disabled="mqQty >= mqQtyMax" @click="mqQty = Math.min(mqQtyMax, mqQty + 1)">＋</button>
+        <span v-if="mqTotalText" class="am-q-stepper-total">{{ mqTotalText }}</span>
+      </div>
+      <div class="am-q-manual">
+        <input
+          v-model="mqText[mqCur?.slot || '']"
+          class="am-q-manual-input"
+          :disabled="!optionInteractive"
+          :placeholder="mqCur?.partsCard ? '手动输入型号（库外型号也可提交）' : '其他回答（可留空跳过）'"
+          @keyup.enter="mqNext"
+        />
+      </div>
+      <div class="am-q-foot am-q-foot--wizard">
+        <button type="button" class="am-q-wizard-btn" :disabled="!optionInteractive" @click="mqSkip">跳过</button>
+        <span class="am-q-wizard-spring" />
+        <button
+          v-if="mqPage < multiQ.length - 1"
+          type="button" class="am-q-submit" :disabled="!optionInteractive" @click="mqNext"
+        >下一题</button>
+        <button
+          v-else
+          type="button" class="am-q-submit" :disabled="!optionInteractive || !mqAnyAnswer" @click="mqSubmit"
+        >提交</button>
+      </div>
+    </div>
+    <div v-else class="am-q-done">
+      <span class="am-q-done-check">✓</span>
+      <span class="am-q-done-text">配置确认</span>
+      <span class="am-q-done-answer">{{ mqDoneText }}</span>
+    </div>
+  </template>
+  <template v-else-if="question">
     <div v-if="!optionAnswered" class="am-q" :class="{ 'am-q--locked': !optionInteractive }">
       <div class="am-q-head">
         <span class="am-q-badge">?</span>
@@ -94,7 +170,7 @@
   </template>
 </template>
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { assistantApi } from '@/api/assistant'
 
 const props = withDefaults(defineProps<{
@@ -174,6 +250,129 @@ const question = computed<null | { text: string; slot: string; options: QOption[
     return null
   }
 })
+
+// ── 多问卡向导状态（批量提问）：按题作答、可跳过、一次提交 ──
+interface MultiQ {
+  slot: string
+  text: string
+  options: QOption[]
+  /** 配件行题（parts_card=true）：当前页出现数量步进器，选项可带库内自选/手输 */
+  partsCard: boolean
+  row: string
+  unitLabel: string
+}
+const multiQ = computed<MultiQ[] | null>(() => {
+  if (props.message?.kind !== 'input_options' || !props.message?.data) return null
+  try {
+    const data = JSON.parse(props.message.data)
+    const arr = Array.isArray(data?.multi_questions) ? data.multi_questions : []
+    if (arr.length < 2) return null
+    const mapOpt = (o: any, slot: string): QOption => ({
+      label: String(o?.label ?? o?.value ?? ''),
+      value: String(o?.value ?? o?.label ?? ''),
+      desc: String(o?.desc || ''),
+      slot: String(o?.slot || slot),
+      group: String(o?.group || ''),
+      qty: Number.isFinite(o?.qty) && o.qty > 0 ? Number(o.qty) : undefined,
+      qty_max: Number.isFinite(o?.qty_max) && o.qty_max > 0 ? Number(o.qty_max) : undefined,
+      unit_gb: Number.isFinite(o?.unit_gb) && o.unit_gb > 0 ? Number(o.unit_gb) : undefined,
+      recommended: !!o?.recommended,
+      rule_match: !!o?.rule_match,
+      rule_conflict: o?.rule_conflict ? { rule_value: String(o.rule_conflict.rule_value || '') } : undefined,
+    })
+    const out = arr.map((q: any) => ({
+      slot: String(q?.slot || 'general'),
+      text: String(q?.question || ''),
+      options: (Array.isArray(q?.options) ? q.options : []).map((o: any) => mapOpt(o, String(q?.slot || 'general'))).filter((o: QOption) => o.label),
+      partsCard: !!q?.parts_card,
+      row: String(q?.row || ''),
+      unitLabel: String(q?.unit_label || ''),
+    })).filter((q: MultiQ) => q.text || q.options.length)
+    return out.length > 1 ? out : null
+  } catch {
+    return null
+  }
+})
+
+const mqPage = ref(0)
+const mqAnswers = ref<Record<string, { value: string; label: string; qty?: number } | undefined>>({})
+const mqText: Record<string, string> = reactive({})
+// 配件行题的数量步进（按题记值；普通题无步进器）
+const mqQty = ref(1)
+const mqQtyFor: Record<string, number> = reactive({})
+
+const mqCur = computed(() => multiQ.value?.[mqPage.value] || null)
+const mqAnyAnswer = computed(() => {
+  const cur = mqCur.value
+  if (!cur) return false
+  return !!mqAnswers.value[cur.slot] || !!(mqText[cur.slot] || '').trim()
+})
+const mqDoneText = computed(() => {
+  const n = (multiQ.value || []).length
+  const answered = Object.keys(mqAnswers.value).filter((k) => mqAnswers.value[k]).length
+  return `已提交 ${answered}/${n} 项`
+})
+
+const mqPickedOpt = computed<QOption | null>(() => {
+  const cur = mqCur.value
+  if (!cur) return null
+  const a = mqAnswers.value[cur.slot]
+  return a ? (cur.options.find((o) => o.value === a.value) || null) : null
+})
+const mqQtyMax = computed(() =>
+  Math.max(1, mqPickedOpt.value?.qty_max || mqCur.value?.options.find((o) => o.qty_max)?.qty_max || 1))
+const mqStepperVisible = computed(() =>
+  optionInteractiveOn() && !!mqCur.value?.partsCard && !!mqPickedOpt.value?.qty_max && mqQtyMax.value > 0)
+const mqTotalText = computed(() => {
+  const unit = mqPickedOpt.value?.unit_gb
+  if (!unit) return ''
+  return `共 ${fmtGB((mqQty.value || 0) * unit)}${mqCur.value?.unitLabel ? ` ${mqCur.value.unitLabel}` : ''}`
+})
+
+function mqClampQty() {
+  if (!Number.isFinite(mqQty.value) || mqQty.value < 1) mqQty.value = 1
+  mqQty.value = Math.min(mqQtyMax.value, Math.max(1, Math.round(mqQty.value)))
+}
+
+function mqIsPicked(o: QOption): boolean {
+  const cur = mqCur.value
+  const a = cur ? mqAnswers.value[cur.slot] : null
+  return !!a && a.value === o.value
+}
+
+function mqPick(o: QOption) {
+  const cur = mqCur.value
+  if (!cur || !props.optionInteractive) return
+  mqAnswers.value = { ...mqAnswers.value, [cur.slot]: { value: o.value, label: o.label } }
+  if (cur.partsCard && o.qty_max) {
+    mqQty.value = o.qty || cur.options.find((x) => x.qty)?.qty || 1
+    mqQtyFor[cur.slot] = mqQty.value
+  }
+}
+
+function mqNext() {
+  if (multiQ.value && mqPage.value < multiQ.value.length - 1) mqPage.value++
+  else mqSubmit()
+}
+
+function mqSkip() {
+  if (multiQ.value && mqPage.value < multiQ.value.length - 1) mqPage.value++
+  else mqSubmit()
+}
+
+function mqSubmit() {
+  const sels = (multiQ.value || []).map((q) => {
+    const text = (mqText[q.slot] || '').trim()
+    if (text) return { slot: q.slot, value: text, label: text }
+    const pick = mqAnswers.value[q.slot]
+    const qty = q.partsCard && pick ? (mqQtyFor[q.slot] || mqQty.value) : undefined
+    return pick
+      ? { slot: q.slot, value: pick.value, label: pick.label, ...(qty && qty > 1 ? { qty } : {}) }
+      : null
+  }).filter((s): s is { slot: string; value: string; label: string; qty?: number } => !!s)
+  if (!sels.length) return
+  emit('submit-selections', sels)
+}
 
 const picked = ref<QOption | null>(null)
 const qtyVal = ref(0)
@@ -572,6 +771,25 @@ function onPickSelect(slot: string, value: any) {
   justify-content: space-between;
   gap: 10px;
 }
+/* 多问卡向导：页码指示 + 跳过/下一题/提交 */
+.am-q-page {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--cpq-text-muted, #8c8c8c);
+  white-space: nowrap;
+}
+.am-q-foot--wizard { justify-content: flex-start; }
+.am-q-wizard-spring { flex: 1; }
+.am-q-wizard-btn {
+  border: none;
+  background: transparent;
+  color: var(--cpq-text-muted, #8c8c8c);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: var(--cpq-radius-sm, 6px);
+  cursor: pointer;
+}
+.am-q-wizard-btn:hover { color: var(--cpq-text-primary, #e6e6e6); }
 /* 已答卡：一行静态记录（问题 + 已选答案），不占聊天流 */
 .am-q-done {
   display: flex;

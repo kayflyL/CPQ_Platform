@@ -192,6 +192,34 @@ def ensure_base_config_constraint_columns():
             c.execute(text("ALTER TABLE l6.base_configs ADD COLUMN gpu_default JSONB"))
 
 
+def ensure_server_3d_model_kind():
+    """部件库扩展(幂等迁移,boot 自愈):l6.server_3d_models 加 kind/part_type 列并种 CPU 部件登记。
+    对应 migrations/20261103_server_3d_model_kind.sql;部件预览由前端 server3d/parts/* 工厂渲染,
+    管理面只登记/改名,无网页新建(沿用「模型由代码/种子产出」定调)。"""
+    from app.models.base import l6_engine
+    from sqlalchemy import text
+    with l6_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='l6' AND table_name='server_3d_models'"
+        ))}
+    if "kind" not in cols or "part_type" not in cols:
+        with l6_engine.begin() as c:
+            c.execute(text("ALTER TABLE l6.server_3d_models ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'machine'"))
+            c.execute(text("ALTER TABLE l6.server_3d_models ADD COLUMN IF NOT EXISTS part_type TEXT"))
+    with l6_engine.begin() as c:
+        c.execute(text(
+            "INSERT INTO l6.server_3d_models (name, kind, part_type, layout_config, created_at, updated_at) "
+            "SELECT 'CPU 部件模型', 'part', 'cpu', NULL, "
+            "to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), to_char(now(), 'YYYY-MM-DD HH24:MI:SS') "
+            "WHERE NOT EXISTS (SELECT 1 FROM l6.server_3d_models WHERE kind='part' AND part_type='cpu')"))
+        c.execute(text(
+            "INSERT INTO l6.server_3d_models (name, kind, part_type, layout_config, created_at, updated_at) "
+            "SELECT '风扇墙模块', 'part', 'fan', NULL, "
+            "to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), to_char(now(), 'YYYY-MM-DD HH24:MI:SS') "
+            "WHERE NOT EXISTS (SELECT 1 FROM l6.server_3d_models WHERE kind='part' AND part_type='fan')"))
+
+
 def ensure_server_model_published_column():
     """机型「是否上架」开关（幂等 DDL，boot 时自愈）：
     server_models 加 is_published BOOLEAN NOT NULL DEFAULT TRUE（存量机型全部视为已上架）。
@@ -1572,6 +1600,11 @@ def init_rules_db():
         print("✅ Pricing approval outbound fields ensured")
     except Exception as e:
         print(f"⚠️ Pricing approval outbound fields migrate failed: {e}")
+    try:
+        ensure_server_3d_model_kind()
+        print("✅ Server3D model kind/part_type columns ensured")
+    except Exception as e:
+        print(f"⚠️ Server3D model kind migrate failed: {e}")
     # 反向回填已改为显式迁移脚本，不再随启动自动执行。
     # 见 backend/scripts/migrate_legacy_flow_artifacts.py。
     try:

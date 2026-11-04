@@ -4,6 +4,10 @@ import axios from 'axios'
 export interface Server3dModel {
   id: number
   name: string
+  /** 模型类别:machine=整机(默认,可绑机型);part=部件库(独立预览) */
+  kind?: 'machine' | 'part' | null
+  /** kind='part' 时的部件类型:cpu|gpu|...(对应 server3d/parts/* 工厂) */
+  part_type?: string | null
   /** 绑定的机型id列表(多对多):绑定即上架,清空即隐藏 */
   model_ids: number[]
   /** 前端不透明JSON字符串(布局/分区标注覆盖),后端整存整取 */

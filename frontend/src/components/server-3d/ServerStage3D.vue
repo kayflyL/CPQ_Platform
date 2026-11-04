@@ -12,6 +12,10 @@ const props = withDefaults(defineProps<{
   height?: string
   /** 分区标注覆盖(layout_config.labels):key=drives/ears/fans/cpu/gpus/psu/pcie,三行均可覆盖 */
   labels?: Record<string, { name?: string; spec?: string; desc?: string }>
+  /** 部件模型:'cpu'/'fan' 时舞台上对应部件替代整机(部件库模型页用) */
+  partType?: 'cpu' | 'fan' | null
+  /** 部件参数(layout_config 解析):如 { family:'kh' } 切兆芯形态族 */
+  partSpec?: { family?: 'sp5' | 'kh' } | null
 }>(), { counts: () => ({}), theme: 'auto', height: '380px' })
 
 const host = ref<HTMLDivElement | null>(null)
@@ -26,7 +30,7 @@ function currentTheme(): 'light' | 'dark' {
 
 onMounted(() => {
   if (!host.value) return
-  stage = createServerStage(host.value)
+  stage = createServerStage(host.value, undefined, { partType: props.partType ?? undefined, partSpec: props.partSpec ?? undefined })
   stage.applyTheme(currentTheme())
   stage.setOnHover((k) => {
     if (!k || !stage) { tip.value = null; return }
@@ -49,6 +53,15 @@ onMounted(() => {
 
 watch(() => props.counts, (c) => stage?.machine.setCounts(c || {}), { deep: true })
 watch(() => props.theme, () => stage?.applyTheme(currentTheme()))
+watch(() => [props.partType, props.partSpec], () => {
+  // 部件类型/形态族变化=重建舞台(工厂在创建时定型)
+  stage?.dispose()
+  stage = null
+  if (host.value) {
+    stage = createServerStage(host.value, undefined, { partType: props.partType ?? undefined, partSpec: props.partSpec ?? undefined })
+    stage.applyTheme(currentTheme())
+  }
+})
 
 onBeforeUnmount(() => {
   mo?.disconnect()

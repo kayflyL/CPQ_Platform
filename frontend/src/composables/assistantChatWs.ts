@@ -67,17 +67,107 @@ export interface AssistantChatWsState {
   toolTraces: ToolTrace[]
 }
 
-/** 新消息发送时收起已完成的任务胶囊（running/paused 保留——任务还在进行） */
-export function resetTaskUI(state: AssistantChatWsState) {
-  cancelTaskDismiss(state)
-  if (state.taskPhase !== 'done') return
-  state.nodeTraces = []
-  state.taskPhase = ''
-  state.taskPause = null
-  state.taskTitle = ''
+// ── 任务胶囊生命周期：单一写点 ──
+// taskPhase/taskPause/taskTitle/nodeTraces 曾有四个写入方（pipeline 事件分支、adoptTurnEnd、
+// applyTaskState、resetTaskUI）各自为政——同一份生命周期多方改写，补丁式演进收不敛。
+// 现在全部动作收进 transitionTask 一个函数：调用方只翻译动作，任务字段只在 reducer 内落笔。
+export type TaskAction =
+  | { type: 'start'; steps: Array<{ key?: string; step?: string; label?: string }>; title?: string }
+  | { type: 'step'; step: string; label?: string; status: 'running' | 'done' }
+  | { type: 'node_trace'; trace: NodeTrace }
+  | { type: 'paused'; pause: unknown }
+  | { type: 'done'; clearPause?: boolean }
+  | { type: 'cancelled' }
+  | { type: 'task_state'; ts: { title?: string; steps?: Array<{ key?: string; step?: string; label?: string }>; done?: string[]; statuses?: Record<string, string>; phase?: string; pause?: PauseFacts | Record<string, any> | null } | null | undefined }
+  | { type: 'turn_end' }
+  | { type: 'reset' }
+
+export function transitionTask(state: AssistantChatWsState, action: TaskAction): void {
+  switch (action.type) {
+    case 'start':
+      cancelTaskDismiss(state)
+      // 由后端算好的完整步骤骨架预置计划条，避免「只显示已跑节点」的闪烁/截断。
+      state.nodeTraces = (Array.isArray(action.steps) ? action.steps : []).map((s) => ({
+        step: String(s.key || s.step || ''),
+        label: String(s.label || s.key || s.step || ''),
+        status: 'pending',
+      }))
+      state.taskTitle = String(action.title || '配置任务')
+      state.taskPhase = 'running'
+      state.taskPause = null
+      return
+    case 'step': {
+      const idx = state.nodeTraces.findIndex((t) => t.step === String(action.step))
+      if (idx >= 0) state.nodeTraces.splice(idx, 1, { ...state.nodeTraces[idx], status: action.status, label: String(action.label || state.nodeTraces[idx].label || action.step) })
+      else state.nodeTraces.push({ step: String(action.step), label: String(action.label || action.step), status: action.status })
+      return
+    }
+    case 'node_trace': {
+      const idx = state.nodeTraces.findIndex((t) => t.step === String(action.trace.step))
+      if (idx >= 0) state.nodeTraces.splice(idx, 1, action.trace)
+      else state.nodeTraces.push(action.trace)
+      return
+    }
+    // 问问题/弹卡（pipeline_waiting）与引擎暂停（pipeline_paused）对任务字段的写法一致：
+    // phase='paused'——带 pause 事实＝在等人的事实，胶囊显示「中断在 xx · 等待你」。
+    case 'paused':
+      state.taskPhase = 'paused'
+      state.taskPause = pauseFactsOf(action.pause)
+      return
+    case 'done':
+      state.taskPhase = 'done'
+      if (action.clearPause) state.taskPause = null
+      scheduleTaskDismiss(state)
+      return
+    case 'cancelled':
+      cancelTaskDismiss(state)
+      state.nodeTraces = []
+      state.taskPhase = ''
+      state.taskTitle = ''
+      return
+    case 'task_state': {
+      // 服务端事实重建（2026-09-13）：pipeline 事件只发一次不重放，页面刷新/WS 重连空窗/
+      // 中途切会话后骨架已丢——按 messages 端点随 turn_active/engine_pause 下发的 task_state
+      // 重建。ts 为 null 或无步骤时不动现有状态。
+      const steps = Array.isArray(action.ts?.steps) ? action.ts!.steps : []
+      if (!steps.length) return
+      const doneSet = new Set((action.ts!.done || []).map((k) => String(k)))
+      const statuses = action.ts!.statuses && typeof action.ts!.statuses === 'object' ? action.ts!.statuses : null
+      state.nodeTraces = steps.map((s) => {
+        const key = String(s.key || s.step || '')
+        // statuses=后端节点状态权威载荷（含 skipped）；缺席时退回旧 done/pending 二值口径
+        const status = statuses ? String(statuses[key] || 'pending') : (doneSet.has(key) ? 'done' : 'pending')
+        return {
+          step: key,
+          label: String(s.label || s.key || s.step || ''),
+          status: status as NodeTrace['status'],
+        }
+      })
+      state.taskTitle = String(action.ts!.title || '配置任务')
+      state.taskPause = (action.ts!.pause && typeof action.ts!.pause === 'object' ? action.ts!.pause : null) as PauseFacts | null
+      state.taskPhase = action.ts!.phase === 'paused' ? 'paused' : 'running'
+      return
+    }
+    case 'turn_end':
+      // 看门狗 resync 证实回合结束：仅 running 态收口为 done（paused/done 不动）。
+      if (state.taskPhase === 'running') {
+        state.taskPhase = 'done'
+        scheduleTaskDismiss(state)
+      }
+      return
+    case 'reset':
+      // 新消息发送时收起已完成的任务胶囊（running/paused 保留——任务还在进行）。
+      cancelTaskDismiss(state)
+      if (state.taskPhase !== 'done') return
+      state.nodeTraces = []
+      state.taskPhase = ''
+      state.taskPause = null
+      state.taskTitle = ''
+      return
+  }
 }
 
-// done 态自动退场：pipeline_done 只把 phase 置 done、从不清 traces，「已完成 3/3 ✓」
+// done 态自动退场：终态只把 phase 置 done、从不清 traces，「已完成 3/3 ✓」
 // 的胶囊会一直挂到用户下次说话（没有退场逻辑）。done 后延时自动收起；期间用户发消息
 // 仍走 resetTaskUI 立即收起，新回合 pipeline_start 取消未触发的退场。
 const TASK_DISMISS_MS = 12_000
@@ -87,7 +177,7 @@ function scheduleTaskDismiss(state: AssistantChatWsState) {
   cancelTaskDismiss(state)
   doneTimers.set(state, setTimeout(() => {
     doneTimers.delete(state)
-    if (state.taskPhase === 'done') resetTaskUI(state)
+    if (state.taskPhase === 'done') transitionTask(state, { type: 'reset' })
   }, TASK_DISMISS_MS))
 }
 
@@ -95,6 +185,11 @@ function cancelTaskDismiss(state: AssistantChatWsState) {
   const old = doneTimers.get(state)
   if (old) clearTimeout(old)
   doneTimers.delete(state)
+}
+
+/** 新消息发送时收起已完成的任务胶囊。 */
+export function resetTaskUI(state: AssistantChatWsState) {
+  transitionTask(state, { type: 'reset' })
 }
 
 // ── 思考流合帧（2026-09-05）：reasoning token 逐个到达，直写状态 = 每 token 一次
@@ -149,10 +244,7 @@ export function adoptTurnEnd(state: AssistantChatWsState) {
   state.streamingText = ''
   state.queuedCount = 0
   state.toolTraces = []
-  if (state.taskPhase === 'running') {
-    state.taskPhase = 'done'
-    scheduleTaskDismiss(state)
-  }
+  transitionTask(state, { type: 'turn_end' })
 }
 
 /**
@@ -162,23 +254,7 @@ export function adoptTurnEnd(state: AssistantChatWsState) {
  * node_trace 事件同形状，展示层零加工。ts 为 null 时不动现有状态。
  */
 export function applyTaskState(state: AssistantChatWsState, ts: { title?: string; steps?: Array<{ key?: string; step?: string; label?: string }>; done?: string[]; statuses?: Record<string, string>; phase?: string; pause?: PauseFacts | Record<string, any> | null } | null | undefined) {
-  const steps = Array.isArray(ts?.steps) ? ts!.steps : []
-  if (!steps.length) return
-  const doneSet = new Set((ts!.done || []).map((k) => String(k)))
-  const statuses = ts!.statuses && typeof ts!.statuses === 'object' ? ts!.statuses : null
-  state.nodeTraces = steps.map((s) => {
-    const key = String(s.key || s.step || '')
-    // statuses=后端节点状态权威载荷（含 skipped）；缺席时退回旧 done/pending 二值口径
-    const status = statuses ? String(statuses[key] || 'pending') : (doneSet.has(key) ? 'done' : 'pending')
-    return {
-      step: key,
-      label: String(s.label || s.key || s.step || ''),
-      status: status as NodeTrace['status'],
-    }
-  })
-  state.taskTitle = String(ts!.title || '配置任务')
-  state.taskPause = (ts!.pause && typeof ts!.pause === 'object' ? ts!.pause : null) as PauseFacts | null
-  state.taskPhase = ts!.phase === 'paused' ? 'paused' : 'running'
+  transitionTask(state, { type: 'task_state', ts })
 }
 
 /**
@@ -225,51 +301,39 @@ export function handleAssistantChatWsEvent(
 ): boolean {
   lastEventAt.set(state, Date.now())
   switch (data?.type) {
-    case 'pipeline_start': {
-      // 由后端算好的完整步骤骨架预置计划条，避免「只显示已跑节点」的闪烁/截断。
-      cancelTaskDismiss(state)
-      state.nodeTraces = (Array.isArray(data.steps) ? data.steps : []).map((s: any) => ({
-        step: String(s.key || s.step || ''),
-        label: String(s.label || s.key || s.step || ''),
-        status: 'pending',
-      }))
+    case 'pipeline_start':
+      transitionTask(state, {
+        type: 'start',
+        steps: Array.isArray(data.steps) ? data.steps : [],
+        title: String(data.title || '配置任务'),
+      })
       clearThinking(state)
       state.running = true
-      state.taskTitle = String(data.title || '配置任务')
-      state.taskPhase = 'running'
-      state.taskPause = null
       return true
-    }
     case 'stopping':
       state.statusText = data.message || '正在暂停当前任务…'
       return true
-    case 'step_start': {
-      const idx = state.nodeTraces.findIndex((t) => t.step === String(data.step))
-      if (idx >= 0) state.nodeTraces.splice(idx, 1, { ...state.nodeTraces[idx], status: 'running', label: String(data.label || state.nodeTraces[idx].label || data.step) })
-      else state.nodeTraces.push({ step: String(data.step), label: String(data.label || data.step), status: 'running' })
+    case 'step_start':
+      transitionTask(state, { type: 'step', step: String(data.step), label: data.label ? String(data.label) : undefined, status: 'running' })
       return true
-    }
-    case 'step_done': {
-      const idx = state.nodeTraces.findIndex((t) => t.step === String(data.step))
-      if (idx >= 0) state.nodeTraces.splice(idx, 1, { ...state.nodeTraces[idx], status: 'done', label: String(data.label || state.nodeTraces[idx].label || data.step) })
-      else state.nodeTraces.push({ step: String(data.step), label: String(data.label || data.step), status: 'done' })
+    case 'step_done':
+      transitionTask(state, { type: 'step', step: String(data.step), label: data.label ? String(data.label) : undefined, status: 'done' })
       return true
-    }
     case 'node_trace':
       if (data.step) {
-        const idx = state.nodeTraces.findIndex((t) => t.step === String(data.step))
-        const next: NodeTrace = {
-          step: String(data.step),
-          label: String(data.label || data.step || ''),
-          status: String(data.status || 'done'),
-          input: data.input,
-          output: data.output,
-          summary: data.summary || '',
-          artifact: data.artifact || null,
-          duration_ms: typeof data.duration_ms === 'number' ? data.duration_ms : undefined,
-        }
-        if (idx >= 0) state.nodeTraces.splice(idx, 1, next)
-        else state.nodeTraces.push(next)
+        transitionTask(state, {
+          type: 'node_trace',
+          trace: {
+            step: String(data.step),
+            label: String(data.label || data.step || ''),
+            status: String(data.status || 'done'),
+            input: data.input,
+            output: data.output,
+            summary: data.summary || '',
+            artifact: data.artifact || null,
+            duration_ms: typeof data.duration_ms === 'number' ? data.duration_ms : undefined,
+          },
+        })
       }
       return true
     case 'step_progress': {
@@ -295,8 +359,7 @@ export function handleAssistantChatWsEvent(
       state.statusText = ''
       state.running = false
       state.streamingText = ''
-      state.taskPhase = 'done'
-      scheduleTaskDismiss(state)
+      transitionTask(state, { type: 'done' })
       // 方案卡消息必须以完整消息对象入列（kind=business_artifact + data JSON 串）：
       // 裸字符串没有 role/kind/content，落进消息组件的直播兜底分支=永久三点泡、
       // 卡片不渲染（2026-09-06 四犯定案）。后端现已随事件带落库对象；此处对旧格式
@@ -320,44 +383,37 @@ export function handleAssistantChatWsEvent(
       state.statusText = ''
       state.running = false
       state.streamingText = ''
-      state.taskPhase = 'done'
-      scheduleTaskDismiss(state)
+      transitionTask(state, { type: 'done' })
       return true
     case 'pipeline_done':
       state.waiting = false
       state.statusText = ''
       state.running = false
       state.streamingText = ''
-      state.taskPhase = 'done'
-      state.taskPause = null
-      scheduleTaskDismiss(state)
+      transitionTask(state, { type: 'done', clearPause: true })
       return true
     case 'pipeline_paused':
       state.waiting = false
       state.statusText = ''
       state.running = false
       state.streamingText = ''
-      state.taskPhase = 'paused'
-      state.taskPause = pauseFactsOf(data.pause)
+      transitionTask(state, { type: 'paused', pause: data.pause })
       return true
     case 'pipeline_waiting':
       // 问问题/弹卡时任务仍视为进行中（Claude Code 式：有问才停，但任务未结束）。
       // 2026-10-22 改：phase='paused'——带 pause 事实＝在等人的事实，胶囊显示
       // 「中断在 xx · 等待你」，不再无限计时假跑（用户实测"卡在第 6 步"的实底）。
       state.waiting = false
-      state.taskPhase = 'paused'
-      state.taskPause = pauseFactsOf(data.pause)
       state.running = false
       state.streamingText = ''
+      transitionTask(state, { type: 'paused', pause: data.pause })
       return true
     case 'analysis_cancelled':
-      state.nodeTraces = []
+      transitionTask(state, { type: 'cancelled' })
       state.waiting = false
       state.statusText = ''
       state.running = false
       state.queuedCount = 0
-      state.taskPhase = ''
-      state.taskTitle = ''
       return true
     case 'chat_status':
       state.statusText = data.text || ''

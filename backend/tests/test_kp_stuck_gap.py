@@ -120,8 +120,42 @@ def test_first_stuck_gap_finds_the_socket_through_the_registry():
     """编排壳不认识节点名：靠注册表把所有插座的 stuck_gap 问一遍。"""
     from ai_office.skill_node_plugins import first_stuck_gap
     gap = first_stuck_gap(_engine())
-    assert gap and gap["slot"] == "kp_row" and gap["options"]
+    assert gap and gap["slot"].startswith("kp_row:") and gap["options"]
     assert first_stuck_gap({"kp_parts": []}) is None
+
+
+# ── 合批多行（2026-11-04：同回合 ≥2 个未落地行 → 一次交客户拍板）──────────────
+
+
+def test_stuck_gaps_emits_one_gap_per_unmatched_row():
+    """两行未落地 → stuck_gaps 产 2 张独立行缺口：每行自己的 slot/row/pick_meta。"""
+    from ai_office.skill_node_plugins import plugin_for
+    eng = _engine()
+    eng["kp_parts"].append({"category": "GPU", "request_spec": "NVIDIA B200 192G 一张",
+                            "unmatched": True, "qty": 1,
+                            "origin": "reg:GPU", "row_id": "kp-gpu0002", "rev": "r1"})
+    gaps = plugin_for("kp_reason").stuck_gaps(eng)
+    assert len(gaps) == 2
+    slots = {g["slot"] for g in gaps}
+    assert len(slots) == 2 and all(s.startswith("kp_row:") for s in slots), slots
+    assert [g["row"] for g in gaps] == [ROW_ID, "kp-gpu0002"]
+    # 每行的豁免信号各绑各行：点击 (slot,value) 匹配不串行
+    keep = [g for g in gaps if any(o.get("signal") == {"kp_waived": ["kp-gpu0002"]} for o in g["options"])]
+    assert len(keep) == 1 and keep[0]["row"] == "kp-gpu0002"
+
+
+def test_stuck_gaps_caps_at_four_and_skips_unbuildable_rows():
+    """行缺类目（产不出卡）跳过不占位；总量封顶 4。"""
+    from ai_office.skill_node_plugins import plugin_for
+    eng = _engine()
+    eng["kp_parts"].append({"category": "", "request_spec": "无类目行", "unmatched": True, "qty": 1})
+    for i in range(5):
+        eng["kp_parts"].append({"category": "GPU", "request_spec": f"行{i}",
+                                "unmatched": True, "qty": 1,
+                                "origin": "reg:GPU", "row_id": f"kp-gpu{i:04d}", "rev": "r1"})
+    gaps = plugin_for("kp_reason").stuck_gaps(eng)
+    assert len(gaps) == 4
+    assert all(g["row"] != "" for g in gaps)
 
 
 def test_ask_option_signal_never_writes_a_field_that_is_not_on_the_form():

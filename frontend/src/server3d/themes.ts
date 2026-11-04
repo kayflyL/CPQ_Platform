@@ -22,6 +22,8 @@ export interface StageTheme {
   fill: number
   rimC: number
   rimV: number
+  /** 环境反射强度(镀镍等金属件依赖;哑光件各自低 envMapIntensity) */
+  env: number
   bloom: number
   bloomThr: number
   exp: number
@@ -34,7 +36,9 @@ export const STAGE_THEMES: Record<'dark' | 'light', StageTheme> = {
     board: '#1f8a4c', boardDk: '#14532d',
     glass: '#9fd4ff', glassBase: 0.1,
     amb: 0.65, key: 2.0, fill: 14, rimC: 7, rimV: 5,
-    bloom: 0.85, bloomThr: 0.72, exp: 1.15,
+    env: 0.45,
+    // bloomThr 0.85:金属镜面顶视反光不再炸白,霓虹(过曝色)照常辉光(2026-11-03 CPU 部件页教训)
+    bloom: 0.85, bloomThr: 0.85, exp: 1.15,
   },
   light: {
     bg: '#e6edf7', floor: '#d7e1ee', grid1: 0xa8bcd8, grid2: 0xc3d2e6,
@@ -42,6 +46,7 @@ export const STAGE_THEMES: Record<'dark' | 'light', StageTheme> = {
     board: '#24a45c', boardDk: '#178a48',
     glass: '#4a7fb5', glassBase: 0.07,
     amb: 0.95, key: 1.7, fill: 18, rimC: 2.5, rimV: 2,
+    env: 0.85,
     bloom: 0.32, bloomThr: 0.9, exp: 1.0,
   },
 }

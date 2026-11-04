@@ -3,7 +3,7 @@ defineOptions({ name: 'RequirementRules' })
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Modal, message } from 'ant-design-vue'
-import { DeleteOutlined, EditOutlined, PoweroffOutlined } from '@ant-design/icons-vue'
+import RuleCard from '@/components/flow-canvas/RuleCard.vue'
 import { compatibilityRulesApi, type CompatibilityRule, type RuleStatus } from '@/api/compatibilityRules'
 import { useSeriesStore } from '@/stores/series'
 
@@ -55,18 +55,11 @@ const platCountLabel = computed(() => countLabel(platRules.value))
 const sceneCountLabel = computed(() => countLabel(sceneRules.value))
 
 
-// ===== 状态展示 =====
-const STATUS_META: Record<string, { label: string; cls: string }> = {
-  active: { label: '生效中', cls: 'on' },
-  draft: { label: '草稿', cls: 'warn' },
-  testing: { label: '测试中', cls: 'info' },
-  archived: { label: '停用', cls: 'off' },
-}
+// ===== 状态：UI 层收敛为 生效中/草稿/测试中（停用概念删除，不要的规则直接删） =====
 const STATUS_OPTS = [
   { label: '生效中', value: 'active' },
   { label: '草稿', value: 'draft' },
   { label: '测试中', value: 'testing' },
-  { label: '停用', value: 'archived' },
 ]
 
 // ===== 解析（规则 → 表单）=====
@@ -117,7 +110,8 @@ function openPlat(r?: CompatibilityRule) {
   isNew.value = !r
   platForm.id = r?.id ?? null
   platForm.name = r?.name || ''
-  platForm.status = (r?.status || 'active') as RuleStatus
+  // 存量停用规则编辑时回落为生效中（UI 已无「停用」态），保存即复活
+  platForm.status = ((r?.status && r.status !== 'archived' ? r.status : 'active') || 'active') as RuleStatus
   platForm.signals = signalsOf(r || ({} as CompatibilityRule))
   platForm.platform = platformOf(r || ({} as CompatibilityRule))
   platForm.evidence = evidenceOf(r || ({} as CompatibilityRule))
@@ -128,7 +122,8 @@ function openScene(r?: CompatibilityRule) {
   isNew.value = !r
   sceneForm.id = r?.id ?? null
   sceneForm.name = r?.name || ''
-  sceneForm.status = (r?.status || 'active') as RuleStatus
+  // 存量停用规则编辑时回落为生效中（UI 已无「停用」态），保存即复活
+  sceneForm.status = ((r?.status && r.status !== 'archived' ? r.status : 'active') || 'active') as RuleStatus
   sceneForm.signals = signalsOf(r || ({} as CompatibilityRule))
   sceneForm.items = itemsOf(r || ({} as CompatibilityRule))
   sceneForm.evidence = evidenceOf(r || ({} as CompatibilityRule))
@@ -196,11 +191,16 @@ async function removeRule(r: CompatibilityRule) {
   })
 }
 
-async function toggleStatus(r: CompatibilityRule) {
-  const next: RuleStatus = r.status === 'active' ? 'archived' : 'active'
-  await compatibilityRulesApi.setStatus(r.id, next)
-  message.success(next === 'active' ? '已启用' : '已停用')
-  await load()
+// 卡片 meta 行：平台卡 / 场景卡（命中次数有值才带）
+function platMeta(r: CompatibilityRule): string {
+  const parts = [`平台 ${platformOf(r) || '？'}`, `信号词 ${signalsOf(r).length}`]
+  if (r.hit_count) parts.push(`命中 ${r.hit_count} 次`)
+  return parts.join(' · ')
+}
+function sceneMeta(r: CompatibilityRule): string {
+  const parts = [`${itemsOf(r).length} 条要点`, itemsOf(r).map(i => i.category).join('/')]
+  if (r.hit_count) parts.push(`命中 ${r.hit_count} 次`)
+  return parts.join(' · ')
 }
 
 // ===== 弹窗标题 =====
@@ -230,13 +230,8 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 
     <div class="rrw-body">
       <div class="rr">
-        <div class="rr-head">
-          <div>
-            <h2 class="rr-title">需求分析规则</h2>
-            <p class="rr-sub">服务器配置基线知识：让 AI 出配置时<em>该配什么、配多少</em>有据可依。基线只做推荐依据，<em>客户确认后才落表</em>。</p>
-          </div>
-        </div>
-        <div class="rr-scope">与其它页面的分工：这里管「配得对不对」；选型配置管「配了行不行」（条件硬规则）；BOM 案例库给「成品长什么样」。三者互不重复。</div>
+        <!-- 页头只留一行备注：页面名在顶栏面包屑已有，不再重复 -->
+        <p class="rr-sub">服务器配置基线知识：让 AI 出配置时<em>该配什么、配多少</em>有据可依。基线只做推荐依据，<em>客户确认后才落表</em>。</p>
         <div v-if="loadError" class="rr-err">规则加载失败，请检查后端服务后
           <a @click="load">重试</a>
         </div>
@@ -250,34 +245,14 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
       </div>
       <a-spin :spinning="loading">
       <div class="rr-grid">
-        <div v-for="r in filteredPlat" :key="r.id" class="rr-tile" :class="{ archived: r.status !== 'active' }" @click="openPlat(r)">
-          <div class="rr-t-top">
-            <span class="rr-dot" :class="STATUS_META[r.status]?.cls" />
-            <span class="rr-t-name">{{ r.name }}</span>
-            <span v-if="r.status !== 'active'" class="rr-t-state">{{ STATUS_META[r.status]?.label }}</span>
-          </div>
-          <div class="rr-t-meta">
-            <b>平台 {{ platformOf(r) || '？' }}</b> · 信号词 {{ signalsOf(r).length }}
-            <template v-if="r.hit_count"> · 命中 {{ r.hit_count }} 次</template>
-          </div>
-          <div class="rr-t-evi">{{ evidenceOf(r) }}</div>
-          <div class="rr-t-foot" @click.stop>
-            <a-tooltip :title="r.status === 'active' ? '停用' : '启用'">
-              <a-button size="small" type="text" @click="toggleStatus(r)">
-                <template #icon><PoweroffOutlined /></template>
-              </a-button>
-            </a-tooltip>
-            <a-tooltip title="编辑">
-              <a-button size="small" type="text" @click="openPlat(r)">
-                <template #icon><EditOutlined /></template>
-              </a-button>
-            </a-tooltip>
-            <a-tooltip title="删除">
-              <a-button size="small" type="text" danger @click="removeRule(r)">
-                <template #icon><DeleteOutlined /></template>
-              </a-button>
-            </a-tooltip>
-          </div>
+        <div v-for="r in filteredPlat" :key="r.id" class="rr-cell" @click="openPlat(r)">
+          <RuleCard kind="rule" tone="group" badge="置" :name="r.name" :status="r.status"
+                    :meta="platMeta(r)" :summary="evidenceOf(r)">
+            <template #actions>
+              <button class="rc-linkbtn" @click.stop="openPlat(r)">编辑</button>
+              <button class="rc-linkbtn rc-linkbtn--danger" @click.stop="removeRule(r)">删除</button>
+            </template>
+          </RuleCard>
         </div>
         <button class="rr-add" @click="openPlat()">＋ 新增平台归置</button>
       </div>
@@ -296,34 +271,14 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
       </div>
       <a-spin :spinning="loading">
       <div class="rr-grid">
-        <div v-for="r in filteredScene" :key="r.id" class="rr-tile" :class="{ archived: r.status !== 'active' }" @click="openScene(r)">
-          <div class="rr-t-top">
-            <span class="rr-dot" :class="STATUS_META[r.status]?.cls" />
-            <span class="rr-t-name">{{ r.name }}</span>
-            <span v-if="r.status !== 'active'" class="rr-t-state">{{ STATUS_META[r.status]?.label }}</span>
-          </div>
-          <div class="rr-t-meta">
-            <b>{{ itemsOf(r).length }} 条要点</b> · {{ itemsOf(r).map(i => i.category).join('/') }}
-            <template v-if="r.hit_count"> · 命中 {{ r.hit_count }} 次</template>
-          </div>
-          <div class="rr-t-evi">{{ evidenceOf(r) }}</div>
-          <div class="rr-t-foot" @click.stop>
-            <a-tooltip :title="r.status === 'active' ? '停用' : '启用'">
-              <a-button size="small" type="text" @click="toggleStatus(r)">
-                <template #icon><PoweroffOutlined /></template>
-              </a-button>
-            </a-tooltip>
-            <a-tooltip title="编辑">
-              <a-button size="small" type="text" @click="openScene(r)">
-                <template #icon><EditOutlined /></template>
-              </a-button>
-            </a-tooltip>
-            <a-tooltip title="删除">
-              <a-button size="small" type="text" danger @click="removeRule(r)">
-                <template #icon><DeleteOutlined /></template>
-              </a-button>
-            </a-tooltip>
-          </div>
+        <div v-for="r in filteredScene" :key="r.id" class="rr-cell" @click="openScene(r)">
+          <RuleCard kind="rule" tone="group" badge="基" :name="r.name" :status="r.status"
+                    :meta="sceneMeta(r)" :summary="evidenceOf(r)">
+            <template #actions>
+              <button class="rc-linkbtn" @click.stop="openScene(r)">编辑</button>
+              <button class="rc-linkbtn rc-linkbtn--danger" @click.stop="removeRule(r)">删除</button>
+            </template>
+          </RuleCard>
         </div>
         <button class="rr-add" @click="openScene()">＋ 新增场景基线</button>
       </div>
@@ -436,15 +391,8 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
   background: rgba(255, 107, 107, .08);
 }
 .rr { display: flex; flex-direction: column; gap: 14px; }
-.rr-head { display: flex; align-items: flex-start; gap: 16px; }
-.rr-title { font-size: 21px; font-weight: 700; color: var(--cpq-text-primary); margin: 0; }
-.rr-sub { font-size: 12.5px; color: var(--cpq-text-secondary); margin: 5px 0 0; }
+.rr-sub { font-size: 12.5px; color: var(--cpq-text-secondary); margin: 0; }
 .rr-sub em { font-style: normal; color: var(--cpq-accent-primary); }
-.rr-scope {
-  padding: 8px 14px; font-size: 12.5px; color: var(--cpq-text-secondary);
-  border: 1px dashed var(--cpq-overlay-a30); border-radius: var(--cpq-radius-md);
-  background: rgba(22, 119, 255, .06);
-}
 
 .rr-sec { display: flex; flex-direction: column; gap: 12px; }
 .rr-sec-head { display: flex; align-items: center; gap: 10px; }
@@ -456,51 +404,14 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 .rr-sec-desc { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
 
 .rr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.rr-tile {
-  position: relative; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
-  cursor: pointer; text-align: left; border: 1px solid var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-lg); background: var(--cpq-glass-card-bg);
-  backdrop-filter: blur(var(--cpq-glass-card-blur));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
-  box-shadow: var(--cpq-glass-card-shadow);
-  transition: all .18s cubic-bezier(.16, 1, .3, 1);
+.rr-cell { cursor: pointer; min-width: 0; }
+.rc-linkbtn {
+  border: 0; background: transparent; padding: 2px 8px;
+  font-size: var(--cpq-font-size-xs); color: var(--cpq-text-secondary);
+  cursor: pointer; border-radius: var(--cpq-radius-sm); transition: color .15s, background .15s;
 }
-.rr-tile:hover {
-  border-color: var(--cpq-glass-border-strong); transform: translateY(-2px);
-  box-shadow: var(--cpq-glass-card-shadow-hover);
-}
-.rr-tile.archived { opacity: .55; }
-.rr-t-top { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.rr-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--cpq-text-muted); }
-.rr-dot.on { background: var(--cpq-color-success); box-shadow: 0 0 0 3px rgba(82, 201, 160, .22); }
-.rr-dot.warn { background: var(--cpq-color-warning); }
-.rr-dot.info { background: var(--cpq-accent-primary); }
-.rr-dot.off { background: var(--cpq-text-muted); }
-.rr-t-name {
-  font-weight: 600; font-size: 13px; color: var(--cpq-text-primary); flex: 1; min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.rr-t-meta { font-size: 11.5px; color: var(--cpq-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rr-t-meta b { color: var(--cpq-text-secondary); font-weight: 600; }
-.rr-t-evi {
-  font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  padding-top: 4px; border-top: 1px dashed var(--cpq-glass-border);
-}
-.rr-t-evi::before { content: '依据：'; color: var(--cpq-text-muted); }
-.rr-t-state {
-  flex: none; font-size: 10.5px; line-height: 1; padding: 3px 7px;
-  border-radius: var(--cpq-radius-sm); color: var(--cpq-color-warning);
-  background: rgba(250, 173, 20, .14);
-}
-.rr-t-foot {
-  display: flex; gap: 2px; justify-content: flex-end;
-  margin: 2px -6px -6px; padding-top: 2px;
-  border-top: 1px dashed var(--cpq-glass-border);
-}
-.rr-t-foot :deep(.ant-btn) { color: var(--cpq-text-muted); }
-.rr-t-foot :deep(.ant-btn:hover) { color: var(--cpq-accent-primary); }
-.rr-t-foot :deep(.ant-btn-dangerous:hover) { color: var(--cpq-accent-danger) !important; }
-
+.rc-linkbtn:hover { color: var(--cpq-accent-primary); background: var(--cpq-overlay-w6); }
+.rc-linkbtn--danger:hover { color: var(--cpq-accent-danger); }
 .rr-add {
   border: 1px dashed var(--cpq-glass-border); border-radius: var(--cpq-radius-lg); min-height: 74px;
   display: flex; align-items: center; justify-content: center; color: var(--cpq-text-muted);

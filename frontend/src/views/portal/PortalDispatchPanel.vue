@@ -8,57 +8,10 @@
         <span class="hint">{{ stats.stuck > 0 ? '点击处理' : '全部有主' }}</span>
       </button>
       <div class="stat"><small>活跃任务</small><b>{{ stats.active }}</b><span class="hint">三条节点在办</span></div>
+      <button type="button" class="stat stat-click" title="报价外发审批独立页" @click="router.push('/approvals')">
+        <small>待审批</small><b>{{ approvalPending }}</b><span class="hint">报价外发 · 去收件箱</span>
+      </button>
       <div class="stat"><small>今日转交</small><b>{{ stats.todayTransfers }}</b><span class="hint">近 30 条共 {{ dispatchData.transfers.length }} 条</span></div>
-      <div class="stat"><small>规则覆盖</small><b>{{ stats.ruleCount }}</b><span class="hint">/ {{ stats.ruleTotal }} 格（业务×节点）</span></div>
-    </div>
-
-    <!-- 报价外发审批队列：客户版导出/平台内发送/规格书 PDF 出门前须总监批准 -->
-    <div class="card">
-      <div class="card-head">
-        <h3>报价外发审批</h3>
-        <small>等待越久越醒目 · 催办只提醒不改责任归属 · 系统永不自动批/拒</small>
-      </div>
-      <div class="card-body">
-        <div class="queue-scroll">
-          <table class="queue-table">
-          <thead>
-            <tr>
-              <th>客户 / 商机</th><th>报价单</th><th>提交人</th><th>责任总监</th>
-              <th>已等待</th><th>毛利率</th><th>状态</th><th style="text-align: right">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="a in approvalQueue" :key="a.id">
-              <td><a class="q-link" @click="goQuote(a)">{{ a.customer_name || a.opportunity_id }}</a></td>
-              <td>{{ a.quotation_id }}</td>
-              <td>{{ a.requested_by || '—' }}</td>
-              <td>{{ a.assigned_name || '全体审批人' }}</td>
-              <td :class="{ 'q-hot': a.status === 'pending' && (a.escalated_at || (a.waited_hours || 0) >= 24) }">
-                {{ a.status === 'pending' ? waitedTextOf(a) : '—' }}
-              </td>
-              <td>{{ Number(a.margin_pct).toFixed(2) }}%</td>
-              <td>
-                <span class="q-pill" :class="a.status">
-                  {{ a.status === 'pending' ? (a.escalated_at ? '已超时提醒' : '待审批') : a.status === 'approved' ? '已批准' : '已驳回' }}
-                </span>
-              </td>
-              <td style="text-align: right">
-                <button
-                  v-if="a.status === 'pending'"
-                  type="button"
-                  class="mini-btn"
-                  :disabled="remindingId === a.id"
-                  @click="remindOne(a)"
-                >{{ remindingId === a.id ? '催办中…' : '催办' }}</button>
-              </td>
-            </tr>
-            <tr v-if="!approvalQueue.length && !queueLoading">
-              <td colspan="8" class="q-empty">暂无审批单——报价单要出门（导出/发送）需要总监批准时才会出现在这里</td>
-            </tr>
-          </tbody>
-        </table>
-        </div>
-      </div>
     </div>
 
     <!-- 人 × 节点看板：在办负载与默认承接规则合并成同一视图 -->
@@ -254,48 +207,13 @@ const transferColumns = [
   { title: '操作人', key: 'actor' },
 ]
 
-// ── 报价外发审批队列（pending 在前；积压全员可见，催办仅提交人/管理员走后端门禁） ──
-interface ApprovalQueueItem {
-  id: number
-  opportunity_id: string
-  quotation_id: string
-  customer_name?: string
-  requested_by: string
-  assigned_name?: string
-  status: 'pending' | 'approved' | 'rejected'
-  margin_pct: number
-  created_at: string
-  waited_hours?: number
-  escalated_at?: string
-}
-const approvalQueue = ref<ApprovalQueueItem[]>([])
-const queueLoading = ref(false)
-const remindingId = ref(0)
-async function loadApprovalQueue() {
-  queueLoading.value = true
+// ── 报价外发审批：只留「待审批」计数（收件箱/裁决已迁独立页 /approvals） ──
+const approvalPending = ref(0)
+async function loadApprovalCount() {
   try {
     const res = await portalApi.pricingApprovalQueue()
-    approvalQueue.value = res.approvals || []
-  } catch { /* 队列端点 admin 限定，非管理端静默 */ }
-  finally { queueLoading.value = false }
-}
-function waitedTextOf(a: ApprovalQueueItem): string {
-  const h = a.waited_hours
-  if (h == null) return '—'
-  return h < 1 ? `${Math.max(1, Math.round(h * 60))} 分钟` : h < 48 ? `${Math.floor(h)} 小时` : `${Math.floor(h / 24)} 天`
-}
-async function remindOne(a: ApprovalQueueItem) {
-  remindingId.value = a.id
-  try {
-    await portalApi.remindPricingApproval(a.opportunity_id, a.id)
-    message.success('已催办（通知责任总监）')
-    await loadApprovalQueue()
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '催办失败')
-  } finally { remindingId.value = 0 }
-}
-function goQuote(a: ApprovalQueueItem) {
-  router.push(`/opportunities/${a.opportunity_id}`)
+    approvalPending.value = (res.approvals || []).filter(a => a.status === 'pending').length
+  } catch { /* 队列端点须 admin/审批权限，无权限时计数卡显示 0 */ }
 }
 
 // ── 统计条 ──
@@ -305,11 +223,7 @@ const stats = computed(() => {
     (sum, n) => sum + n.workload.reduce((s, w) => s + w.count, 0) + n.unassigned_count, 0)
   const today = new Date().toISOString().slice(0, 10)
   const todayTransfers = dispatchData.value.transfers.filter(t => (t.time || '').startsWith(today)).length
-  return {
-    stuck, active, todayTransfers,
-    ruleCount: dispatchData.value.rules.filter(r => r.business_user_id !== '*').length,
-    ruleTotal: dispatchData.value.businesses.length * 3,
-  }
+  return { stuck, active, todayTransfers }
 })
 
 // ── 人 × 节点看板：workload（在办）与 rules（默认承接）按处理人合并 ──
@@ -499,7 +413,7 @@ async function load() {
 watch(stuckOpen, (open) => { if (!open) drawerNode.value = '' })
 onMounted(() => {
   void load()
-  void loadApprovalQueue()
+  void loadApprovalCount()
 })
 </script>
 
@@ -634,23 +548,4 @@ onMounted(() => {
   .roster-grid { grid-template-columns: 1fr; }
   .stuck-grid { grid-template-columns: 1fr; }
 }
-
-/* ── 报价外发审批队列 ── */
-.queue-scroll { overflow-x: auto; }   /* 手机端窄屏横向滚动兜底，列不挤压 */
-.queue-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.queue-table th {
-  text-align: left; padding: 8px 10px; font-size: var(--cpq-font-size-xs); font-weight: 600;
-  color: var(--cpq-text-secondary); background: var(--cpq-bg-tertiary);
-  border-bottom: 1px solid var(--cpq-border-primary); white-space: nowrap;
-}
-.queue-table td { padding: 9px 10px; border-bottom: 1px solid var(--cpq-border-secondary); color: var(--cpq-text-primary); }
-.queue-table tbody tr:hover td { background: var(--cpq-overlay-w3); }
-.q-link { color: var(--cpq-text-primary); font-weight: 600; cursor: pointer; text-decoration: none; }
-.q-link:hover { color: var(--cpq-accent-primary); }
-.q-hot { color: var(--cpq-accent-danger); font-weight: 700; }
-.q-pill { padding: 2px 10px; border-radius: var(--cpq-radius-full); font-size: var(--cpq-font-size-xs); white-space: nowrap; }
-.q-pill.pending { background: var(--cpq-notif-amber-bg); color: var(--cpq-notif-amber); }
-.q-pill.approved { background: var(--cpq-notif-green-bg); color: var(--cpq-notif-green); }
-.q-pill.rejected { background: var(--cpq-notif-red-bg); color: var(--cpq-notif-red); }
-.q-empty { text-align: center; color: var(--cpq-text-muted); padding: 22px 10px !important; }
 </style>

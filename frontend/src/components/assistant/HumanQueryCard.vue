@@ -13,30 +13,47 @@
       <button type="button" class="hq-btn hq-primary" @click="answer({ selections: ['确认执行'] })">确认执行</button>
     </div>
 
-    <!-- choice：单选 + Other 逃生门 -->
+    <!-- choice：单选 + Other 逃生门。视觉已并入单问确认卡形态（2026-11-04 退役旧 radio 卡样式）：
+         序号键选项行 + 描述 + 推荐胶囊 + Other；答案仍走问答协议槽（query_id 结构化回流）。 -->
     <template v-else-if="query.kind === 'choice' && interactive">
       <div class="hq-opts">
-        <label v-for="(o, i) in query.options" :key="i" class="hq-opt" :class="{ picked: picked === o.label }">
-          <input v-model="picked" type="radio" name="hq-choice" :value="o.label" />
+        <button
+          v-for="(o, i) in query.options"
+          :key="i"
+          type="button"
+          class="hq-opt"
+          :class="{ picked: picked === o.label, rec: o.recommended }"
+          @click="picked = picked === o.label ? '' : o.label"
+        >
+          <span class="hq-key">{{ picked === o.label ? '✓' : Number(i) + 1 }}</span>
           <span class="hq-opt-main">
             <span class="hq-opt-label">{{ o.label }}<i v-if="o.recommended" class="hq-rec">推荐</i></span>
             <span v-if="o.description" class="hq-opt-desc">{{ o.description }}</span>
           </span>
-        </label>
-        <label class="hq-opt" :class="{ picked: picked === '__other__' }">
-          <input v-model="picked" type="radio" name="hq-choice" value="__other__" />
-          <span class="hq-opt-main"><span class="hq-opt-label">Other</span></span>
-        </label>
+        </button>
+        <button
+          type="button"
+          class="hq-opt hq-escape"
+          :class="{ picked: picked === '__other__' }"
+          @click="picked = picked === '__other__' ? '' : '__other__'"
+        >
+          <span class="hq-key">⋯</span>
+          <span class="hq-opt-main">
+            <span class="hq-opt-label">Other</span>
+            <span class="hq-opt-desc">都不合适？说说你的想法</span>
+          </span>
+        </button>
         <input
           v-if="picked === '__other__'"
           v-model="otherText"
           class="hq-other"
           type="text"
-          placeholder="说说你的想法…"
+          placeholder="说说你的想法，回车提交"
           @keyup.enter="submitChoice"
         />
       </div>
       <div class="hq-actions">
+        <span class="hq-foot-hint">选择一项，或选 Other 自由输入</span>
         <button type="button" class="hq-btn hq-primary" :disabled="!canChoice" @click="submitChoice">回答</button>
       </div>
     </template>
@@ -175,21 +192,36 @@ function submitForm() {
 .hq-btn:disabled { opacity: .4; cursor: default; }
 .hq-primary { border-color: var(--cpq-accent-primary, #1677ff);
   background: var(--cpq-accent-primary, #1677ff); color: #fff; }
-.hq-opts { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 0; }
-.hq-opt { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; cursor: pointer;
-  border: 1px solid var(--cpq-overlay-w10, rgba(255,255,255,.12));
-  border-radius: var(--cpq-radius-sm); transition: border-color .15s ease; }
-.hq-opt.picked { border-color: var(--cpq-accent-primary, #1677ff); }
+.hq-opts { display: flex; flex-direction: column; padding: 0 0 4px; }
+.hq-opt { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px; cursor: pointer;
+  border: 0; border-top: 1px solid transparent; background: transparent; text-align: left;
+  color: var(--cpq-text-primary); font: inherit; transition: background .15s ease; }
+.hq-opt + .hq-opt { border-top: 1px solid var(--cpq-overlay-w6, rgba(255,255,255,.08)); }
+.hq-opt:hover { background: var(--cpq-overlay-a10, rgba(22,119,255,.10)); }
+.hq-opt.picked { background: var(--cpq-overlay-a8, rgba(22,119,255,.08));
+  box-shadow: inset 2px 0 0 var(--cpq-accent-primary, #1677ff); }
+.hq-opt.picked .hq-key { border-color: var(--cpq-accent-primary, #1677ff);
+  color: var(--cpq-accent-primary, #1677ff); }
+.hq-escape .hq-opt-label { color: var(--cpq-text-secondary, #a6adb4); }
+.hq-key { flex: none; min-width: 20px; height: 20px; padding: 0 4px;
+  border-radius: var(--cpq-radius-sm); border: 1px solid var(--cpq-overlay-w10, rgba(255,255,255,.14));
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--cpq-font-size-xs); font-weight: 600; color: var(--cpq-text-secondary, #a6adb4); }
+.hq-opt:hover .hq-key { border-color: var(--cpq-accent-primary, #1677ff);
+  color: var(--cpq-accent-primary, #1677ff); }
 .hq-opt-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.hq-opt-label { font-size: 12.5px; font-weight: 600; color: var(--cpq-text-primary); }
-.hq-rec { font-style: normal; margin-left: 6px; padding: 1px 6px; font-size: 10.5px;
-  border-radius: 999px; color: var(--cpq-accent-primary, #1677ff);
-  border: 1px solid var(--cpq-accent-primary, #1677ff); }
-.hq-opt-desc { font-size: 11.5px; color: var(--cpq-text-secondary, #a6adb4); }
-.hq-other { margin: 6px 0 0 24px; height: 30px; padding: 0 10px; font-size: 12.5px;
+.hq-opt-label { font-size: 13px; line-height: 1.4; color: var(--cpq-text-primary); }
+.hq-rec { font-style: normal; margin-left: 6px; padding: 0 6px; font-size: 10.5px; line-height: 18px;
+  vertical-align: middle; border-radius: 999px; color: #6ea8ff;
+  background: rgba(22, 119, 255, 0.14); border: 1px solid rgba(22, 119, 255, 0.35); }
+.hq-opt.rec { border-color: rgba(22, 119, 255, 0.45); }
+.hq-opt-desc { font-size: var(--cpq-font-size-sm); line-height: 1.4;
+  color: var(--cpq-text-muted, #8c8c8c); word-break: break-word; }
+.hq-other { margin: 0 12px 6px; height: 28px; padding: 0 10px; font-size: 12.5px;
   border-radius: var(--cpq-radius-sm); border: 1px solid var(--cpq-overlay-w14, rgba(255,255,255,.2));
   background: transparent; color: var(--cpq-text-primary); outline: none; }
 .hq-other:focus { border-color: var(--cpq-accent-primary, #1677ff); }
+.hq-foot-hint { margin-right: auto; font-size: 11.5px; color: var(--cpq-text-muted, #8c8c8c); }
 .hq-fields { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
 .hq-field { display: flex; flex-direction: column; gap: 4px; }
 .hq-field-label { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary, #a6adb4); }

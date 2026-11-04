@@ -55,12 +55,6 @@ const metas = computed(() => {
 function goList() { router.push('/strategies') }
 function goEdit() { router.push(`/strategies/solutions/${key}/edit`) }
 
-// 自动封面种子：与列表页同一哈希，同一方案两处图案一致
-function coverSeedOf(k: string): number {
-  let h = 0
-  for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) >>> 0
-  return h
-}
 function openLink(link?: string) {
   if (!link) return
   if (/^https?:\/\//i.test(link)) window.open(link, '_blank')
@@ -100,7 +94,7 @@ function remove() {
 
     <div v-if="loading" class="dk-empty">加载中…</div>
     <template v-else-if="sol">
-      <header class="dk-hero" :style="{ '--h': 'var(--cpq-accent-primary)', '--seed': sol.cover_url ? 0 : coverSeedOf(sol.key) }">
+      <header class="dk-hero" :style="{ '--h': 'var(--cpq-accent-primary)' }">
         <div class="dk-hero-main">
           <div class="dk-kicker">
             <span class="dk-scene">Solution · {{ sol.scene }}</span>
@@ -116,9 +110,9 @@ function remove() {
             <span class="dk-feat" v-for="f in sol.features" :key="f">{{ f }}</span>
           </div>
         </div>
-        <div class="dk-hero-cover" aria-hidden="true">
-          <img v-if="sol.cover_url" :src="sol.cover_url" alt="">
-          <div v-else class="cover-gen"><span class="cover-mono">{{ sol.scene }}</span></div>
+        <!-- 封面仅在有真实封面图时渲染：自动图案盒在暗色下读作空黑盒，宁缺毋滥 -->
+        <div v-if="sol.cover_url" class="dk-hero-cover" aria-hidden="true">
+          <img :src="sol.cover_url" alt="">
         </div>
       </header>
 
@@ -140,7 +134,7 @@ function remove() {
             :editor-id="EDITOR_ID"
             :scroll-element="scrollElement"
             :theme="themeStore.isDark ? 'dark' : 'light'"
-            :offset-top="90"
+            :offset-top="118"
           />
         </aside>
       </div>
@@ -170,66 +164,51 @@ function remove() {
 
 <style scoped>
 .dk { max-width: 1200px; margin: 0 auto; padding: 8px 28px 96px; }
-.dk-bar { display: flex; align-items: center; gap: 10px; margin: 0 -28px 0; padding: 12px 28px; border-bottom: 1px solid var(--cpq-glass-border); background: var(--cpq-glass-card-bg); backdrop-filter: blur(var(--cpq-glass-card-blur)); -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur)); position: sticky; top: var(--cpq-sticky-top, 0px); z-index: 30; box-shadow: 0 6px 18px -12px var(--cpq-shadow-color-strong); }
+/* 面包屑吸顶条：实底（玻璃半透明底会让滚过的表格/标题透出叠字），保清晰可读 */
+.dk-bar { display: flex; align-items: center; gap: 10px; margin: 0 -28px 0; padding: 12px 28px; border-bottom: 1px solid var(--cpq-glass-border); background: var(--cpq-glass-3-bg-solid); position: sticky; top: var(--cpq-sticky-top, 0px); z-index: 30; box-shadow: 0 6px 18px -12px var(--cpq-shadow-color-strong); }
 .dk-back { color: var(--cpq-accent-primary); cursor: pointer; font-size: 13px; font-weight: 600; background: none; border: none; padding: 0; }
 .dk-sep { color: var(--cpq-text-muted); }
 .dk-bread { color: var(--cpq-text-primary); font-size: 13px; font-weight: 600; }
 .dk-actions { margin-left: auto; display: flex; gap: 6px; }
 
-.dk-hero { display: flex; gap: var(--cpq-space-6); align-items: flex-start; padding: 44px 0 30px; border-bottom: 1px solid var(--cpq-glass-border); }
+/* hero 与下方「文章+目录」同轴（同 1008px 居中），左缘对正文、右缘对目录，首屏不再右侧留空 */
+.dk-hero { display: flex; gap: var(--cpq-space-6); align-items: flex-start; max-width: 1008px; margin: 0 auto; padding: var(--cpq-space-6) 0 30px; border-bottom: 1px solid var(--cpq-glass-border); }
 .dk-hero-main { flex: 1; min-width: 0; }
-/* hero 右侧封面横幅：与列表卡同一自动封面（同 seed 同图案），填补标题右侧空白 */
+/* hero 右侧封面横幅：仅在有真实封面图时渲染（自动图案盒已删，宁缺毋滥） */
 .dk-hero-cover { width: 300px; height: 176px; flex-shrink: 0; border-radius: var(--cpq-radius-lg); overflow: hidden; border: 1px solid var(--cpq-glass-border); position: relative; }
 .dk-hero-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.dk-hero-cover .cover-gen {
-  position: absolute; inset: 0; display: flex; align-items: flex-end; padding: var(--cpq-space-4);
-  background:
-    radial-gradient(120% 200% at calc(78% + (var(--seed, 0) % 3) * 6%) calc(-40% + (var(--seed, 0) % 4) * 14%),
-      color-mix(in srgb, var(--h) 42%, transparent), transparent 62%),
-    radial-gradient(90% 160% at 8% 130%, color-mix(in srgb, var(--h) 20%, transparent), transparent 58%),
-    var(--cpq-overlay-w6);
-}
-.dk-hero-cover .cover-gen::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .5;
-  background-image: linear-gradient(color-mix(in srgb, var(--h) 10%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--h) 10%, transparent) 1px, transparent 1px);
-  background-size: 30px 30px;
-  transform: rotate(calc((var(--seed, 0) % 7 - 3) * 2deg)) scale(1.4);
-  mask-image: linear-gradient(115deg, transparent 30%, #000 100%);
-}
-.dk-hero-cover .cover-mono {
-  position: relative; z-index: 1;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: var(--cpq-font-size-xs); letter-spacing: .16em; text-transform: uppercase;
-  color: color-mix(in srgb, var(--h) 82%, var(--cpq-text-primary));
-}
 @media (max-width: 900px) { .dk-hero-cover { display: none; } }
 .dk-kicker { margin-bottom: 16px; }
 .dk-scene { font-size: var(--cpq-font-size-xs); text-transform: uppercase; letter-spacing: .16em; color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); border: 1px solid var(--cpq-accent-primary); padding: 4px 12px; border-radius: var(--cpq-radius-xs); font-weight: 700; }
-.dk-title { font-size: clamp(30px, 4vw, 42px); font-weight: 800; letter-spacing: -1px; line-height: 1.12; margin: 0 0 14px; color: var(--cpq-text-primary); max-width: 760px; }
+.dk-title { font-size: clamp(30px, 4vw, 42px); font-weight: 800; letter-spacing: -1px; line-height: 1.12; margin: 0 0 14px; color: var(--cpq-text-primary); }
 .dk-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--cpq-space-3); margin: 0 0 18px; }
 .dk-meta-item { font-size: var(--cpq-font-size-sm); font-weight: 600; color: var(--cpq-accent-primary); }
 .dk-meta-muted { color: var(--cpq-text-muted); font-weight: 400; }
 .dk-meta-item + .dk-meta-item { position: relative; padding-left: var(--cpq-space-3); }
 .dk-meta-item + .dk-meta-item::before { content: '·'; position: absolute; left: 0; color: var(--cpq-text-muted); }
-.dk-sub { color: var(--cpq-text-muted); font-size: 16.5px; line-height: 1.62; margin: 0 0 18px; max-width: 760px; }
-.dk-intro { color: var(--cpq-text-primary); font-size: 15px; line-height: 1.85; max-width: 760px; margin: 0 0 18px; }
+.dk-sub { color: var(--cpq-text-muted); font-size: 16.5px; line-height: 1.62; margin: 0 0 18px; max-width: 880px; }
+.dk-intro { color: var(--cpq-text-primary); font-size: 15px; line-height: 1.85; max-width: 880px; margin: 0 0 18px; }
 .dk-intro :deep(p) { margin: 0; }
 .dk-feats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
 .dk-feat { font-size: var(--cpq-font-size-xs); letter-spacing: .02em; color: var(--cpq-text-secondary); background: var(--cpq-overlay-w6); border: 1px solid var(--cpq-glass-border); padding: 4px 12px; border-radius: var(--cpq-radius-xl); }
 
-/* 文章 + 目录双栏：文章单栏连续排版（GitHub 式），目录窄侧栏吸顶 */
-.dk-layout { display: flex; gap: 36px; margin-top: 8px; align-items: flex-start; }
+/* 文章 + 目录双栏：整体居中收拢（原靠左排布在宽容器右侧留 ~124px 死区），目录紧贴文章 */
+.dk-layout { display: flex; gap: var(--cpq-space-5); margin: 8px auto 0; max-width: 1008px; align-items: flex-start; }
 .dk-article { flex: 1; min-width: 0; max-width: 760px; }
 /* 去 md-editor 皮肤：主题底色（暗色纯黑/亮色纯白）画在根容器 .md-editor 上，透明化必须落在根，--md-bk-color 随之继承进内层 */
 .dk-article :deep(.md-editor) { --md-bk-color: transparent; background: transparent; box-shadow: none; }
 .dk-article :deep(.md-editor-preview) { padding: 0; }
-/* 阅读排版（对齐 PeanutDL）：正文 18px/1.78（中文黄金度量 ~38 字/行），H2 段前 50px 呼吸感 */
-.dk-article :deep(.md-editor-preview) { font-size: 18px; line-height: 1.78; }
-.dk-article :deep(.md-editor-preview h2) { font-size: 28px; font-weight: 700; margin: 50px 0 20px; }
-.dk-article :deep(.md-editor-preview h3) { font-size: 22px; font-weight: 700; margin: 36px 0 16px; }
-.dk-article :deep(.md-editor-preview p) { margin: 0 0 20px; }
-.dk-article :deep(.md-editor-preview li) { margin: 0 0 10px; }
+/* 阅读排版：正文 16px/1.9（中文长文舒适区）；
+   word-break 必须覆盖回 normal——md-editor 预览样式自带 break-all，会把 DeepSeek/gpt-oss-120b 从单词中间拆行 */
+.dk-article :deep(.md-editor-preview) { font-size: var(--cpq-font-size-base); line-height: 1.9; word-break: normal; overflow-wrap: break-word; line-break: strict; }
+.dk-article :deep(.md-editor-preview h2) { font-size: 22px; font-weight: 700; margin: 40px 0 16px; }
+.dk-article :deep(.md-editor-preview h3) { font-size: 17px; font-weight: 700; margin: 32px 0 12px; }
+.dk-article :deep(.md-editor-preview p) { margin: 0 0 16px; }
+.dk-article :deep(.md-editor-preview li) { margin: 0 0 8px; }
+/* 表格：窄列内横向滚动兜底，表头加粗，正文字号降一档 */
+.dk-article :deep(.md-editor-preview table) { font-size: 14px; display: block; width: max-content; max-width: 100%; overflow-x: auto; }
+.dk-article :deep(.md-editor-preview th) { font-weight: 600; }
+.dk-article :deep(.md-editor-preview code) { font-size: 13px; }
 .dk-toc { width: 224px; flex-shrink: 0; position: sticky; top: calc(var(--cpq-sticky-top, 0px) + 76px); max-height: calc(100vh - 170px); overflow: auto; }
 .dk-toc-label { font-size: var(--cpq-font-size-xs); font-weight: 700; letter-spacing: .12em; color: var(--cpq-text-muted); margin: 0 0 8px 4px; }
 .dk-toc :deep(.md-editor-catalog) { width: 100%; font-size: 13px; background: transparent; }

@@ -129,6 +129,15 @@ class DefaultNodePlugin:
     def delivery_gap(self, engine: dict) -> Optional[dict]:
         return None
 
+    def system_gaps(self, engine: dict) -> list:
+        """步骤就绪即该交客户拍板的**系统确认卡**（复数，合批多问卡的数据源）。
+
+        与 stuck_gap 家族的区别：delivery/system 是「出路一就绪就即刻交客户」
+        （缺 filed 先不抢，等登记契约齐了再求证）；默认把 delivery_gap 包成单元素
+        列表，节点有多个待确认面（如多个前提字段）时覆写。"""
+        g = self.delivery_gap(engine)
+        return [g] if isinstance(g, dict) and g else []
+
     def stuck_gap(self, engine: dict) -> Optional[dict]:
         """本步回喂耗尽、**推进不动**时的结构化出路卡（默认无：如实交给大脑重述提问）。
 
@@ -137,6 +146,12 @@ class DefaultNodePlugin:
         不会抢在大脑自己提问之前把机制话术抛给客户。
         """
         return None
+
+    def stuck_gaps(self, engine: dict) -> list:
+        """同 stuck_gap 的复数形态：本步卡住时**全部**可交客户拍板的出路（合批多问卡的数据源）。
+        默认把单数实现包成单元素列表；插座有多个独立缺口（如多条未落地行）时覆写。"""
+        g = self.stuck_gap(engine)
+        return [g] if isinstance(g, dict) and g else []
 
     def enrich_ask_gap(self, engine: dict, gap: dict, ask: dict) -> dict:
         return gap
@@ -311,6 +326,121 @@ class _FillNode(DefaultNodePlugin):
             return {"ok": False, "hint": f"前提字段无客户确认记录：{detail}"}
         return {"ok": True}
 
+    def system_gaps(self, engine: dict) -> list:
+        """前提字段已填但无客户确认 → **系统确认卡**（凡推断必求证的确定性求证侧）。
+
+        过去确认动作全靠大脑自觉调 ask_user：大脑不带选项问（被拒→降级文字）或不问
+        （自定值往前跑）时，登记确认卡就整段消失。现在引擎在「登记字段齐、尚有未确认
+        前提」时直接出卡——选项=目录候选（确定性事实），推断值标推荐，客户点选=写
+        confirmed_slots。缺字段（登记没填完）时不抢：先让大脑补登记，字段齐了才求证。
+        """
+        ext = engine.get("ext") if isinstance(engine.get("ext"), dict) else {}
+        try:
+            _missing_critical = hp.fn_port("slot_contract._missing_critical")
+            _slot_now_filled = hp.fn_port("capabilities._slot_now_filled")
+            if [m for m in _missing_critical(ext) if not _slot_now_filled(ext, m)]:
+                return []
+        except Exception:
+            logger.exception("前提确认卡前置检查失败")
+            return []
+        unconfirmed_premise_fields = hp.fn_port("slot_contract.unconfirmed_premise_fields")
+        out = []
+        for field in unconfirmed_premise_fields(ext)[:4]:
+            g = self._premise_confirm_gap(engine, field)
+            if isinstance(g, dict) and g:
+                out.append(g)
+        return out
+
+    def stuck_gaps(self, engine: dict) -> list:
+        """本步卡住（回喂耗尽、必填字段没齐）时的结构化出路：缺的**目录字段**直接出
+        目录候选卡——确定性事实，不依赖大脑自觉调 ask_user（实测大脑可能全程纯文字反问，
+        重试耗尽后落零选项暂停，客户无卡可点、转述失锚还会编出目录外的选项例子）。
+        自由字段（数量等）无候选可摆，留给文字路径；字段已填的求证归 system_gaps。"""
+        ext = engine.get("ext") if isinstance(engine.get("ext"), dict) else {}
+        try:
+            _missing_critical = hp.fn_port("slot_contract._missing_critical")
+            _slot_now_filled = hp.fn_port("capabilities._slot_now_filled")
+            missing = [m for m in _missing_critical(ext) if not _slot_now_filled(ext, m)]
+        except Exception:
+            logger.exception("缺字段出路卡前置检查失败")
+            return []
+        out = []
+        for key in missing:
+            cands = self._catalog_dimension_candidates(engine, key)
+            if not cands:
+                continue
+            out.append({"slot": key, "reason_code": "premise_confirm", "question": "",
+                        "options": [{"label": c, "value": c, "desc": "", "slot": key,
+                                     "group": "目录候选"} for c in cands[:6]]})
+            if len(out) >= 4:
+                break
+        return out
+
+    def _premise_confirm_gap(self, engine: dict, field: dict) -> Optional[dict]:
+        """一个前提字段的确认缺口：选项=目录候选（推断值标推荐+规则影子校验标注）。"""
+        ext = engine.get("ext") if isinstance(engine.get("ext"), dict) else {}
+        key = str(field.get("key") or "").strip()
+        value = str(field.get("value") or "").strip()
+        if not key:
+            return None
+        cands = self._catalog_dimension_candidates(engine, key)
+        opts = []
+        for cand in cands[:6]:
+            o = {"label": cand, "value": cand, "desc": "", "slot": key, "group": "目录候选"}
+            if cand == value:
+                o["recommended"] = True
+                o["desc"] = "当前登记值（按你的需求初判，可改）"
+            opts.append(o)
+        if value and not any(o.get("recommended") for o in opts):
+            opts.insert(0, {"label": value, "value": value, "desc": "当前登记值（按你的需求初判，可改）",
+                            "slot": key, "group": "目录候选", "recommended": True})
+        if not opts:
+            return None
+        # 规则影子校验标注（与 ask_user 卡同源）：目录规则硬命中与该选项一致/不一致
+        try:
+            shadow_check_platform = hp.fn_port("requirement_knowledge.shadow_check_platform")
+            sh = shadow_check_platform(ext)
+            if sh and sh.get("slot") == key:
+                for o in opts:
+                    if str(o.get("value") or "").strip() == str(sh.get("rule_value") or "").strip():
+                        o["rule_match"] = True
+                    elif o.get("recommended"):
+                        o["rule_conflict"] = {"rule_value": str(sh.get("rule_value") or "")}
+        except Exception:
+            logger.exception("前提确认卡影子校验标注失败（降级：不加标注）")
+        return {"slot": key, "reason_code": "premise_confirm", "question": "", "options": opts}
+
+    def _catalog_dimension_candidates(self, engine: dict, field_key: str) -> list:
+        """字段契约的目录维度 → 在售目录候选值（确定性事实，非枚举规则）。"""
+        ext = engine.get("ext") if isinstance(engine.get("ext"), dict) else {}
+        try:
+            slot_spec = hp.fn_port("slot_contract.slot_spec")
+            canonical_get = hp.fn_port("slot_contract.canonical_get")
+            dim = ""
+            for s in slot_spec():
+                if str(s.get("key") or "") == field_key:
+                    dim = str(s.get("catalog_dimension") or "").strip()
+                    break
+            if not dim:
+                return []
+            if dim == "series":
+                select_models = hp.fn_port("model_candidates.select_models")
+                stn = str(canonical_get(ext, "server_type") or "").strip()
+                rows = select_models(usage=None, server_type_name=stn or None, limit=12) or []
+                out = []
+                for r in rows:
+                    sv = str(r.get("series") or "").strip()
+                    if sv and sv not in out:
+                        out.append(sv)
+                if out:
+                    return out
+            catalog_whitelist = hp.fn_port("catalog_options.catalog_whitelist")
+            wl = catalog_whitelist()
+            return [str(v) for v in (wl.get(dim) or []) if str(v).strip()]
+        except Exception:
+            logger.exception("目录维度候选读取失败 field=%s", field_key)
+            return []
+
 
 class _ModelNode(DefaultNodePlugin):
     """model_reason：机型选型。预处理=候选池/显式锁定；出路卡=结构化机型候选卡；校验=机型已锁定。"""
@@ -343,16 +473,34 @@ class _ModelNode(DefaultNodePlugin):
     # wire_result 不再覆写：走 DefaultNodePlugin 通用接线（读 DB wiring），声明见类注释。
 
     def delivery_gap(self, engine: dict) -> Optional[dict]:
-        """机型候选已就绪但未锁定 → 系统结构化候选卡（可点选/手输）；否则 None。"""
+        """机型候选已就绪且**客户未确认** → 系统结构化候选卡（可点选/手输）；否则 None。
+
+        免卡口径=「客户已确认当前锁定」：客户点名（customer_stated）或点过机型卡。
+        大脑 choose_model 自锁、目录唯一命中直锁都是**系统的推断**——凡推断必求证，
+        照常出卡，当前锁定值标推荐置顶；客户点它=确认，点别的=改选并重锁。"""
         pool = [c for c in (engine.get("baselines_pool") or []) if isinstance(c, dict)]
         if not pool:
             return None
         locked = (engine.get("_locked_baseline") or {}).get("name") \
             or str((engine.get("ext") or {}).get("server_model") or "").strip()
-        if locked:
+        conf = (engine.get("ext") or {}).get("confirmed_slots")
+        conf = conf if isinstance(conf, dict) else {}
+        if locked and str(conf.get("server_model") or "").strip() == str(locked).strip():
             return None
+        # 锁定值置顶标推荐（客户看得见系统倾向）；未锁定照旧按池序出卡
+        ordered = list(pool)
+        if locked:
+            ordered.sort(key=lambda c: 0 if str(c.get("name") or "").strip() == str(locked).strip() else 1)
         model_gap = hp.fn_port("skill_phases.model_gap")
-        return model_gap(pool, include_price=bool(engine.get("price_access", True)))
+        gap = model_gap(ordered, include_price=bool(engine.get("price_access", True)))
+        if locked:
+            for o in (gap.get("options") or []):
+                if str(o.get("value") or "").strip() == str(locked).strip():
+                    o["recommended"] = True
+                    if not str(o.get("desc") or "").strip():
+                        o["desc"] = "当前已初步锁定（按登记信号，等你拍板）"
+                    break
+        return gap
 
     async def validate(self, ctx: dict) -> dict:
         locked = (ctx.get("_locked_baseline") or {}).get("name") \
@@ -629,17 +777,30 @@ class _KpNode(DefaultNodePlugin):
                             "pool": [], "pool_source": "brain_ask"}
         return gap
 
-    def stuck_gap(self, engine: dict) -> Optional[dict]:
-        """配件选型**卡住**（仍有未落地行）时，由插座自己把该行交客户拍板。
+    def stuck_gaps(self, engine: dict) -> list:
+        """配件选型**卡住**（仍有未落地行）时，插座把**全部**未落地行交客户拍板（合批多问卡）。
 
-        这是「插座兜底」而不是「引擎替大脑决策」：选项全是数据——库内候选取自大脑本轮
-        行描述实时回库召回，客户点名型号库内无料时再补「保持原需求」（waived）；
-        选项信号仍由唯一出口（ask_option_signal）解释。引擎不替客户认账、也不编料号。
+        每行一张独立缺口的形状（slot 按行唯一，点击 (slot,value) 留底匹配不串行），
+        合批与否由发卡层决定。这是「插座兜底」而不是「引擎替大脑决策」：选项全是
+        数据——库内候选取自大脑本轮行描述实时回库召回，客户点名型号库内无料时再补
+        「保持原需求」（waived）；选项信号仍由唯一出口（ask_option_signal）解释。
         """
-        row = next((p for p in (engine.get("kp_parts") or [])
-                    if isinstance(p, dict) and p.get("unmatched")), None)
-        if row is None:
-            return None
+        out = []
+        for p in (engine.get("kp_parts") or []):
+            if not (isinstance(p, dict) and p.get("unmatched")):
+                continue
+            g = self._stuck_row_gap(engine, p)
+            if isinstance(g, dict) and g:
+                out.append(g)
+            if len(out) >= 4:
+                break
+        return out
+
+    def stuck_gap(self, engine: dict) -> Optional[dict]:
+        """单数形态（旧调用点兼容）= 首个未落地行的出路卡。"""
+        return next(iter(self.stuck_gaps(engine)), None)
+
+    def _stuck_row_gap(self, engine: dict, row: dict) -> Optional[dict]:
         kp_row_key = hp.fn_port("part_selector.kp_row_key")
         cat = str(row.get("category") or "").strip()
         if not cat:
@@ -661,9 +822,12 @@ class _KpNode(DefaultNodePlugin):
                 o["signal"] = sig
         if not any(o.get("signal") for o in opts):
             return None
+        # slot 按行唯一（kp_row:<row_id>）：合批多行卡里各行的选项值可能同名
+        # （如两行都有「保持原需求」），共用槽位会让 (slot,value) 点击匹配串行。
+        row_slot = f"kp_row:{ref}"
         for o in opts:  # 卡渲染只认 slot/value/desc
-            o.setdefault("slot", "kp_row")
-        return {"slot": "kp_row", "reason_code": "kp_pick", "question": "",
+            o.setdefault("slot", row_slot)
+        return {"slot": row_slot, "reason_code": "kp_pick", "question": "",
                 "row": ref, "parts_card": True,
                 "qty": qty, "qty_max": qty_max,
                 "pick_meta": {"row": ref, "category": cat, "request_spec": desc,
@@ -785,6 +949,28 @@ def first_stuck_gap(engine: dict) -> Optional[dict]:
         if isinstance(gap, dict) and gap:
             return gap
     return None
+
+
+def stuck_gaps(engine: dict, limit: int = 4) -> list:
+    """回喂耗尽后的**全部**结构化出路卡（复数形态）：合批多问卡的数据源。
+    出路卡≤limit 张；没有任何出路时返回空列表（调用方退回机制提示暂停）。"""
+    out: list = []
+    for p in _PLUGINS.values():
+        for gap in p.stuck_gaps(engine):
+            if isinstance(gap, dict) and gap:
+                out.append(gap)
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def catalog_dimension_candidates(engine: dict, field_key: str) -> list:
+    """字段契约目录维度 → 在售目录候选值（缺口转述锚与出路卡共用同一实现）。"""
+    try:
+        return plugin_for("agent_fill")._catalog_dimension_candidates(engine or {}, field_key)
+    except Exception:
+        logger.exception("目录维度候选读取失败 field=%s", field_key)
+        return []
 
 
 async def refresh_kp_state(ctx: dict) -> None:

@@ -491,3 +491,73 @@ if __name__ == "__main__":
     for fn in [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]:
         fn()
         print("[ok]", fn.__name__)
+
+
+def test_stream_retries_dead_empty_streams_then_succeeds():
+    """空回重试（2026-11-03 CloudPrime 病灶）：前两次「200 SSE 零事件秒收场」就地吞掉
+    重发，第三次放行真内容——健康端点首次即有内容，缓冲即放行，行为零变化。"""
+    from ai_office import anthropic_channel
+
+    calls = {"n": 0}
+    sse = (
+        'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n'
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"alive"}}\n\n'
+        'data: {"type":"message_stop"}\n\n'
+    )
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=b"")
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=sse.encode("utf-8"))
+
+    def patched_client(*args, **kwargs):
+        kwargs.pop("trust_env", None)
+        kwargs.pop("timeout", None)
+        return _REAL_ASYNC_CLIENT(transport=httpx.MockTransport(handler), timeout=30.0)
+
+    with patch.object(anthropic_channel.httpx, "AsyncClient", side_effect=patched_client), \
+         patch.object(anthropic_channel, "_STREAM_EMPTY_RETRY_DELAY_S", 0.0):
+        events = _collect(anthropic_channel.stream(
+            [{"role": "user", "content": "hi"}],
+            model="m", base_url="http://x/v1", api_key="k", max_tokens=64,
+        ))
+
+    assert calls["n"] == 3
+    assert [e["delta"] for e in events if e["type"] == "content"] == ["alive"]
+
+
+def test_chat_retries_empty_shell_then_falls_back_to_stream():
+    """非流式空壳（CloudPrime 死非流式）：重试耗尽后转流式聚合兜底，绝不静默返回空。"""
+    from ai_office import anthropic_channel
+
+    calls = {"n": 0}
+    sse = (
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"via stream"}}\n\n'
+        'data: {"type":"message_stop"}\n\n'
+    )
+
+    def handler(request):
+        calls["n"] += 1
+        body = request.content.decode("utf-8") if request.content else ""
+        if '"stream": true' in body or '"stream":true' in body:
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=sse.encode("utf-8"))
+        # CloudPrime 空壳：合法 Message 形状但零内容
+        return httpx.Response(200, json={"content": [], "role": "assistant", "stop_reason": "end_turn"})
+
+    def patched_client(*args, **kwargs):
+        kwargs.pop("trust_env", None)
+        kwargs.pop("timeout", None)
+        return _REAL_ASYNC_CLIENT(transport=httpx.MockTransport(handler), timeout=30.0)
+
+    with patch.object(anthropic_channel.httpx, "AsyncClient", side_effect=patched_client), \
+         patch.object(anthropic_channel, "_STREAM_EMPTY_RETRY_DELAY_S", 0.0):
+        result = asyncio.run(anthropic_channel.chat(
+            [{"role": "user", "content": "hi"}],
+            model="m", base_url="http://x/v1", api_key="k", max_tokens=64,
+        ))
+
+    assert (result.get("message") or {}).get("content") == "via stream"
+    assert (result.get("message") or {}).get("via") == "stream_fallback"
+    # 4 次非流式空壳尝试 + 1 次流式兜底
+    assert calls["n"] == 5

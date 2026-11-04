@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>任务调度画布 · 原型</title>
+<style>
+/* ============================================================
+   原型 · 任务调度画布（调度台改版 · 三列汇流 · 连线即规则）
+   视觉基准：tokens.css 浅色主题逐值搬运（间距 4/8/12/16/24/32 · 字阶 11/12/14/16/20/24 ·
+   圆角 2/4/6/8/12 · 工业蓝 #1677FF · 白玻璃卡片 · 禁左侧彩色装饰条）
+   规格要点：
+   · 左列 = 业务卡（含「全部业务」兜底虚拟卡）· 右列 = 节点分组卡（节点头=聚合统计，节点体=人员行）
+   · 连线 = 默认承接规则（业务 → 节点内人员行）· 兜底规则虚线琥珀色
+   · 拖 业务卡右侧圆点 → 人员行左侧圆点 = 新增规则；点连线 = 删除规则
+   · 点人员行 = 人员抽屉（在办清单 + 规则管理 + 移除处理人）；点无主徽章 = 无主侧板（一键补齐）
+   · 业务规模机制（工具条可切 6/24 家演示）：
+     ① 左列只挂「有专属规则的业务」——被兜底覆盖的由「全部业务」卡代表；未配置的收进「未配置 N 家」虚线尾卡，展开可拖线配规则
+     ② 左列内部滚动（实装=Vue Flow 视口内滚动，连线原生跟随）
+     ③ 左列顶粘住搜索框：命中亮、无关卡与线降 12% 透明度
+     ④ 聚焦模式：点业务卡只看它的规则线，点画布空白恢复
+   · 实装：@vue-flow/core + minimap + background（推理流同款依赖，零新增）；本原型 DOM+SVG 模拟交互
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --accent: #1677FF;
+  --accent-light: #4096ff;
+  --t1: #1d2129; --t2: #4e5969; --t3: #86909c; --t4: #c9cdd4;
+  --line: rgba(22, 119, 255, 0.10);
+  --line-strong: rgba(22, 119, 255, 0.16);
+  --danger: #e5484d;
+  --danger-bg: rgba(255, 107, 107, 0.12);
+  --amber: #d48806;
+  --amber-bg: rgba(250, 173, 20, 0.14);
+  --green: #2f9d78;
+  --green-bg: rgba(82, 201, 160, 0.14);
+  /* 浅色玻璃配方（tokens.css 逐值） */
+  --glass-card-bg: linear-gradient(135deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.24) 40%, rgba(255,255,255,0.44) 100%);
+  --glass-border: rgba(120, 144, 176, 0.38);
+  --glass-shadow: 0 10px 30px rgba(22, 119, 255, 0.08), inset 0 1px 0 rgba(255,255,255,0.62);
+  --blur: 14px;
+  --r-xs: 2px; --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 12px;
+}
+body {
+  font-family: var(--font); color: var(--t1); font-size: 14px; line-height: 1.6;
+  background:
+    radial-gradient(ellipse 80% 60% at 12% 0%, rgba(22, 119, 255, 0.16), transparent 55%),
+    radial-gradient(ellipse 65% 55% at 95% 15%, rgba(91, 143, 249, 0.12), transparent 60%),
+    linear-gradient(180deg, #DCE9F8 0%, #E9F0FA 45%, #F2F6FC 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* ---------- 原型工具条（非产品 UI） ---------- */
+.proto-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 999;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.proto-bar .pb-title { font-weight: 700; margin-right: 8px; }
+.proto-bar .pb-title small { font-weight: 400; color: var(--t3); margin-left: 6px; }
+.proto-bar .pb-hint { margin-left: auto; color: var(--t3); font-size: 11.5px; }
+
+/* ---------- 页面 ---------- */
+.page { padding: 74px 32px 60px; max-width: 1360px; margin: 0 auto; }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.page-head h1 { font-size: 24px; font-weight: 700; line-height: 1.25; }
+.page-head .desc { font-size: 13px; color: var(--t3); margin-top: 4px; }
+.head-stats { display: flex; gap: 8px; }
+.stat-chip {
+  display: flex; flex-direction: column; align-items: center; padding: 8px 18px; cursor: pointer; font-family: inherit;
+  background: var(--glass-card-bg); border: 1px solid var(--glass-border);
+  border-radius: var(--r-lg); backdrop-filter: blur(var(--blur)); box-shadow: var(--glass-shadow); transition: all .2s;
+}
+.stat-chip:hover { border-color: var(--accent); transform: translateY(-1px); }
+.stat-chip b { font-family: var(--mono); font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat-chip span { font-size: 11px; color: var(--t3); }
+.stat-chip.danger b { color: var(--danger); }
+
+/* ---------- 画布卡 ---------- */
+.canvas-card {
+  background: var(--glass-card-bg); border: 1px solid var(--glass-border);
+  border-radius: var(--r-xl); backdrop-filter: blur(var(--blur)); box-shadow: var(--glass-shadow);
+  overflow: hidden;
+}
+.canvas-wrap {
+  position: relative; display: flex; gap: 96px; align-items: flex-start;
+  padding: 24px 32px; min-height: 600px;
+  /* 蓝图网格底（画布感） */
+  background-image: linear-gradient(rgba(22,119,255,0.022) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(22,119,255,0.022) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+#edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#edges path.hit { pointer-events: stroke; cursor: pointer; }
+#edges path.wire { fill: none; transition: stroke .15s, stroke-width .15s; }
+
+/* 左列：业务卡 */
+.lane-biz { position: relative; z-index: 2; display: flex; flex-direction: column; gap: 12px; width: 240px; flex-shrink: 0;
+  max-height: 668px; overflow-y: auto; padding-right: 2px; }
+.biz-search { position: sticky; top: 0; z-index: 3; }
+.biz-search input {
+  width: 100%; padding: 6px 12px; font-size: 12.5px; font-family: inherit;
+  border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  background: rgba(255,255,255,0.72); color: var(--t1); outline: none; backdrop-filter: blur(8px);
+}
+.biz-search input:focus { border-color: var(--accent); }
+.biz-card.dim, .tray-row.dim { opacity: 0.22; }
+.biz-card.focused { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(22,119,255,0.18), 0 6px 18px rgba(22,119,255,0.12); }
+/* 未配置规则尾卡 */
+.biz-tray { border: 1px dashed var(--line-strong); border-radius: var(--r-lg); background: rgba(255,255,255,0.35); overflow: hidden; }
+.biz-tray-head {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px 14px;
+  border: none; background: transparent; font-family: inherit; font-size: 12.5px; color: var(--t3); cursor: pointer;
+}
+.biz-tray-head b { color: var(--t2); font-family: var(--mono); }
+.biz-tray-head:hover { color: var(--t1); }
+.biz-tray-list { display: flex; flex-direction: column; border-top: 1px dashed var(--line); max-height: 180px; overflow-y: auto; }
+.tray-row { position: relative; display: flex; align-items: center; padding: 5px 14px; font-size: 12.5px; color: var(--t2); transition: background .15s; }
+.tray-row:hover { background: rgba(255,255,255,0.5); color: var(--t1); }
+.tray-row .port { position: static; transform: none; margin-left: auto; opacity: 0.55; }
+.tray-row:hover .port { opacity: 1; }
+.biz-card {
+  position: relative; padding: 10px 14px;
+  background: rgba(255,255,255,0.55); border: 1px solid var(--glass-border);
+  border-radius: var(--r-lg); backdrop-filter: blur(10px); box-shadow: 0 4px 14px rgba(22,119,255,0.06);
+  transition: all .2s;
+}
+.biz-card:hover { border-color: var(--accent); box-shadow: 0 6px 18px rgba(22,119,255,0.12); }
+.biz-name { font-size: 14px; font-weight: 600; }
+.biz-sub { font-size: 11px; color: var(--t3); margin-top: 2px; }
+.biz-card.fallback { border-style: dashed; background: rgba(250,173,20,0.07); }
+.biz-card.fallback .biz-name { color: var(--amber); }
+/* 拖线起点：右侧圆点端口 */
+.port {
+  position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 999px;
+  background: #fff; border: 2px solid var(--accent); cursor: crosshair; transform: translateY(-50%);
+  transition: all .15s;
+}
+.port:hover, .port.dragging { background: var(--accent); box-shadow: 0 0 0 4px rgba(22,119,255,0.15); }
+.port.out { right: -6px; }
+.port.in { left: -6px; width: 8px; height: 8px; opacity: 0; }
+.handler-row:hover .port.in, .port.in.port-lit { opacity: 1; }
+
+/* 右列：节点分组卡 */
+.lane-nodes { position: relative; z-index: 2; display: flex; flex-direction: column; gap: 16px; flex: 1; max-width: 660px; margin-left: 24px; }
+.node-card {
+  background: rgba(255,255,255,0.5); border: 1px solid var(--glass-border);
+  border-radius: var(--r-xl); backdrop-filter: blur(10px);
+  box-shadow: 0 8px 24px rgba(22,119,255,0.07), inset 0 1px 0 rgba(255,255,255,0.62);
+  overflow: visible;
+}
+.node-head {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.node-head h3 { font-size: 16px; font-weight: 600; }
+.node-head .node-key { font-size: 11px; color: var(--t3); font-family: var(--mono); }
+.node-agg { margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--t2); }
+.node-agg b { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.stuck-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; font-family: inherit; cursor: pointer;
+  border-radius: 999px; border: 1px solid rgba(255,107,107,0.35);
+  background: var(--danger-bg); color: var(--danger); font-size: 12px; font-weight: 600;
+  animation: pulse 2s infinite;
+}
+.stuck-chip.zero { border-color: var(--green-bg); background: var(--green-bg); color: var(--green); animation: none; font-weight: 400; }
+.stuck-chip i { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,107,0.30); }
+  50% { box-shadow: 0 0 0 6px rgba(255,107,107,0); }
+}
+.handler-list { padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+.handler-row {
+  position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  background: rgba(255,255,255,0.45); border: 1px solid rgba(22,119,255,0.08);
+  border-radius: var(--r-md); cursor: pointer; transition: all .15s;
+}
+.handler-row:hover { border-color: var(--accent); background: rgba(255,255,255,0.72); }
+.handler-row.ghost { border-style: dashed; opacity: 0.75; }
+.avatar {
+  width: 30px; height: 30px; border-radius: 999px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(22,119,255,0.10); color: var(--accent); font-size: 13px; font-weight: 600;
+}
+.handler-row.ghost .avatar { background: transparent; border: 1px dashed var(--t4); color: var(--t3); }
+.hr-main { min-width: 0; }
+.hr-main b { font-size: 13.5px; font-weight: 600; display: block; line-height: 1.3; }
+.hr-main span { font-size: 11px; color: var(--t3); display: block; }
+.hr-load { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.hr-load b { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.hr-load .bar { width: 64px; height: 4px; border-radius: 999px; background: rgba(22,119,255,0.10); overflow: hidden; }
+.hr-load .bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+.hr-load.hot b { color: var(--amber); }
+.hr-load.hot .bar i { background: var(--amber); }
+
+/* 画布图例 */
+.canvas-legend {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 10px 24px; border-top: 1px solid var(--line);
+  font-size: 11.5px; color: var(--t3);
+}
+.canvas-legend .lg-wire { display: inline-block; width: 28px; height: 0; border-top: 2px solid rgba(22,119,255,0.4); vertical-align: middle; margin-right: 4px; }
+.canvas-legend .lg-wire.fb { border-top-style: dashed; border-top-color: var(--amber); }
+
+/* 转交记录 */
+.transfers { margin-top: 16px; }
+.transfers summary {
+  cursor: pointer; font-size: 13px; color: var(--t2); font-weight: 600;
+  padding: 10px 16px; background: rgba(255,255,255,0.45); border: 1px solid var(--glass-border);
+  border-radius: var(--r-lg); list-style: none;
+}
+.transfers summary::-webkit-details-marker { display: none; }
+.transfers table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; }
+.transfers th { text-align: left; padding: 8px 12px; font-size: 11px; color: var(--t3); font-weight: 600; border-bottom: 1px solid var(--line); }
+.transfers td { padding: 8px 12px; border-bottom: 1px solid rgba(22,119,255,0.06); color: var(--t2); }
+
+/* ---------- 抽屉（人员 / 无主） ---------- */
+.drawer-mask {
+  position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,0.28);
+  opacity: 0; pointer-events: none; transition: opacity .25s;
+}
+.drawer-mask.on { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 501; width: 420px; max-width: 92vw;
+  background: rgba(255,255,255,0.92); backdrop-filter: blur(18px);
+  border-left: 1px solid var(--glass-border); box-shadow: -12px 0 40px rgba(22,119,255,0.10);
+  transform: translateX(102%); transition: transform .3s cubic-bezier(.16,1,.3,1);
+  display: flex; flex-direction: column;
+}
+.drawer.on { transform: translateX(0); }
+.drawer-head { display: flex; align-items: center; gap: 12px; padding: 20px 20px 14px; }
+.drawer-head h2 { font-size: 20px; font-weight: 700; }
+.drawer-head .close {
+  margin-left: auto; width: 28px; height: 28px; border-radius: 999px; border: 1px solid var(--line);
+  background: rgba(255,255,255,0.5); color: var(--t2); cursor: pointer; font-size: 14px; font-family: inherit;
+}
+.drawer-body { flex: 1; overflow-y: auto; padding: 0 20px 20px; }
+.d-section { margin-bottom: 20px; }
+.d-section > h4 { font-size: 12px; font-weight: 600; color: var(--t3); letter-spacing: 0.02em; margin-bottom: 8px; }
+.task-item {
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px; margin-bottom: 6px;
+  background: rgba(255,255,255,0.5); border: 1px solid rgba(22,119,255,0.08); border-radius: var(--r-md);
+}
+.task-item .tk-name { font-size: 13px; font-weight: 600; cursor: pointer; }
+.task-item .tk-name:hover { color: var(--accent); }
+.task-item .tk-days { margin-left: auto; font-size: 11px; color: var(--t3); font-family: var(--mono); }
+.task-item .tk-days.hot { color: var(--danger); font-weight: 700; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.rule-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px;
+  background: rgba(22,119,255,0.07); border: 1px solid rgba(22,119,255,0.16);
+  border-radius: 999px; font-size: 12px; color: var(--t2);
+}
+.rule-chip.fb { background: var(--amber-bg); border-color: rgba(250,173,20,0.3); color: var(--amber); }
+.rule-chip .x { cursor: pointer; color: var(--t3); font-style: normal; padding: 0 1px; }
+.rule-chip .x:hover { color: var(--danger); }
+.d-ops { display: flex; gap: 8px; padding-top: 4px; }
+.btn {
+  padding: 7px 16px; border-radius: var(--r-md); cursor: pointer; font-family: inherit; font-size: 13px;
+  border: 1px solid var(--line-strong); background: rgba(255,255,255,0.6); color: var(--t2); transition: all .2s;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.primary:hover { background: var(--accent-light); }
+.btn.danger-ghost { border-color: rgba(255,107,107,0.4); color: var(--danger); }
+.btn.danger-ghost:hover { background: var(--danger-bg); }
+.stuck-tip { font-size: 11.5px; color: var(--t3); margin-bottom: 10px; }
+.sc-suggest { font-size: 11px; color: var(--amber); }
+.task-item select {
+  margin-left: 8px; padding: 3px 6px; font-size: 12px; font-family: inherit;
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: #fff; color: var(--t1);
+}
+.mini-go { margin-left: 6px; padding: 3px 10px; font-size: 12px; font-family: inherit; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: var(--r-sm); }
+
+/* ---------- 连线弹层 / toast ---------- */
+.popover {
+  position: fixed; z-index: 600; display: none; padding: 12px 14px; min-width: 220px;
+  background: rgba(255,255,255,0.95); backdrop-filter: blur(14px);
+  border: 1px solid var(--glass-border); border-radius: var(--r-lg);
+  box-shadow: 0 12px 32px rgba(22,119,255,0.14); font-size: 12.5px;
+}
+.popover.on { display: block; }
+.popover .pop-rule { font-weight: 600; margin-bottom: 4px; }
+.popover .pop-meta { color: var(--t3); font-size: 11.5px; margin-bottom: 10px; }
+.popover .pop-ops { display: flex; gap: 8px; }
+.toast {
+  position: fixed; left: 50%; bottom: 32px; z-index: 700; transform: translateX(-50%) translateY(20px);
+  padding: 10px 20px; border-radius: var(--r-lg); font-size: 13px;
+  background: rgba(29,33,41,0.92); color: #fff; opacity: 0; pointer-events: none;
+  transition: all .3s cubic-bezier(.16,1,.3,1);
+}
+.toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <span class="pb-title">任务调度画布 · 原型<small>三列汇流 · 连线即默认承接规则</small></span>
+  <button class="pb-btn" id="denseToggle">模拟业务 6 → 24 家</button>
+  <span class="pb-hint">拖 业务卡右侧圆点 → 人员行左侧圆点 = 新增规则 · 点连线删除 · 点人员行/无主徽章开抽屉 · 实装用 @vue-flow/core（推理流同款）</span>
+</div>
+
+<div class="page">
+  <div class="page-head">
+    <div>
+      <h1>任务调度页</h1>
+      <div class="desc">调度台全景画布：业务 → 节点 → 人 · 连线即默认承接规则 · 无主任务即时灭火</div>
+    </div>
+    <div class="head-stats">
+      <button class="stat-chip danger" id="statStuck"><b>3</b><span>无主任务</span></button>
+      <div class="stat-chip"><b>23</b><span>活跃任务</span></div>
+      <button class="stat-chip" id="statApproval"><b>4</b><span>待审批 · 去独立页</span></button>
+      <div class="stat-chip"><b>5</b><span>今日转交</span></div>
+    </div>
+  </div>
+
+  <div class="canvas-card">
+    <div class="canvas-wrap" id="canvas">
+      <svg id="edges"></svg>
+      <div class="lane-biz" id="bizLane"></div>
+      <div class="lane-nodes" id="nodeLane"></div>
+    </div>
+    <div class="canvas-legend">
+      <span><i class="lg-wire"></i>连线 = 默认承接规则（业务 → 节点 · 人员）</span>
+      <span><i class="lg-wire fb"></i>虚线 = 全部业务兜底（含未来新增）</span>
+      <span>点人员行看在办与规则 · 拖圆点连线加规则 · 点连线删规则</span>
+      <span>业务多时：搜索过滤 / 点业务卡聚焦 · 未配置规则的业务收在左列尾卡</span>
+    </div>
+  </div>
+  </div>
+
+  <details class="transfers">
+    <summary>转交记录（近 30 条 · 今日 5 条）</summary>
+    <table>
+      <thead><tr><th>时间</th><th>需求</th><th>节点</th><th>原处理人</th><th>新处理人</th><th>操作人</th></tr></thead>
+      <tbody>
+        <tr><td>今天 14:32</td><td>华东智算中心</td><td>方案配置</td><td>李工</td><td>王工</td><td>调度台</td></tr>
+        <tr><td>今天 11:08</td><td>华南医疗二期</td><td>成本核算</td><td>未指派</td><td>孙工</td><td>一键补齐</td></tr>
+        <tr><td>今天 09:47</td><td>华北交通枢纽</td><td>报价单</td><td>钱会计</td><td>吴会计</td><td>王总监</td></tr>
+      </tbody>
+    </table>
+  </details>
+</div>
+
+<!-- 遮罩 + 抽屉 -->
+<div class="drawer-mask" id="mask"></div>
+<aside class="drawer" id="personDrawer">
+  <div class="drawer-head">
+    <span class="avatar" id="pdAvatar" style="width:38px;height:38px;font-size:16px;">李</span>
+    <div><h2 id="pdName">李工</h2><div style="font-size:12px;color:var(--t3);" id="pdMeta">方案配置 · 在办 5</div></div>
+    <button class="close" data-close>×</button>
+  </div>
+  <div class="drawer-body">
+    <div class="d-section"><h4>在办任务</h4><div id="pdTasks"></div></div>
+    <div class="d-section"><h4>默认承接规则（点 × 移除）</h4><div class="chip-row" id="pdRules"></div></div>
+    <div class="d-ops">
+      <button class="btn danger-ghost" id="pdRemove">移除该处理人（在办转无主 + 删规则）</button>
+    </div>
+  </div>
+</aside>
+<aside class="drawer" id="stuckDrawer">
+  <div class="drawer-head">
+    <div><h2>无主任务 <span style="color:var(--danger);font-family:var(--mono);">3</span></h2><div style="font-size:12px;color:var(--t3);" id="sdMeta">当前节点无处理人的在办流程 · 按停留倒序</div></div>
+    <button class="close" data-close>×</button>
+  </div>
+  <div class="drawer-body">
+    <div class="d-ops" style="margin-bottom:12px;">
+      <button class="btn primary" id="sdAutofill">⚡ 一键按规则补齐</button>
+      <span class="stuck-tip" style="margin:0;">默认规则可命中的一步到位</span>
+    </div>
+    <div class="d-section"><h4>待指派（≥3 天标红）</h4><div id="sdList"></div></div>
+  </div>
+</aside>
+
+<div class="popover" id="edgePop"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── mock 数据 ── */
+const NODES = {
+  boming:  { label: '方案配置', stuck: 3, transfer: 2 },
+  costing: { label: '成本核算', stuck: 0, transfer: 1 },
+  quoting: { label: '报价单',   stuck: 0, transfer: 2 },
+}
+const BIZ = {
+  chenxiao: { name: '华东 · 陈晓', sub: '业务员 · 在途商机 6' },
+  linyue:   { name: '华南 · 林悦', sub: '业务员 · 在途方案 4' },
+  zhaolei:  { name: '华北 · 赵磊', sub: '业务员 · 在途商机 5' },
+  zhouting: { name: '西南 · 周婷', sub: '业务员 · 在途商机 2' },
+  wukai:    { name: '直销 · 吴凯', sub: '业务员 · 在途商机 3' },
+  all:      { name: '全部业务', sub: '兜底规则 · 含未来新增', fallback: true },
+}
+/* 密度演示：模拟业务规模涨到 24 家（仅 5 家配了专属规则，其余被兜底覆盖收进尾卡） */
+const BIZ_EXTRA = [
+  ['heyjing',  '中原 · 何静'], ['dupeng',   '闽赣 · 杜鹏'], ['jiangxin', '湘鄂 · 蒋欣'],
+  ['majun',    '陕甘宁 · 马俊'], ['gaoxiang', '晋蒙 · 高翔'], ['weili',    '桂琼 · 韦丽'],
+  ['tianye',   '云贵 · 田野'], ['ayi',      '青新 · 阿依'], ['shaojie',  '京津冀 · 邵杰'],
+  ['shenyue',  '长三角 · 沈悦'], ['tankai',   '大湾区 · 谭凯'], ['wenjing',  '成渝 · 文静'],
+  ['dengqun',  '山东 · 邓群'], ['fenglu',   '河南 · 冯露'], ['caoyang',  '安徽 · 曹阳'],
+  ['xieting',  '江西 · 谢婷'], ['hanlei',   '辽吉 · 韩磊'], ['sunyu',    '黑龙江 · 孙玉'],
+]
+const state = { q: '', focus: null, trayOpen: false, dense: false }
+function currentBiz() {
+  if (!state.dense) return BIZ
+  const b = { ...BIZ }
+  for (const [k, name] of BIZ_EXTRA) b[k] = { name, sub: '业务员 · 未配置规则' }
+  return b
+}
+const HANDLERS = {
+  lisi:     { name: '李工', node: 'boming',  load: 5 },
+  wanggong: { name: '王工', node: 'boming',  load: 4 },
+  sungong:  { name: '孙工', node: 'costing', load: 3 },
+  zhougong: { name: '周工', node: 'costing', load: 2 },
+  hezong:   { name: '何工', node: 'costing', load: 0, ghost: 'legacy 自由填写 · 未匹配到账号' },
+  qian:     { name: '钱会计', node: 'quoting', load: 6 },
+  wu:       { name: '吴会计', node: 'quoting', load: 3 },
+}
+let RULES = [
+  { biz: 'chenxiao', node: 'boming',  handler: 'lisi' },
+  { biz: 'linyue',   node: 'boming',  handler: 'lisi' },
+  { biz: 'zhaolei',  node: 'boming',  handler: 'wanggong' },
+  { biz: 'all',      node: 'boming',  handler: 'wanggong' },
+  { biz: 'chenxiao', node: 'costing', handler: 'sungong' },
+  { biz: 'linyue',   node: 'costing', handler: 'sungong' },
+  { biz: 'all',      node: 'costing', handler: 'zhougong' },
+  { biz: 'all',      node: 'quoting', handler: 'qian' },
+  { biz: 'zhaolei',  node: 'quoting', handler: 'wu' },
+]
+const PERSON_TASKS = {
+  lisi:     [['华东智算中心', 1], ['华南医疗二期', 2], ['西南教育集群', 5]],
+  wanggong: [['华北交通枢纽', 3], ['直销样板局', 0]],
+  sungong:  [['华南医疗二期', 1], ['华东智算中心', 2], ['渠道备货单', 4]],
+  zhougong: [['西南智慧园区', 2]],
+  hezong:   [],
+  qian:     [['华北交通枢纽', 1], ['华东智算中心', 3], ['华南医疗二期', 1], ['直销样板局', 6], ['渠道年度框架', 2], ['西南教育集群', 4]],
+  wu:       [['华北交通枢纽', 2], ['渠道备货单', 5], ['西南智慧园区', 1]],
+}
+const STUCK = [
+  { opp: '西北油田数字化', node: 'boming', days: 4, suggest: '王工' },
+  { opp: '华中电力试点',   node: 'boming', days: 2, suggest: '' },
+  { opp: '东北钢铁集团',   node: 'boming', days: 1, suggest: '' },
+]
+
+/* ── 渲染 ── */
+const $ = (s) => document.querySelector(s)
+const svg = $('#edges')
+const svgNS = 'http://www.w3.org/2000/svg'
+
+function bizCardHtml(k) {
+  const B = currentBiz()
+  const b = B[k]
+  return `
+    <div class="biz-card ${b.fallback ? 'fallback' : ''}" data-biz="${k}" title="点击只看该业务的规则线">
+      <div class="biz-name">${b.name}</div>
+      <div class="biz-sub">${b.sub}</div>
+      <span class="port out" data-bizport="${k}" title="拖到人员行连线 = 新增默认规则"></span>
+    </div>`
+}
+function renderBiz() {
+  const B = currentBiz()
+  const ruleOwners = new Set(RULES.map(r => r.biz))
+  const keys = Object.keys(B).filter(k => k !== 'all')
+  const owners = keys.filter(k => ruleOwners.has(k))
+  const unconf = keys.filter(k => !ruleOwners.has(k))
+  let html = `<div class="biz-search"><input id="bizSearch" placeholder="搜索业务…（命中亮、其余暗）" value="${state.q}" /></div>`
+  html += owners.map(bizCardHtml).join('')
+  html += bizCardHtml('all')
+  if (unconf.length) {
+    html += `
+    <div class="biz-tray">
+      <button class="biz-tray-head" id="trayToggle">未配置规则 <b>${unconf.length}</b> 家 ${state.trayOpen ? '▾' : '▸'}</button>
+      <div class="biz-tray-list" ${state.trayOpen ? '' : 'hidden'}>
+        ${unconf.map(k => `
+        <div class="tray-row" data-tray="${k}" title="点击聚焦 · 拖圆点配专属规则">
+          <span>${B[k].name}</span>
+          <span class="port out" data-bizport="${k}"></span>
+        </div>`).join('')}
+      </div>
+    </div>`
+  }
+  $('#bizLane').innerHTML = html
+  const inp = $('#bizSearch')
+  inp.addEventListener('input', () => { state.q = inp.value; applyDim() })
+  inp.addEventListener('keydown', (e) => e.stopPropagation())
+}
+function isDimBiz(k) {
+  const B = currentBiz()
+  const q = state.q.trim().toLowerCase()
+  return (q && !B[k].name.toLowerCase().includes(q)) || (state.focus && state.focus !== k)
+}
+function applyDim() {
+  document.querySelectorAll('#bizLane [data-biz]').forEach(el => el.classList.toggle('dim', isDimBiz(el.dataset.biz))
+  )
+  document.querySelectorAll('#bizLane [data-tray]').forEach(el => el.classList.toggle('dim', isDimBiz(el.dataset.tray)))
+  redraw()
+}
+function renderNodes() {
+  const byNode = {}
+  for (const [hk, h] of Object.entries(HANDLERS)) (byNode[h.node] = byNode[h.node] || []).push([hk, h])
+  $('#nodeLane').innerHTML = Object.entries(NODES).map(([nk, n]) => {
+    const handlers = (byNode[nk] || []).map(([hk, h]) => {
+      const maxLoad = Math.max(...Object.values(HANDLERS).map(x => x.load), 1)
+      const pct = Math.round(h.load / maxLoad * 100)
+      const hot = h.load >= 5
+      return `
+      <div class="handler-row ${h.ghost ? 'ghost' : ''}" data-hkey="${hk}" ${h.ghost ? `title="${h.ghost}"` : ''}>
+        <span class="port in" data-hport="${nk}:${hk}"></span>
+        <span class="avatar">${h.name.slice(0, 1)}</span>
+        <div class="hr-main"><b>${h.name}</b><span>${h.ghost ? 'legacy 账号 · 待认领' : n.label + ' · 规则 ' + RULES.filter(r => r.handler === hk).length + ' 条'}</span></div>
+        <div class="hr-load ${hot ? 'hot' : ''}"><b>在办 ${h.load}</b><span class="bar"><i style="width:${pct}%"></i></span></div>
+      </div>`
+    }).join('')
+    return `
+    <section class="node-card" data-node="${nk}">
+      <header class="node-head" data-nodehead="${nk}">
+        <h3>${n.label}</h3><span class="node-key">${nk}</span>
+        <div class="node-agg">
+          <span>在办 <b>${Object.values(HANDLERS).filter(h => h.node === nk).reduce((s, h) => s + h.load, 0)}</b></span>
+          <span>今日转交 <b>${n.transfer}</b></span>
+          <button class="stuck-chip ${n.stuck ? '' : 'zero'}" data-stuck="${nk}"><i></i>${n.stuck ? '无主 ' + n.stuck : '无主 0'}</button>
+        </div>
+      </header>
+      <div class="handler-list">${handlers}</div>
+    </section>`
+  }).join('')
+}
+
+/* ── 连线 ── */
+function portPos(el, canvasRect) {
+  const r = el.getBoundingClientRect()
+  return { x: r.left + r.width / 2 - canvasRect.left, y: r.top + r.height / 2 - canvasRect.top }
+}
+function wirePath(a, b) {
+  const dx = Math.max(40, (b.x - a.x) * 0.45)
+  return `M ${a.x},${a.y} C ${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x},${b.y}`
+}
+function drawEdges() {
+  const canvasRect = $('#canvas').getBoundingClientRect()
+  svg.setAttribute('viewBox', `0 0 ${canvasRect.width} ${canvasRect.height}`)
+  svg.innerHTML = ''
+  for (const [i, r] of RULES.entries()) {
+    const from = document.querySelector(`[data-bizport="${r.biz}"]`)
+    const to = document.querySelector(`[data-hport="${r.node}:${r.handler}"]`)
+    if (!from || !to) continue
+    const p1 = portPos(from, canvasRect), p2 = portPos(to, canvasRect)
+    const d = wirePath(p1, p2)
+    const fb = r.biz === 'all'
+    const wire = document.createElementNS(svgNS, 'path')
+    wire.setAttribute('d', d); wire.setAttribute('class', 'wire')
+    wire.setAttribute('stroke', fb ? 'rgba(212,136,6,0.55)' : 'rgba(22,119,255,0.38)')
+    wire.setAttribute('stroke-width', fb ? '2.5' : '1.6')
+    if (fb) wire.setAttribute('stroke-dasharray', '6 5')
+    wire.setAttribute('stroke-opacity', isDimBiz(r.biz) ? '0.12' : '1')
+    const hit = document.createElementNS(svgNS, 'path')
+    hit.setAttribute('d', d); hit.setAttribute('class', 'hit')
+    hit.setAttribute('stroke', 'transparent'); hit.setAttribute('stroke-width', '12'); hit.setAttribute('fill', 'none')
+    hit.addEventListener('click', (e) => openEdgePop(e, i))
+    hit.addEventListener('mouseenter', () => wire.setAttribute('stroke', fb ? '#d48806' : '#1677FF'))
+    hit.addEventListener('mouseleave', () => wire.setAttribute('stroke', fb ? 'rgba(212,136,6,0.55)' : 'rgba(22,119,255,0.38)'))
+    r._els = { wire, hit }
+    svg.appendChild(wire); svg.appendChild(hit)
+  }
+}
+function redraw() { requestAnimationFrame(drawEdges) }
+
+/* ── 拖线新增规则 ── */
+let dragFrom = null, tempWire = null
+document.addEventListener('pointerdown', (e) => {
+  const port = e.target.closest('[data-bizport]')
+  if (!port) return
+  e.preventDefault()
+  const fromBiz = port.dataset.bizport
+  dragFrom = fromBiz
+  port.classList.add('dragging')
+  document.querySelectorAll('[data-hport]').forEach(p => p.classList.add('port-lit'))
+  const canvasRect = $('#canvas').getBoundingClientRect()
+  tempWire = document.createElementNS(svgNS, 'path')
+  tempWire.setAttribute('class', 'wire')
+  tempWire.setAttribute('stroke', 'rgba(22,119,255,0.7)')
+  tempWire.setAttribute('stroke-width', '2')
+  tempWire.setAttribute('stroke-dasharray', '5 4')
+  svg.appendChild(tempWire)
+  const move = (ev) => {
+    const a = portPos(port, canvasRect)
+    const b = { x: ev.clientX - canvasRect.left, y: ev.clientY - canvasRect.top }
+    tempWire.setAttribute('d', wirePath(a, b))
+    const el = document.elementFromPoint(ev.clientX, ev.clientY)
+    const hp = el && el.closest ? el.closest('[data-hport]') : null
+    document.querySelectorAll('[data-hport]').forEach(p => p.style.background = (p === hp ? 'var(--accent)' : ''))
+  }
+  const up = (ev) => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    port.classList.remove('dragging')
+    document.querySelectorAll('[data-hport]').forEach(p => { p.classList.remove('port-lit'); p.style.background = '' })
+    const el = document.elementFromPoint(ev.clientX, ev.clientY)
+    const hp = el && el.closest ? el.closest('[data-hport]') : null
+    if (tempWire) { tempWire.remove(); tempWire = null }
+    dragFrom = null
+    if (!hp) return
+    const [node, handler] = hp.dataset.hport.split(':')
+    if (RULES.some(r => r.biz === fromBiz && r.node === node && r.handler === handler)) {
+      toast('该规则已存在（演示）'); return
+    }
+    RULES.push({ biz: fromBiz, node, handler })
+    renderNodes(); redraw()
+    toast(`已连线新增规则：${BIZ[fromBiz].name} → ${NODES[node].label} · ${HANDLERS[handler].name}（演示）`)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+})
+function arguments_00(port) { return port.dataset.bizport }
+
+/* ── 连线点击弹层（删除规则） ── */
+function openEdgePop(e, ruleIdx) {
+  const r = RULES[ruleIdx]
+  const pop = $('#edgePop')
+  pop.innerHTML = `
+    <div class="pop-rule">${BIZ[r.biz].name} → ${NODES[r.node].label} · ${HANDLERS[r.handler].name}</div>
+    <div class="pop-meta">默认承接规则 · 该业务在「${NODES[r.node].label}」节点的新任务无指定处理人时归 ${HANDLERS[r.handler].name}</div>
+    <div class="pop-ops">
+      <button class="btn danger-ghost" id="popDel">删除规则</button>
+      <button class="btn" id="popCancel">取消</button>
+    </div>`
+  pop.classList.add('on')
+  const pr = pop.getBoundingClientRect()
+  pop.style.left = Math.min(e.clientX, window.innerWidth - pr.width - 16) + 'px'
+  pop.style.top = Math.min(e.clientY + 12, window.innerHeight - pr.height - 16) + 'px'
+  $('#popDel').onclick = () => { RULES.splice(ruleIdx, 1); renderNodes(); redraw(); closePop(); toast('已删除规则（演示）') }
+  $('#popCancel').onclick = closePop
+}
+function closePop() { $('#edgePop').classList.remove('on') }
+document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#edgePop') && !e.target.closest('.hit')) closePop() })
+
+/* ── 人员抽屉 ── */
+function openPerson(hk) {
+  const h = HANDLERS[hk]
+  $('#pdAvatar').textContent = h.name.slice(0, 1)
+  $('#pdName').textContent = h.name
+  $('#pdMeta').textContent = `${NODES[h.node].label} · 在办 ${h.load}${h.ghost ? ' · ' + h.ghost : ''}`
+  const maxLoad = Math.max(...Object.values(HANDLERS).map(x => x.load), 1)
+  $('#pdTasks').innerHTML = (PERSON_TASKS[hk] || []).map(([name, days]) => `
+    <div class="task-item"><span class="tk-name">${name}</span><span class="tk-days ${days >= 3 ? 'hot' : ''}">停 ${days} 天</span></div>
+  `).join('') || '<div style="font-size:12px;color:var(--t3);">暂无在办任务</div>'
+  const rules = RULES.filter(r => r.handler === hk)
+  $('#pdRules').innerHTML = rules.length ? rules.map((r, i) => `
+    <span class="rule-chip ${r.biz === 'all' ? 'fb' : ''}" title="默认承接：${BIZ[r.biz].name}">${BIZ[r.biz].name}<i class="x" data-delrule="${RULES.indexOf(r)}">×</i></span>
+  `).join('') : '<div style="font-size:12px;color:var(--t3);">暂无默认承接规则 · 从左侧业务卡拖线到此人员行即可添加</div>'
+  $('#pdRemove').onclick = () => {
+    const n = RULES.length; RULES = RULES.filter(r => r.handler !== hk)
+    renderNodes(); redraw(); closeDrawers()
+    toast(`已移除 ${h.name}：在办任务转无主、规则删除（演示，删 ${n - RULES.length} 条规则）`)
+  }
+  openDrawer('#personDrawer')
+}
+document.addEventListener('click', (e) => {
+  const x = e.target.closest('[data-delrule]')
+  if (x) { RULES.splice(Number(x.dataset.delrule), 1); renderNodes(); redraw(); toast('已移除规则（演示）'); return }
+  const row = e.target.closest('.handler-row')
+  if (row && !e.target.closest('[data-hport]')) { openPerson(row.dataset.hkey); return }
+  const head = e.target.closest('[data-nodehead]')
+  if (head) { openStuck(head.dataset.nodehead); return }
+  const chip = e.target.closest('[data-stuck]')
+  if (chip) { e.stopPropagation(); openStuck(chip.dataset.stuck) }
+})
+
+/* ── 无主侧板 ── */
+function openStuck(nodeKey = '') {
+  const list = STUCK.filter(s => !nodeKey || s.node === nodeKey)
+  $('#sdMeta').textContent = nodeKey ? `${NODES[nodeKey].label} · 当前节点无处理人的在办流程 · 按停留倒序` : '全部节点无处理人的在办流程 · 按停留倒序'
+  $('#sdList').innerHTML = list.length ? list.map((s, i) => `
+    <div class="task-item">
+      <span class="tk-name">${s.opp}</span>
+      <span class="rule-chip" style="margin-left:8px;">${NODES[s.node].label}</span>
+      <span class="tk-days ${s.days >= 3 ? 'hot' : ''}">停 ${s.days} 天</span>
+      ${s.suggest ? `<span class="sc-suggest">默认→${s.suggest}</span>` : ''}
+      <select><option value="" disabled selected>${s.suggest ? '建议 ' + s.suggest : '选择处理人'}</option>
+        <option>李工</option><option>王工</option><option>孙工</option></select>
+      <button class="mini-go">指派</button>
+    </div>`).join('') : '<div style="font-size:12px;color:var(--green);">全部任务都有主，无卡死流程</div>'
+  openDrawer('#stuckDrawer')
+}
+$('#sdAutofill').onclick = () => { closeDrawers(); toast('一键补齐：2 条已按默认规则指派，1 条无有效规则（演示）') }
+$('#statStuck').onclick = () => openStuck()
+$('#statApproval').onclick = () => toast('跳转 /approvals 独立审批页（见「报价外发审批独立页-原型.html」）')
+
+/* ── 抽屉开关 ── */
+function openDrawer(sel) {
+  document.querySelectorAll('.drawer').forEach(d => d.classList.remove('on'))
+  $(sel).classList.add('on'); $('#mask').classList.add('on')
+}
+function closeDrawers() {
+  document.querySelectorAll('.drawer').forEach(d => d.classList.remove('on'))
+  $('#mask').classList.remove('on')
+}
+$('#mask').addEventListener('click', closeDrawers)
+document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeDrawers))
+
+/* ── toast ── */
+let toastTimer = null
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('on')
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 2600)
+}
+
+/* ── 业务列交互：聚焦 / 尾卡 / 搜索清焦 ── */
+$('#bizLane').addEventListener('click', (e) => {
+  if (e.target.closest('[data-bizport]')) return
+  if (e.target.closest('#trayToggle')) { state.trayOpen = !state.trayOpen; renderBiz(); redraw(); return }
+  const card = e.target.closest('[data-biz]')
+  const trayRow = e.target.closest('[data-tray]')
+  const key = card ? card.dataset.biz : (trayRow ? trayRow.dataset.tray : null)
+  if (key) { state.focus = (state.focus === key ? null : key); applyDim(); markFocused() }
+})
+function markFocused() {
+  document.querySelectorAll('#bizLane [data-biz]').forEach(el =>
+    el.classList.toggle('focused', el.dataset.biz === state.focus))
+}
+$('#canvas').addEventListener('click', (e) => {
+  if (e.target === $('#canvas') || e.target === svg) { state.focus = null; applyDim(); markFocused() }
+})
+
+/* ── 密度演示开关 ── */
+$('#denseToggle').addEventListener('click', function () {
+  state.dense = !state.dense
+  this.classList.toggle('on', state.dense)
+  this.textContent = state.dense ? '模拟业务 24 家（点回 6 家）' : '模拟业务 6 → 24 家'
+  renderBiz(); renderNodes(); redraw()
+})
+
+/* ── init ── */
+renderBiz(); renderNodes()
+$('#bizLane').addEventListener('scroll', redraw)
+window.addEventListener('load', redraw)
+window.addEventListener('resize', redraw)
+redraw()
+applyDim(); markFocused()
+</script>
+</body>
+</html>
