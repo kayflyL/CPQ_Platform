@@ -61,7 +61,7 @@ export const projectApi = {
   },
 
   // 状态变更唯一入口：后端写归因字段并自动发一条【状态变更】评论到协作动态
-  resultChange: async (projectId: string, data: { result: string; note: string; loss_reason_keys?: string[] }) => {
+  resultChange: async (projectId: string, data: { result: string; note: string; loss_reason_keys?: string[]; win_reason_keys?: string[] }) => {
     const response = await api.post(`/opportunities/${projectId}/result-change`, data)
     return response.data
   },

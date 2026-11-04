@@ -56,6 +56,12 @@ const routes = [
         meta: { title: '商机线索', perm: 'page.opportunities_all' }
       },
       {
+        path: '/cockpit',
+        name: 'OpportunityCockpit',
+        component: () => import('@/views/opportunity/OpportunityCockpit.vue'),
+        meta: { title: '商机驾驶舱', perm: 'page.opportunities' }
+      },
+      {
         path: '/leads',
         name: 'LeadPool',
         component: () => import('@/views/lead/LeadPool.vue'),

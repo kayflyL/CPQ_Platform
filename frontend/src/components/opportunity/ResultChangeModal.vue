@@ -34,15 +34,25 @@ const canManage = computed(() => auth.can('page.settings.users'))
 const saving = ref(false)
 const note = ref('')
 const reasonKeys = ref<string[]>([])
+// 制胜因子（中标选填）：字典由弹窗自加载（opportunity.win_reasons），调用方无需透传
+const winReasons = ref<LossReason[]>([])
+const winKeys = ref<string[]>([])
 const managing = ref(false)
 const draftList = ref<LossReason[]>([])
 const newLabel = ref('')
 
-watch(() => props.open, (v) => {
+watch(() => props.open, async (v) => {
   if (v) {
     note.value = ''
     reasonKeys.value = []
+    winKeys.value = []
     managing.value = false
+    if (!winReasons.value.length && props.target === 'won') {
+      try {
+        const list = await systemConfigApi.getValue<LossReason[]>('opportunity.win_reasons')
+        if (Array.isArray(list)) winReasons.value = list
+      } catch { /* 字典加载失败不阻塞，选项回退空 */ }
+    }
   }
 })
 
@@ -50,7 +60,11 @@ const targetLabel = computed(() => resultLabel(props.target))
 const reasonOptions = computed(() =>
   props.reasons.filter(r => r.enabled).map(r => ({ value: r.key, label: r.label }))
 )
+const winOptions = computed(() =>
+  winReasons.value.filter(r => r.enabled).map(r => ({ value: r.key, label: r.label }))
+)
 const showReason = computed(() => props.target === 'lost' || props.target === 'expired')
+const showWinReason = computed(() => props.target === 'won')
 
 function tagColor(val: string) {
   return RESULT_OPTIONS.find(o => o.value === val)?.color ?? 'default'
@@ -75,6 +89,7 @@ async function confirm() {
       result: props.target,
       note: note.value.trim(),
       loss_reason_keys: showReason.value ? reasonKeys.value : [],
+      win_reason_keys: showWinReason.value ? winKeys.value : [],
     })
     emit('changed', res.opportunity)
     close()
@@ -156,6 +171,10 @@ async function saveDict() {
         <div v-if="showReason" class="rcm-block rcm-block-inner">
           <div class="rcm-label">{{ target === 'lost' ? '未成单原因 *' : '未成单原因（选填）' }}</div>
           <a-checkbox-group v-model:value="reasonKeys" class="rcm-reason-group" :options="reasonOptions" />
+        </div>
+        <div v-if="showWinReason" class="rcm-block rcm-block-inner">
+          <div class="rcm-label">制胜因子（选填，多选）</div>
+          <a-checkbox-group v-model:value="winKeys" class="rcm-reason-group" :options="winOptions" />
         </div>
         <div class="rcm-block rcm-block-inner">
           <div class="rcm-label">说一句 *</div>

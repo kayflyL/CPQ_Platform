@@ -701,8 +701,9 @@ async def change_opportunity_result(opportunity_id: str, payload: dict,
                                     user: dict = Depends(require_opportunity_access)):
     """商机状态变更唯一入口：写归因字段 + 自动向协作动态发一条【状态变更】评论（审计即跟进流）。
 
-    payload: { result, note(必填一句话), loss_reason_keys?(多选;lost 至少一项 / expired 选填) }
-    归因落在 extra_fields（loss_reason_keys/loss_note/result_changed_at），改回进行中/中标时清空。
+    payload: { result, note(必填一句话), loss_reason_keys?(多选;lost 至少一项 / expired 选填),
+               win_reason_keys?(多选;won 选填,制胜因子) }
+    归因落在 extra_fields（loss_reason_keys/loss_note/win_reason_keys/result_changed_at），改走时清空对应归因。
     """
     from app.repository.feed_repo import FeedRepository
     from app.services.feed_hub import hub
@@ -721,6 +722,8 @@ async def change_opportunity_result(opportunity_id: str, payload: dict,
     loss_reason_keys = [str(k).strip() for k in raw_keys if str(k).strip()] if isinstance(raw_keys, list) else []
     if new_result == "lost" and not loss_reason_keys:
         raise HTTPException(status_code=400, detail="已丢标必须选择未成单原因")
+    raw_win_keys = payload.get("win_reason_keys")
+    win_reason_keys = [str(k).strip() for k in raw_win_keys if str(k).strip()] if isinstance(raw_win_keys, list) else []
 
     repo = OpportunityRepository()
     try:
@@ -732,16 +735,20 @@ async def change_opportunity_result(opportunity_id: str, payload: dict,
             raise HTTPException(status_code=400, detail="商机状态未变化")
 
         # 原因字典解析 label；历史 key 已被删除时回退显示 key 本身
-        reason_labels: list[str] = []
-        if loss_reason_keys:
+        def _resolve_labels(dict_key: str, keys: list[str]) -> list[str]:
+            if not keys:
+                return []
             from app.repository.system_config_repo import SystemConfigRepository
             cfg_repo = SystemConfigRepository()
             try:
-                reasons = cfg_repo.get_value("opportunity.loss_reasons", []) or []
+                reasons = cfg_repo.get_value(dict_key, []) or []
             finally:
                 cfg_repo.close()
             label_by_key = {r.get("key"): (r.get("label") or r.get("key")) for r in reasons if isinstance(r, dict)}
-            reason_labels = [label_by_key.get(k, k) for k in loss_reason_keys]
+            return [label_by_key.get(k, k) for k in keys]
+
+        reason_labels = _resolve_labels("opportunity.loss_reasons", loss_reason_keys)
+        win_labels = _resolve_labels("opportunity.win_reasons", win_reason_keys)
 
         updates = {"result": new_result, "result_changed_at": now_iso()}
         if new_result in ("lost", "expired"):
@@ -751,12 +758,18 @@ async def change_opportunity_result(opportunity_id: str, payload: dict,
             # 归因只在丢标/过期时保留；历史归因留在动态流
             updates["loss_reason_keys"] = []
             updates["loss_note"] = ""
+        if new_result == "won":
+            updates["win_reason_keys"] = win_reason_keys
+        else:
+            updates["win_reason_keys"] = []
         updates["loss_reason_key"] = ""  # 清理早期单选字段残留
         repo.update_meta(opportunity_id, updates)
 
         head = f"【状态变更】{_RESULT_LABELS.get(prev_result, prev_result)} → {_RESULT_LABELS[new_result]}"
         if reason_labels:
             head += " · " + "/".join(reason_labels)
+        if win_labels:
+            head += " · 制胜: " + "/".join(win_labels)
         feed_repo = FeedRepository()
         try:
             msg = feed_repo.add_message(

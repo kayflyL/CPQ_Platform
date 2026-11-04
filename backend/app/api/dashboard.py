@@ -373,7 +373,410 @@ def get_dashboard_summary(
         session.close()
 
 
-def get_highlights(limit: int = 10) -> list:
+def _split_set(v: Optional[str]) -> list:
+    return [s.strip() for s in (v or "").split(",") if s.strip()]
+
+
+# 地区推断：库中无省/国字段，按客户名关键词推大区（仅驾驶舱展示口径，不落库）。
+# 海外：客户名含 ≥3 连续英文字母视为海外客户。
+_REGION_TABLE = [
+    ("华北", ("北京", "天津", "河北", "山西", "内蒙古", "石家庄", "唐山", "太原", "包头")),
+    ("东北", ("辽宁", "吉林", "黑龙江", "沈阳", "大连", "长春", "哈尔滨")),
+    ("华东", ("上海", "江苏", "浙江", "安徽", "福建", "江西", "山东", "南京", "杭州", "苏州", "济南", "青岛", "合肥", "宁波", "无锡")),
+    ("华中", ("河南", "湖北", "湖南", "郑州", "武汉", "长沙", "洛阳")),
+    ("华南", ("广东", "广西", "海南", "广州", "深圳", "东莞", "佛山", "南宁")),
+    ("西南", ("重庆", "四川", "云南", "贵州", "西藏", "成都", "昆明")),
+    ("西北", ("陕西", "甘肃", "青海", "宁夏", "新疆", "西安", "兰州", "乌鲁木齐")),
+]
+
+
+def _infer_region(name: str) -> str:
+    n = (name or "").strip()
+    if not n:
+        return "未分类"
+    if re.search(r"[A-Za-z]{3,}", n):
+        return "海外"
+    for region, kws in _REGION_TABLE:
+        if any(kw in n for kw in kws):
+            return region
+    return "未分类"
+
+
+def _parse_dt(s: Optional[str]):
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(str(s).replace("T", " ")[:19])
+    except ValueError:
+        return None
+
+
+_MARKUP_BINS = [(0, 5, "0~5%"), (5, 10, "5~10%"), (10, 15, "10~15%"), (15, 20, "15~20%"), (20, 30, "20~30%"), (30, 10 ** 9, ">30%")]
+_CYCLE_BINS = [(0, 15, "≤15天"), (15, 30, "16~30天"), (30, 60, "31~60天"), (60, 90, "61~90天"), (90, 10 ** 9, ">90天")]
+
+
+@router.get("/cockpit")
+def get_cockpit(
+    period: str = Query(default="year"),
+    start: Optional[str] = Query(default=None),
+    end: Optional[str] = Query(default=None),
+    result: Optional[str] = Query(default=None),
+    platform: Optional[str] = Query(default=None),
+    chassis: Optional[str] = Query(default=None),
+    industry: Optional[str] = Query(default=None),
+    otype: Optional[str] = Query(default=None),
+    sales: Optional[str] = Query(default=None),
+    pn: Optional[str] = Query(default=None),
+    customer: Optional[str] = Query(default=None),
+    user: dict = Depends(get_current_user),
+):
+    """商机驾驶舱聚合端点。
+
+    口径与 /summary 同源：商机不含 AI 办公室/回收站，配置数=当前版本求和，成单=result=won。
+    全量行取回后 Python 侧过滤聚合（商机量级数百行），KPI 总量类不受周期窗口影响；
+    prev=同比窗口（去年同期/上月同期/上周）。地区为关键词推断展示口径。
+    """
+    if not isinstance(user, dict):
+        user = {}
+    session = Opportunity_SessionLocal()
+    try:
+        s_dt, e_dt, _granularity, period_label = _resolve_range(period, start, end)
+        view_all = user_has_permission(user, "page.opportunities_all")
+        base = [Opportunity.status != "ai_office", Opportunity.status != "deleted"]
+        if not view_all:
+            base.append(Opportunity.owner_user_id == user.get("user_id"))
+
+        # 字典 label 解析（禁用/删除 key 回退显示 key 本身）
+        def _labels(dict_key: str) -> dict:
+            from app.repository.system_config_repo import SystemConfigRepository
+            repo = SystemConfigRepository()
+            try:
+                items = repo.get_value(dict_key, []) or []
+            finally:
+                repo.close()
+            return {r.get("key"): (r.get("label") or r.get("key")) for r in items if isinstance(r, dict)}
+
+        win_labels = _labels("opportunity.win_reasons")
+        loss_labels = _labels("opportunity.loss_reasons")
+
+        # ── 取全量行组装内存记录 ──
+        opps = session.query(Opportunity).filter(*base).all()
+        ids = [o.opportunity_id for o in opps]
+        slot_map = _current_slot_map(session, ids)
+        cfg_subq = _current_config_subquery(session, base)
+        cfg_map = {r.oid: int(r.cc or 0) for r in session.query(
+            cfg_subq.c.oid, cfg_subq.c.cc).filter(cfg_subq.c.rn == 1).all()}
+        q_rows = session.query(
+            Quotation.opportunity_id, Quotation.config_server_models, Quotation.profit_margin,
+        ).filter(Quotation.opportunity_id.in_(ids or [""]), Quotation.status != "deleted").all()
+
+        quote_count: dict = {}
+        oid_pns: dict = {}       # oid → 该商机报价中出现过的 PN 集合
+        oid_quotes: dict = {}    # oid → [(pn, 加点或None)]（报价单逐 PN 曝光）
+        pn_exposure: dict = {}   # pn → 次数（全量口径，供筛选项）
+        pn_markups: dict = {}    # pn → [加点样本]（全量口径，供筛选项）
+        for r in q_rows:
+            oid = r.opportunity_id
+            quote_count[oid] = quote_count.get(oid, 0) + 1
+            try:
+                d = json.loads(r.config_server_models) if isinstance(r.config_server_models, str) else r.config_server_models
+            except (json.JSONDecodeError, TypeError):
+                d = {}
+            if not isinstance(d, dict):
+                d = {}
+            pns = set()
+            for v in d.values():
+                p = _normalize_pn(str(v))
+                if not p:
+                    continue
+                pns.add(p)
+                pn_exposure[p] = pn_exposure.get(p, 0) + 1
+                mv = None
+                if r.profit_margin is not None:
+                    try:
+                        mv = float(r.profit_margin)
+                    except (TypeError, ValueError):
+                        mv = None
+                    if mv is not None and not (-50 < mv < 200):
+                        mv = None
+                oid_quotes.setdefault(oid, []).append((p, mv))
+                if mv is not None:
+                    pn_markups.setdefault(p, []).append(mv)
+            if pns:
+                oid_pns.setdefault(oid, set()).update(pns)
+
+        recs = []
+        for o in opps:
+            ex = {}
+            if o.extra_fields:
+                try:
+                    ex = json.loads(o.extra_fields)
+                except (json.JSONDecodeError, TypeError):
+                    ex = {}
+            created = _parse_dt(o.created_at)
+            changed = _parse_dt(ex.get("result_changed_at"))
+            win_days = None
+            if o.result == "won" and created and changed and changed >= created:
+                win_days = (changed - created).days
+            slots = slot_map.get(o.opportunity_id, {}) or {}
+            recs.append({
+                "oid": o.opportunity_id,
+                "customer": o.customer_name or "",
+                "sales": o.sales_person or "",
+                "result": o.result or "pending",
+                "industry": o.industry or "",
+                "otype": o.order_type or "",
+                "platform": slots.get("platform_type") or "未分类",
+                "chassis": (slots.get("chassis_form") or "未分类").split(",")[0].strip() or "未分类",
+                "cfg": cfg_map.get(o.opportunity_id, 0),
+                "quotes": quote_count.get(o.opportunity_id, 0),
+                "created": created,
+                "win_days": win_days,
+                "win_keys": ex.get("win_reason_keys") or [],
+                "loss_keys": ex.get("loss_reason_keys") or [],
+                "region": _infer_region(o.customer_name or ""),
+            })
+        rec_by_oid = {r["oid"]: r for r in recs}
+
+        # ── 维度筛选（周期之外的全部过滤）──
+        f_platform, f_chassis, f_industry, f_otype = _split_set(platform), _split_set(chassis), _split_set(industry), _split_set(otype)
+        f_sales, f_pn, f_result, f_customer = _split_set(sales), _split_set(pn), (result or "").strip(), (customer or "").strip()
+        # pn 筛选：命中的商机集合（报价里出现过该 PN）
+        pn_hit_oids = None
+        if f_pn:
+            pn_hit_oids = set()
+            for r in q_rows:
+                try:
+                    d = json.loads(r.config_server_models) if isinstance(r.config_server_models, str) else r.config_server_models
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if isinstance(d, dict) and any(_normalize_pn(str(v)) in f_pn for v in d.values()):
+                    pn_hit_oids.add(r.opportunity_id)
+
+        def dims_ok(rec) -> bool:
+            if f_result and rec["result"] != f_result:
+                return False
+            if f_platform and rec["platform"] not in f_platform:
+                return False
+            if f_chassis and rec["chassis"] not in f_chassis:
+                return False
+            if f_industry and (rec["industry"] or "未分类") not in f_industry:
+                return False
+            if f_otype and (rec["otype"] or "未分类") not in f_otype:
+                return False
+            if f_sales and rec["sales"] not in f_sales:
+                return False
+            if pn_hit_oids is not None and rec["oid"] not in pn_hit_oids:
+                return False
+            if f_customer and f_customer.lower() not in rec["customer"].lower():
+                return False
+            return True
+
+        RD = [r for r in recs if dims_ok(r)]
+        in_period = lambda rec: rec["created"] and (s_dt <= rec["created"] < e_dt + timedelta(days=1))
+        span = e_dt - s_dt
+        prev_start = s_dt - span
+        # 周期窗口作用于全部指标（口径对齐商机线索页：选本周就只看本周）；
+        # 月度趋势固定近12月、仅随维度筛选。Prev=维度筛选下的同期窗口（供环比）。
+        R = [r for r in RD if in_period(r)]
+        P = R
+        if period != "all":
+            Prev = [r for r in RD if r["created"] and prev_start <= r["created"] < s_dt]
+        else:
+            Prev = []
+        # 机型维度按当前筛选+周期集合重算（pn_exposure/pn_markups 是全量口径，仅供筛选项）
+        oid_set = {r["oid"] for r in R}
+        s_exposure: dict = {}
+        s_markups: dict = {}
+        markup_win_s: list = []   # (加点, oid)
+        for r in R:
+            for p, mv in oid_quotes.get(r["oid"], []):
+                s_exposure[p] = s_exposure.get(p, 0) + 1
+                if mv is not None:
+                    s_markups.setdefault(p, []).append(mv)
+                    markup_win_s.append((mv, r["oid"]))
+
+        def _count(items, key):
+            m = {}
+            for r in items:
+                v = r[key] or ("未分类" if key in ("industry", "otype") else "")
+                if not v:
+                    v = "未分类"
+                m[v] = m.get(v, 0) + 1
+            out = [{"name": k, "count": v} for k, v in m.items()]
+            out.sort(key=lambda x: x["count"], reverse=True)
+            return out
+
+        # ── KPI ──
+        won_recs = [r for r in R if r["result"] == "won"]
+        total_cfg = sum(r["cfg"] for r in R)
+        kpi = {
+            "total_opportunities": len(R),
+            "total_configs": total_cfg,
+            "customers": len({r["customer"] for r in R if r["customer"]}),
+            "quotes": sum(r["quotes"] for r in R),
+            "new_opportunities": len(P),
+            "new_configs": sum(r["cfg"] for r in P),
+            "won": len(won_recs),
+            "win_rate": round(len(won_recs) / len(R) * 100, 1) if R else 0.0,
+            "lost": len([r for r in R if r["result"] == "lost"]),
+            "expired": len([r for r in R if r["result"] == "expired"]),
+            "pending": len([r for r in R if r["result"] == "pending"]),
+        }
+        prev_won = [r for r in Prev if r["result"] == "won"]
+        prev_kpi = {
+            "new_opportunities": len(Prev),
+            "new_configs": sum(r["cfg"] for r in Prev),
+            "won": len(prev_won),
+            "win_rate": round(len(prev_won) / len(Prev) * 100, 1) if Prev else None,
+            "customers": len({r["customer"] for r in Prev if r["customer"]}),
+            "quotes": sum(r["quotes"] for r in Prev),
+            "lost": len([r for r in Prev if r["result"] == "lost"]),
+            "expired": len([r for r in Prev if r["result"] == "expired"]),
+        }
+
+        # ── 月度趋势（近12月，维度筛选生效、不受周期窗口影响）──
+        today = datetime.now().replace(day=1)
+        months = []
+        for i in range(11, -1, -1):
+            t = today.year * 12 + today.month - 1 - i
+            months.append(f"{t // 12}-{t % 12 + 1:02d}")
+        month_key = lambda rec: rec["created"].strftime("%Y-%m") if rec["created"] else ""
+        m_total = [len([r for r in RD if month_key(r) == m]) for m in months]
+        m_won = [len([r for r in RD if month_key(r) == m and r["result"] == "won"]) for m in months]
+        top_plats = [d["name"] for d in _count(R, "platform")[:3]]
+        plat_series = {p: [len([r for r in RD if month_key(r) == m and r["platform"] == p]) for m in months]
+                       for p in top_plats}
+
+        # ── 业务排行 ──
+        rank_map = {}
+        for r in R:
+            if not r["sales"]:
+                continue
+            e = rank_map.setdefault(r["sales"], {"count": 0, "won": 0})
+            e["count"] += 1
+            if r["result"] == "won":
+                e["won"] += 1
+        rank_list = [{"name": k, "count": v["count"], "won": v["won"]}
+                     for k, v in sorted(rank_map.items(), key=lambda x: x[1]["count"], reverse=True)]
+        rank_total = sum(d["count"] for d in rank_list)
+
+        # ── 机型：热度 + 加点箱线 ──
+        models = sorted(s_exposure.items(), key=lambda x: x[1], reverse=True)
+        boxes = []
+        other_vals = []
+        for pn_name, _c in models:
+            vals = s_markups.get(pn_name, [])
+            if not vals:
+                continue
+            if len(vals) >= 4:
+                q = _pct_quartiles(vals)
+                if q:
+                    boxes.append({"name": pn_name, **q})
+            else:
+                other_vals.extend(vals)
+        boxes.sort(key=lambda x: x["median"], reverse=True)
+        other_box = _pct_quartiles(other_vals) if other_vals else None
+        if other_box:
+            boxes.append({"name": "其他机型", **other_box})
+        bins_out = []
+        for lo, hi, label in _MARKUP_BINS:
+            hit = [(mv, oid) for mv, oid in markup_win_s if lo <= mv < hi]
+            won_n = sum(1 for _mv, oid in hit if rec_by_oid.get(oid, {}).get("result") == "won")
+            bins_out.append({"label": label, "count": len(hit), "won": won_n,
+                             "rate": round(won_n / len(hit) * 100, 1) if hit else 0.0})
+
+        # ── 成单与输单 ──
+        wr_map = {}
+        for r in won_recs:
+            for k in r["win_keys"]:
+                wr_map[k] = wr_map.get(k, 0) + 1
+        win_reasons = [{"key": k, "label": win_labels.get(k, k), "count": v}
+                       for k, v in sorted(wr_map.items(), key=lambda x: x[1], reverse=True)]
+        ls_map = {}
+        for r in R:
+            if r["result"] in ("lost", "expired"):
+                for k in r["loss_keys"]:
+                    ls_map[k] = ls_map.get(k, 0) + 1
+        loss_reasons = [{"key": k, "label": loss_labels.get(k, k), "count": v}
+                        for k, v in sorted(ls_map.items(), key=lambda x: x[1], reverse=True)]
+        # 成单机型：按成单商机的 PN 曝光统计（一单多 PN 各计一次），平均加点=该商机的报价加点均值
+        won_pn_stats = {}
+        for r in won_recs:
+            pns = oid_pns.get(r["oid"])
+            if not pns:
+                continue
+            mv_list = [mv for mv, oid in markup_win_s if oid == r["oid"]]
+            avg = round(sum(mv_list) / len(mv_list), 1) if mv_list else None
+            for p in pns:
+                e = won_pn_stats.setdefault(p, {"count": 0, "markups": []})
+                e["count"] += 1
+                if avg is not None:
+                    e["markups"].append(avg)
+        won_models = [{"name": k, "count": v["count"],
+                       "avg_markup": round(sum(v["markups"]) / len(v["markups"]), 1) if v["markups"] else None}
+                      for k, v in sorted(won_pn_stats.items(), key=lambda x: x[1]["count"], reverse=True)[:8]]
+        days_list = sorted(r["win_days"] for r in won_recs if r["win_days"] is not None)
+        cycle_bins = [{"label": lb, "count": len([d for d in days_list if lo <= d < hi])}
+                      for lo, hi, lb in _CYCLE_BINS]
+        cycle = {"bins": cycle_bins,
+                 "median": days_list[len(days_list) // 2] if days_list else None,
+                 "p90": days_list[min(len(days_list) - 1, int(len(days_list) * 0.9))] if days_list else None}
+        first_month = {}
+        for r in recs:
+            k = month_key(r)
+            if k and (r["customer"] not in first_month or k < first_month[r["customer"]]):
+                first_month[r["customer"]] = k
+        new_c = sum(1 for r in won_recs if first_month.get(r["customer"]) == month_key(r))
+        new_vs_repeat = {"new": new_c, "repeat": len(won_recs) - new_c}
+
+        # ── 地区（推断口径）+ 客户排行 ──
+        region_counts = _count(R, "region")
+        overseas = len([r for r in R if r["region"] == "海外"])
+        cust_map = {}
+        for r in R:
+            if not r["customer"]:
+                continue
+            e = cust_map.setdefault(r["customer"], {"count": 0, "won": 0})
+            e["count"] += 1
+            if r["result"] == "won":
+                e["won"] += 1
+        customers = [{"name": k, "count": v["count"], "won": v["won"]}
+                     for k, v in sorted(cust_map.items(), key=lambda x: x[1]["count"], reverse=True)[:15]]
+
+        # ── 筛选下拉选项（全量口径，不随筛选收缩）──
+        options = {
+            "platform": sorted({r["platform"] for r in recs if r["platform"]}),
+            "chassis": sorted({r["chassis"] for r in recs if r["chassis"]}),
+            "industry": sorted({r["industry"] or "未分类" for r in recs} | {"未分类"}),
+            "otype": sorted({r["otype"] or "未分类" for r in recs} | {"未分类"}),
+            "sales": sorted({r["sales"] for r in recs if r["sales"]}),
+            "pn": sorted(pn_exposure.keys()),
+        }
+
+        return {
+            "period_label": period_label,
+            "view_all": view_all,
+            "generated_at": datetime.now().strftime("%H:%M:%S"),
+            "kpi": kpi,
+            "prev": prev_kpi,
+            "monthly": {"months": months, "total": m_total, "won": m_won, "platform_series": plat_series},
+            "structure": {"platforms": _count(R, "platform"), "chassis": _count(R, "chassis"),
+                          "industry": _count(R, "industry"), "otype": _count(R, "otype")},
+            "rank": {"top": rank_list[:5], "others": (
+                {"count": sum(d["count"] for d in rank_list[5:]), "people": len(rank_list) - 5}
+                if len(rank_list) > 5 else None),
+                "others_list": rank_list[5:], "total": rank_total},
+            "models": {"data": [[k, v] for k, v in models]},
+            "markup": {"boxes": boxes, "bins": bins_out},
+            "win": {"win_reasons": win_reasons, "loss_reasons": loss_reasons,
+                    "won_models": won_models, "cycle": cycle, "new_vs_repeat": new_vs_repeat},
+            "region": {"counts": region_counts, "overseas": overseas},
+            "customers": {"top": customers},
+            "options": options,
+        }
+    finally:
+        session.close()
     """近期重点商机：近半年内按 purchase_qty 降序取 Top `limit`（供方案助手查数工具用）。"""
     today = datetime.now()
     half_start_dt = (today - timedelta(days=180)).strftime("%Y-%m-%d") + " 00:00:00"

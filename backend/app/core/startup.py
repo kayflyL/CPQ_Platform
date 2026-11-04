@@ -783,6 +783,33 @@ def ensure_loss_reason_dict():
         repo.close()
 
 
+# 制胜因子字典种子（与丢标归因同机制；商机驾驶舱「制胜因子」卡消费）。
+# 中标时可选填，key 落商机 extra_fields.win_reason_keys。
+_DEFAULT_WIN_REASONS = [
+    {"key": "solution_fit", "label": "方案匹配度高", "enabled": True},
+    {"key": "price_advantage", "label": "价格优势", "enabled": True},
+    {"key": "repurchase", "label": "老客户复购", "enabled": True},
+    {"key": "tech_support", "label": "技术支持到位", "enabled": True},
+    {"key": "delivery_fast", "label": "交期优势", "enabled": True},
+    {"key": "service", "label": "服务与售后", "enabled": True},
+    {"key": "relationship", "label": "客户关系", "enabled": True},
+]
+
+
+def ensure_win_reason_dict():
+    """制胜因子字典种子（幂等，仅缺 key 时写入）。"""
+    from app.repository.system_config_repo import SystemConfigRepository
+    repo = SystemConfigRepository()
+    try:
+        current = repo.get_value("opportunity.win_reasons", None)
+        if current is None:
+            repo.set("opportunity.win_reasons", [dict(item) for item in _DEFAULT_WIN_REASONS],
+                     type="json", description="商机中标制胜因子字典")
+            print("✅ Win reason dict seeded (opportunity.win_reasons)")
+    finally:
+        repo.close()
+
+
 # 线索驳回原因字典种子（线索池专人驳回用；仿丢标字典，仅缺 key 时写入）
 _DEFAULT_LEAD_REJECT_REASONS = [
     {"key": "not_target_customer", "label": "非目标客户", "enabled": True},
@@ -1624,6 +1651,7 @@ def init_rules_db():
         print(f"⚠️ Permission catalog init failed: {e}")
     try:
         ensure_loss_reason_dict()
+        ensure_win_reason_dict()
         ensure_lead_reject_dict()
     except Exception as e:
         print(f"⚠️ Loss reason dict init failed: {e}")

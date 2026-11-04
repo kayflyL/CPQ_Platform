@@ -3,7 +3,9 @@
     <!-- 顶栏：标题 + 周期切换 + 图标按钮 + 新建 -->
     <header class="page-head">
       <div class="page-title">
-        <h1>商机驾驶舱</h1>
+        <a-tooltip title="查看完整商机驾驶舱（总览 / 产品结构 / 成单与输单）" placement="bottom">
+          <h1 class="title-link" @click="router.push('/cockpit')">商机线索</h1>
+        </a-tooltip>
         <span class="page-sub">数据区间：{{ summary.period_label || '—' }}</span>
       </div>
       <div class="period-toggle">
@@ -67,8 +69,23 @@
     </section>
 
     <div class="main-split">
-      <!-- 左栏：图表卡单列上下滑（周期切换已上移页头，桌面/移动共用） -->
+      <!-- 左栏：概要图表（管理员齿轮可配置展示项）；完整驾驶舱从页头标题进入 -->
       <aside v-show="chartsPanelOpen" class="charts-panel">
+        <div v-if="canManageCharts" class="charts-cfg-row">
+          <a-popover v-model:open="chartCfgOpen" trigger="click" placement="bottomRight">
+            <template #content>
+              <div class="chart-cfg">
+                <a-checkbox-group v-model:value="draftCharts" class="chart-cfg-group" :options="CHART_OPTIONS" />
+                <div class="chart-cfg-foot">
+                  <a-button size="small" type="primary" :loading="cfgSaving" @click="saveChartCfg">保存展示</a-button>
+                </div>
+              </div>
+            </template>
+            <a-tooltip title="设置本栏展示的图表">
+              <button class="charts-cfg-btn"><SettingOutlined /></button>
+            </a-tooltip>
+          </a-popover>
+        </div>
         <div v-if="partApplied.length" class="part-time-note">
           <b>配件筛选生效</b>：报价时间 · <b>{{ partTimeLabel }}</b>（按命中报价的创建时间过滤，点上方周期可限定）。
         </div>
@@ -80,6 +97,7 @@
             :table-total="tableTotal"
             :recent-opps="recentOpps"
             :is-mobile="isMobile"
+            :visible-charts="leadsCharts"
             @drill-on="drillOn"
             @open-list-drawer="openListDrawer"
           />
@@ -265,7 +283,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, onActivated, watch, nextTick, defineAsyncComponent } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { BarChartOutlined, RobotOutlined, RestOutlined, PlusOutlined, ExportOutlined } from '@ant-design/icons-vue'
+import { BarChartOutlined, RobotOutlined, RestOutlined, PlusOutlined, ExportOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import axios from 'axios'
 import ExcelJS from 'exceljs'
 import CreateOpportunityModal from '@/components/opportunity/CreateOpportunityModal.vue'
@@ -286,6 +304,44 @@ defineOptions({ name: 'OpportunityList' })
 const router = useRouter()
 const auth = useAuthStore()
 const canViewAll = computed(() => auth.can('page.opportunities_all'))
+// 左栏图表展示配置（管理员齿轮）：system_config opportunity.leads_charts，与驾驶舱共享同一组图表组件
+const canManageCharts = computed(() => auth.can('page.settings.users'))
+const ALL_CHART_IDS = ['trend', 'dist', 'rank', 'won']
+const CHART_OPTIONS = [
+  { label: '趋势分析', value: 'trend' },
+  { label: '结构分布', value: 'dist' },
+  { label: '业务排行', value: 'rank' },
+  { label: '线索转化', value: 'won' },
+]
+const leadsCharts = ref<string[]>([...ALL_CHART_IDS])
+const chartCfgOpen = ref(false)
+const cfgSaving = ref(false)
+const draftCharts = ref<string[]>([...ALL_CHART_IDS])
+async function loadLeadsCharts() {
+  try {
+    const list = await systemConfigApi.getValue<string[]>('opportunity.leads_charts')
+    if (Array.isArray(list) && list.length) leadsCharts.value = list.filter(id => ALL_CHART_IDS.includes(id))
+  } catch { /* 配置缺失走默认全展示 */ }
+  draftCharts.value = [...leadsCharts.value]
+}
+async function saveChartCfg() {
+  if (!draftCharts.value.length) {
+    message.warning('至少保留一个图表')
+    return
+  }
+  cfgSaving.value = true
+  try {
+    const res: any = await systemConfigApi.set('opportunity.leads_charts', draftCharts.value, 'json')
+    const list: string[] = res?.value ?? draftCharts.value
+    leadsCharts.value = list.filter(id => ALL_CHART_IDS.includes(id))
+    message.success('图表展示已保存')
+    chartCfgOpen.value = false
+  } catch {
+    message.error('保存失败，需要管理员权限')
+  } finally {
+    cfgSaving.value = false
+  }
+}
 // 新建商机按钮与后端创建接口同键门控（业务/总监/管理员持有 action.opportunity.create）
 const canCreate = computed(() => auth.can('action.opportunity.create'))
 // 商机状态（进行中/已中标…）可改性：后端 update_meta 对 result 键同权限门控
@@ -854,6 +910,7 @@ function setPeriod(p: string) { customRange.value = null; period.value = p; peri
 onMounted(async () => {
   seriesStore.ensureSeries()
   loadLossReasons()
+  if (canManageCharts.value) loadLeadsCharts()
   if (canViewAll.value) {
     try {
       const res = await axios.get('/api/opportunities/sales-options')
@@ -943,6 +1000,15 @@ watch([() => period.value, () => customRange.value], () => reloadAll({ resetPage
   border-radius: var(--cpq-radius-sm); padding: 7px 10px;
 }
 .part-time-note b { color: var(--cpq-accent-primary); }
+/* 驾驶舱入口：页头标题即链接（hover 有 tooltip），左栏不再放入口卡 */
+.title-link { cursor: pointer; transition: color var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.title-link:hover { color: var(--cpq-accent-primary); }
+.charts-cfg-row { display: flex; justify-content: flex-end; }
+.charts-cfg-btn { display: inline-flex; align-items: center; padding: 3px 8px; border: 1px solid var(--cpq-overlay-a20); border-radius: var(--cpq-radius-md); background: var(--cpq-overlay-a8); color: var(--cpq-text-muted); cursor: pointer; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.charts-cfg-btn:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
+.chart-cfg { min-width: 170px; }
+.chart-cfg-group { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.chart-cfg-foot { margin-top: 8px; text-align: right; }
 .period-option { display: flex; align-items: center; gap: 5px; padding: 5px 11px; border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-full); cursor: pointer; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .period-option.active { color: var(--cpq-accent-primary); background: var(--cpq-overlay-a8); border-color: var(--cpq-accent-primary); }
 .period-dot { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--cpq-text-muted); transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
