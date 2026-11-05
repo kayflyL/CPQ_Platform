@@ -228,8 +228,11 @@
         </div>
         <div class="conclusion" v-html="conRegion" />
         <div class="glass card-block" style="margin-bottom: var(--cpq-space-4)">
-          <div class="card-head">地区分布<span class="note">按客户名关键词推断的大区口径 · 海外单列</span></div>
-          <v-chart class="chart-tall" :option="regionOpt" autoresize />
+          <div class="card-head">地区分布<span class="note">按客户名关键词推断的省份口径 · 点省份下钻 · 未识别地区不在图上（客户排行仍可见）</span></div>
+          <div v-if="mapReady" class="chart-big">
+            <v-chart :option="mapOpt" autoresize @click="(p: any) => onDimClick('province', p)" />
+          </div>
+          <div v-else class="chart-empty">地图加载中…</div>
         </div>
         <div class="glass card-block">
           <div class="card-head">客户排行<span class="note">Top15 · 按商机数 · 绿条=含成单 · 点客户名下钻</span></div>
@@ -243,7 +246,8 @@
 <script setup lang="ts">
 // 商机驾驶舱正式页 —— 原型 docs/prototypes/商机驾驶舱-原型.html 的实装。
 // 数据源 /api/dashboard/cockpit（同 opp_stats 口径）；常态区 Hero 切 Tab 不动；全维度点击下钻走服务端筛选。
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import * as echarts from 'echarts/core'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart, BarChart } from 'echarts/charts'
@@ -293,7 +297,7 @@ const TABS = computed(() => [
 ])
 const DIM_LABEL: Record<string, string> = {
   platform: '平台', chassis: '形态', industry: '行业', otype: '订单类型',
-  pn: '机型', sales: '业务', customer: '客户',
+  pn: '机型', sales: '业务', customer: '客户', province: '省份',
 }
 // 机箱形态着色（与后端 CHAS_COLORS 一致；JS 图表读不到 CSS 变量，用真实色值）
 const CHAS_COLORS: Record<string, string> = { '2U': '#26E2D1', '4U': '#FA8C16', '4.5U': '#1890FF', '5U': '#A855F7', '8U': '#8A94A8', '工作站': '#A855F7' }
@@ -317,6 +321,7 @@ const rangeValue = ref<any>(null)
 const filters = reactive({
   result: '', platform: [] as string[], chassis: [] as string[], sales: [] as string[],
   industry: [] as string[], otype: [] as string[], pn: [] as string[], customer: '',
+  province: [] as string[],
 })
 
 const kpi = computed(() => data.value?.kpi || {})
@@ -351,6 +356,7 @@ async function load() {
     if (filters.sales.length) params.sales = filters.sales.join(',')
     if (filters.pn.length) params.pn = filters.pn.join(',')
     if (filters.customer.trim()) params.customer = filters.customer.trim()
+    if (filters.province.length) params.province = filters.province.join(',')
     const res = await axios.get('/api/dashboard/cockpit', { params })
     data.value = res.data
   } catch (e: any) {
@@ -408,7 +414,7 @@ function onRangeChange(v: any) {
 
 /* ── 下钻 / 筛选辅助 ── */
 function setFilter(dim: string, val: string) {
-  const map: Record<string, string[]> = { platform: filters.platform, chassis: filters.chassis, industry: filters.industry, otype: filters.otype, pn: filters.pn, sales: filters.sales }
+  const map: Record<string, string[]> = { platform: filters.platform, chassis: filters.chassis, industry: filters.industry, otype: filters.otype, pn: filters.pn, sales: filters.sales, province: filters.province }
   const list = map[dim]
   if (!list) return
   const i = list.indexOf(val)
@@ -429,7 +435,7 @@ function onMonthLabelPick(label: string) {
 }
 const chipList = computed(() => {
   const out: { dim: string; val: string }[] = []
-  for (const dim of ['platform', 'chassis', 'industry', 'otype', 'pn', 'sales'] as const) {
+  for (const dim of ['platform', 'chassis', 'industry', 'otype', 'pn', 'sales', 'province'] as const) {
     for (const val of filters[dim]) out.push({ dim, val })
   }
   if (filters.customer.trim()) out.push({ dim: 'customer', val: filters.customer.trim() })
@@ -448,6 +454,7 @@ function resetAll() {
   filters.platform = []; filters.chassis = []; filters.sales = []
   filters.industry = []; filters.otype = []; filters.pn = []
   filters.customer = ''
+  filters.province = []
   custom.value = null
   period.value = 'year'
   load()
@@ -729,10 +736,33 @@ const regionStats = computed(() => {
     statRow('blue', '海', '海外商机数', rg.overseas ?? 0, null),
   ]
 })
-const regionOpt = computed(() => {
-  const items = (data.value?.region?.counts || []).map((d: any) => ({ name: d.name, count: d.count }))
-  if (!items.length) return {}
-  return hbarOption(items, { green: false, tipFmt: (d: any) => `${d.name}<br/>商机 <b>${d.count}</b>（关键词推断口径）` })
+/* 地图：geoJSON 内置 public/geo/china.json（不依赖 CDN），注册一次全局可用 */
+const mapReady = ref(false)
+onMounted(async () => {
+  try {
+    const res = await fetch('/geo/china.json')
+    echarts.registerMap('china', await res.json())
+    mapReady.value = true
+  } catch { /* 离线时地图卡显示加载中提示 */ }
+})
+const mapOpt = computed(() => {
+  const items = (data.value?.region?.provinces || []) as { name: string; count: number }[]
+  const c = chartColors.value
+  const maxV = Math.max(1, ...items.map(d => d.count))
+  return {
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'item', backgroundColor: c.tooltipBg, textStyle: { color: c.tooltipText }, borderColor: c.tooltipBorder, borderWidth: 1,
+      formatter: (p: any) => `${p.name}<br/>商机 <b>${p.value || 0}</b>${items.length ? '<br/><span style="color:#86909c">点击下钻</span>' : ''}` },
+    visualMap: { min: 0, max: maxV, left: 8, bottom: 4, calculable: true, text: ['高', '低'],
+      textStyle: { color: c.axisLabel, fontSize: 10 }, inRange: { color: ['#D6E8FF', '#1677FF'] } },
+    series: [{
+      type: 'map', map: 'china', roam: true,
+      label: { show: false }, itemStyle: { areaColor: '#EEF4FB', borderColor: '#fff', borderWidth: .5 },
+      emphasis: { label: { show: true, fontSize: 11, color: c.tooltipText }, itemStyle: { areaColor: '#91CCFF' } },
+      select: { disabled: true },
+      data: items,
+    }],
+  }
 })
 const custOpt = computed(() => {
   const items = (data.value?.customers?.top || []).map((c: any) => ({ ...c, hasWon: c.won > 0 }))
@@ -763,7 +793,10 @@ const conRegion = computed(() => {
   const rg = data.value?.region
   if (!rg || !data.value) return ''
   const topC = data.value.customers?.top?.[0]
-  return `${topC ? `<b>${topC.name}</b> 以 <b>${topC.count}</b> 商机居首` : ''}；海外商机 <b>${rg.overseas ?? 0}</b> 单。大区为关键词推断口径。点客户名可下钻。`
+  const topP = rg.provinces?.[0]
+  return `${topC ? `<b>${topC.name}</b> 以 <b>${topC.count}</b> 商机居首` : ''}；` +
+    `${topP ? `识别度最高的省份 <b>${topP.name}（${topP.count} 单）</b>` : '暂无可识别省份'}；海外商机 <b>${rg.overseas ?? 0}</b> 单。` +
+    `省份为关键词推断口径。点地图省份/客户名可下钻。`
 })
 </script>
 

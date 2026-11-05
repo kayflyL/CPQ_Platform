@@ -377,29 +377,41 @@ def _split_set(v: Optional[str]) -> list:
     return [s.strip() for s in (v or "").split(",") if s.strip()]
 
 
-# 地区推断：库中无省/国字段，按客户名关键词推大区（仅驾驶舱展示口径，不落库）。
-# 海外：客户名含 ≥3 连续英文字母视为海外客户。
-_REGION_TABLE = [
-    ("华北", ("北京", "天津", "河北", "山西", "内蒙古", "石家庄", "唐山", "太原", "包头")),
-    ("东北", ("辽宁", "吉林", "黑龙江", "沈阳", "大连", "长春", "哈尔滨")),
-    ("华东", ("上海", "江苏", "浙江", "安徽", "福建", "江西", "山东", "南京", "杭州", "苏州", "济南", "青岛", "合肥", "宁波", "无锡")),
-    ("华中", ("河南", "湖北", "湖南", "郑州", "武汉", "长沙", "洛阳")),
-    ("华南", ("广东", "广西", "海南", "广州", "深圳", "东莞", "佛山", "南宁")),
-    ("西南", ("重庆", "四川", "云南", "贵州", "西藏", "成都", "昆明")),
-    ("西北", ("陕西", "甘肃", "青海", "宁夏", "新疆", "西安", "兰州", "乌鲁木齐")),
+# 地区推断：库中无省/国字段，按客户名关键词推省份（仅驾驶舱展示口径，不落库）。
+# 键=geoJSON 里的省级全名（frontend/public/geo/china.json），值=匹配关键词（省名核心+主要城市）。
+# 海外：客户名含 ≥3 连续英文字母视为海外客户（库中无国家字段，海外不细分到国）。
+_PROVINCE_TABLE = [
+    ("北京市", ("北京",)), ("天津市", ("天津",)), ("上海市", ("上海",)), ("重庆市", ("重庆",)),
+    ("河北省", ("河北", "石家庄", "唐山", "保定")), ("山西省", ("山西", "太原")),
+    ("内蒙古自治区", ("内蒙古", "呼和浩特", "包头")), ("辽宁省", ("辽宁", "沈阳", "大连")),
+    ("吉林省", ("吉林", "长春")), ("黑龙江省", ("黑龙江", "哈尔滨")),
+    ("江苏省", ("江苏", "南京", "苏州", "无锡")), ("浙江省", ("浙江", "杭州", "宁波")),
+    ("安徽省", ("安徽", "合肥")), ("福建省", ("福建", "福州", "厦门")), ("江西省", ("江西", "南昌")),
+    ("山东省", ("山东", "济南", "青岛")), ("河南省", ("河南", "郑州", "洛阳")),
+    ("湖北省", ("湖北", "武汉")), ("湖南省", ("湖南", "长沙")),
+    ("广东省", ("广东", "广州", "深圳", "东莞", "佛山")), ("广西壮族自治区", ("广西", "南宁")),
+    ("海南省", ("海南",)), ("四川省", ("四川", "成都")), ("贵州省", ("贵州",)),
+    ("云南省", ("云南", "昆明")), ("西藏自治区", ("西藏",)), ("陕西省", ("陕西", "西安")),
+    ("甘肃省", ("甘肃", "兰州")), ("青海省", ("青海",)), ("宁夏回族自治区", ("宁夏",)),
+    ("新疆维吾尔自治区", ("新疆", "乌鲁木齐")), ("台湾省", ("台湾",)),
+    ("香港特别行政区", ("香港",)), ("澳门特别行政区", ("澳门",)),
 ]
 
 
-def _infer_region(name: str) -> str:
+def _infer_province(name: str) -> str:
     n = (name or "").strip()
     if not n:
-        return "未分类"
+        return ""
     if re.search(r"[A-Za-z]{3,}", n):
         return "海外"
-    for region, kws in _REGION_TABLE:
+    for full, kws in _PROVINCE_TABLE:
         if any(kw in n for kw in kws):
-            return region
-    return "未分类"
+            return full
+    return ""
+
+
+def _infer_region(name: str) -> str:
+    return _infer_province(name) or "未分类"
 
 
 def _parse_dt(s: Optional[str]):
@@ -428,6 +440,7 @@ def get_cockpit(
     sales: Optional[str] = Query(default=None),
     pn: Optional[str] = Query(default=None),
     customer: Optional[str] = Query(default=None),
+    province: Optional[str] = Query(default=None),
     user: dict = Depends(get_current_user),
 ):
     """商机驾驶舱聚合端点。
@@ -535,12 +548,14 @@ def get_cockpit(
                 "win_keys": ex.get("win_reason_keys") or [],
                 "loss_keys": ex.get("loss_reason_keys") or [],
                 "region": _infer_region(o.customer_name or ""),
+                "province": _infer_province(o.customer_name or ""),
             })
         rec_by_oid = {r["oid"]: r for r in recs}
 
         # ── 维度筛选（周期之外的全部过滤）──
         f_platform, f_chassis, f_industry, f_otype = _split_set(platform), _split_set(chassis), _split_set(industry), _split_set(otype)
         f_sales, f_pn, f_result, f_customer = _split_set(sales), _split_set(pn), (result or "").strip(), (customer or "").strip()
+        f_province = _split_set(province)
         # pn 筛选：命中的商机集合（报价里出现过该 PN）
         pn_hit_oids = None
         if f_pn:
@@ -569,6 +584,8 @@ def get_cockpit(
             if pn_hit_oids is not None and rec["oid"] not in pn_hit_oids:
                 return False
             if f_customer and f_customer.lower() not in rec["customer"].lower():
+                return False
+            if f_province and rec["province"] not in f_province:
                 return False
             return True
 
@@ -601,7 +618,7 @@ def get_cockpit(
             for r in items:
                 v = r[key] or ("未分类" if key in ("industry", "otype") else "")
                 if not v:
-                    v = "未分类"
+                    continue
                 m[v] = m.get(v, 0) + 1
             out = [{"name": k, "count": v} for k, v in m.items()]
             out.sort(key=lambda x: x["count"], reverse=True)
@@ -731,8 +748,8 @@ def get_cockpit(
         new_vs_repeat = {"new": new_c, "repeat": len(won_recs) - new_c}
 
         # ── 地区（推断口径）+ 客户排行 ──
-        region_counts = _count(R, "region")
-        overseas = len([r for r in R if r["region"] == "海外"])
+        province_counts = [d for d in _count(R, "province") if d["name"] != "海外"]
+        overseas = len([r for r in R if r["province"] == "海外"])
         cust_map = {}
         for r in R:
             if not r["customer"]:
@@ -771,7 +788,7 @@ def get_cockpit(
             "markup": {"boxes": boxes, "bins": bins_out},
             "win": {"win_reasons": win_reasons, "loss_reasons": loss_reasons,
                     "won_models": won_models, "cycle": cycle, "new_vs_repeat": new_vs_repeat},
-            "region": {"counts": region_counts, "overseas": overseas},
+            "region": {"provinces": province_counts, "overseas": overseas},
             "customers": {"top": customers},
             "options": options,
         }
