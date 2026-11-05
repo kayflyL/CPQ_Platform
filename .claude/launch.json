@@ -14,8 +14,29 @@
       "port": 8931
     },
     {
+      "name": "cockpit-proto",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-X", "utf8", "-m", "http.server", "8933", "--directory", "docs/prototypes"],
+      "port": 8933
+    },
+    {
       "name": "frontend-dev",
       "url": "http://localhost:5173"
+    },
+    {
+      "name": "frontend-cpq",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5173", "--strictPort"],
+      "cwd": "frontend",
+      "port": 5173,
+      "url": "http://localhost:5173"
+    },
+    {
+      "name": "backend-api",
+      "runtimeExecutable": "D:/CPQ_Platform_V1/backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-X", "utf8", "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"],
+      "cwd": "backend",
+      "port": 8000
     },
     {
       "name": "frontend-vite-test",

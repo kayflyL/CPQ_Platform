@@ -197,14 +197,24 @@ def render_platform_rule(rule: dict) -> str:
 
 
 def render_scene_rule(rule: dict) -> str:
-    """原则卡一行：标题（信号：…）：类目=要点；…（依据：…）。"""
+    """原则卡一行：标题（信号：…）：类目=要点；…（依据：…）。
+
+    items 可选结构化 qty（推荐数量）：规则作者给了就随知识行渲染（数量推断的
+    第一优先源：规则 > 机型基准推断），没给不编——数值永远是规则作者的业务输入。
+    """
     from app.services.selection_engine import _body
     body = _body(rule)
     then = body.get("then") or {}
     title = str(then.get("title") or rule.get("name") or "").strip()
-    parts = [f"{str(i.get('category') or '').strip()}={str(i.get('text') or '').strip()}"
-             for i in (then.get("items") or [])
-             if isinstance(i, dict) and str(i.get("text") or "").strip()]
+    parts = []
+    for i in (then.get("items") or []):
+        if not (isinstance(i, dict) and str(i.get("text") or "").strip()):
+            continue
+        part = f"{str(i.get('category') or '').strip()}={str(i.get('text') or '').strip()}"
+        qty = i.get("qty")
+        if qty not in (None, "", 0):
+            part += f"（推荐数量 {qty}）"
+        parts.append(part)
     if not parts:
         return ""
     line = title
@@ -277,6 +287,71 @@ def knowledge_for_node(node_key: str, rules: list = None, bindings: dict = None)
     except Exception:
         logger.warning("知识块渲染失败（降级：不带知识继续）", exc_info=True)
         return ""
+
+
+def dict_signal_seed(requirement_text: str, slot: str) -> Optional[str]:
+    """缺登记值时的确定性推荐兜底：词典卡信号词扫客户需求原文。
+
+    大脑犹豫没登记（把「国产服务器」这类整机级表述判成歧义）时，缺字段确认卡
+    不该退化成裸目录序——归置规则信号词命中客户原话且规范值唯一 → 返回它作推荐锚
+    （登记≠确认的口径不变：卡上可改，值来自规则内容，代码不持业务词表）。
+    多条规则命中不同值 = 歧义，返回 None（诚实中性，不猜）。
+    """
+    text = str(requirement_text or "").strip().lower()
+    if not text or not slot:
+        return None
+    from app.services.plan_rule_apply import REGISTRATION_DERIVE_FIELDS, load_active_rules
+    cre_fields = {cf for cf, s in REGISTRATION_DERIVE_FIELDS if s == slot}
+    if not cre_fields:
+        return None
+    try:
+        rules = load_active_rules(domain="requirement")
+    except Exception:
+        logger.warning("词典信号兜底读取规则失败（降级：无推荐）", exc_info=True)
+        return None
+    from app.services.selection_engine import _body
+    hits: set = set()
+    for rule in rules or []:
+        body = _body(rule)
+        then = body.get("then") or {}
+        if str(then.get("field") or "") not in cre_fields:
+            continue
+        value = str(then.get("value") or "").strip()
+        if not value:
+            continue
+        if any(s.lower() in text for s in _contains_signals(rule)):
+            hits.add(value)
+    return hits.pop() if len(hits) == 1 else None
+
+
+def dict_platform_of_text(text: str) -> Optional[str]:
+    """平台归置词典的文本硬命中：行描述/客户话 → 规则规范值（唯一命中才返回）。
+
+    机制侧用途：配件行描述与锁定机型平台的冲突是**可判定事实**（判定源=归置规则
+    内容，代码不持阵营词表）。多值命中=歧义，返回 None（不猜）。
+    """
+    t = str(text or "").strip().lower()
+    if not t:
+        return None
+    from app.services.plan_rule_apply import load_active_rules
+    from app.services.selection_engine import _body
+    try:
+        rules = load_active_rules(domain="requirement")
+    except Exception:
+        logger.warning("平台词典文本命中读取规则失败（降级：不判冲突）", exc_info=True)
+        return None
+    hits: set = set()
+    for rule in rules or []:
+        body = _body(rule)
+        then = body.get("then") or {}
+        if str(then.get("field") or "") != "opportunity.platform_type":
+            continue
+        value = str(then.get("value") or "").strip()
+        if not value:
+            continue
+        if any(s.lower() in t for s in _contains_signals(rule)):
+            hits.add(value)
+    return hits.pop() if len(hits) == 1 else None
 
 
 # ── 影子校验（词典卡专属；确定性、零 LLM、永不代填） ──────────────────────────

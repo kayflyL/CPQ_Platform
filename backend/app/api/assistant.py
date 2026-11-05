@@ -797,6 +797,33 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
         meta = (meta_raw.get("slots") or {}).get(slot) or {}
     else:
         meta = meta_raw
+    if slot == "server_model":
+        # 机型卡自选（2026-11-05 标记：卡面只摆推荐项，文字里提的其余在售候选点不到）。
+        # 候选=按登记状态重跑确定性选型（与 prepare_model_step 同一求值面，不是新事实源）；
+        # 选项登记进 last_card.options（_manual）供后续 (slot,value) 留底匹配，与配件自选同模式。
+        from app.services.skill_phases import catalog_models_option_data
+        from app.services.model_candidates import select_models
+        _st = mem.get("skill_chat:assistant") if isinstance(mem.get("skill_chat:assistant"), dict) else {}
+        _ext = _st.get("ext") if isinstance(_st.get("ext"), dict) else {}
+        try:
+            cands = select_models(
+                usage=None,
+                server_type_name=str(_ext.get("server_type") or "").strip() or None,
+                series=str(_ext.get("platform_type") or "").strip() or None) or []
+            if not cands:
+                cands = select_models(usage=None, no_signal_strategy="fallback_all", limit=12) or []
+        except Exception:
+            logger.exception("机型自选候选重跑失败 thread=%s", thread_id)
+            cands = []
+        opts = catalog_models_option_data(
+            cands, include_price=effective_price_ok(get_colleague(rk) or {}, user=user))
+        if not opts:
+            raise HTTPException(status_code=404, detail="在售目录暂无可选机型")
+        keep = [o for o in (last_card.get("options") or [])
+                if not (str(o.get("slot") or "") == slot and o.get("_manual"))]
+        merged = keep + [{**o, "_manual": True} for o in opts]
+        _save_mem(thread_id, rk, {**mem, "last_card": {**last_card, "options": merged}})
+        return {"slot": slot, "options": [{k: v for k, v in o.items() if k != "signal"} for o in opts]}
     if not meta:
         raise HTTPException(status_code=409, detail="当前选项卡不支持自选（任务进行中的配件推荐卡才可）")
 

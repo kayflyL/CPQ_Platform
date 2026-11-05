@@ -404,6 +404,17 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
         await _broadcast_chat_progress(thread_id, colleague, "need_input", "question", question,
                                        kind="input_options", data=option_data)
 
+    def _fresh_nar(fill: str) -> str:
+        """终态旁白只补「已随卡落库前缀」之后的新增段（2026-11-04 实测：整段重播让
+        已被卡回答的问题在正文里按顺序重演=自言自语）。_merged_narration 按节点序
+        累积，缺口时随卡播出的就是当时全量 → 终态串以它为前缀；前缀失配（节点旁白
+        被回喂重试改写）退回「≠最后一份即整段播」的旧口径。"""
+        fill = (fill or "").strip()
+        last = gap_narration_persisted["text"]
+        if last and fill.startswith(last):
+            return fill[len(last):].strip()
+        return "" if fill == last else fill
+
     async def event_sink(payload: dict) -> None:
         sub = (payload or {}).get("sub") or {}
         kind = (sub.get("kind") or "")
@@ -537,7 +548,8 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
             files = [f for f in (_payload.get("files") or [])
                      if isinstance(f, dict) and str(f.get("url") or "").strip()]
             fill_nar = str(outcome.get("narration") or "").strip()
-            if fill_nar and fill_nar != gap_narration_persisted["text"]:
+            fill_nar = _fresh_nar(fill_nar)
+            if fill_nar:
                 await _persist_and_broadcast(thread_id, colleague, fill_nar)
             if answer:
                 await _persist_and_broadcast(thread_id, colleague, answer)
@@ -570,9 +582,10 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
                          duration_ms=int((time.perf_counter() - started) * 1000), thread_id=thread_id,
                          node_type="skill_chat", role_key=role_key)
             return
-        # 登记回合旁白留痕（不消失）；大脑提问卡路径已随卡前置落库同一份旁白，去重防双写
-        fill_nar = str(outcome.get("narration") or "").strip()
-        if fill_nar and fill_nar != gap_narration_persisted["text"]:
+        # 登记回合旁白留痕（不消失）；大脑提问卡路径已随卡前置落库同一份旁白，
+        # 终态只补已播前缀之后的新增段（_fresh_nar，防整段重播=自言自语）
+        fill_nar = _fresh_nar(str(outcome.get("narration") or ""))
+        if fill_nar:
             await _persist_and_broadcast(thread_id, colleague, fill_nar)
         # v2：提交前的 narration 已流式播出，这里落库定稿（done 事件清前端 streamingText），
         # 历史会话里 narration 与方案产物上下文完整；随后再广播方案产物
@@ -630,9 +643,9 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
     if not reply and kind != "gaps":
         reply = "我在的，继续说说你的需求～"
     if kind == "gaps":
-        # 登记回合旁白留痕（不随缺口卡弹出而消失）；发卡路径已随卡前置落库，不重复
-        fill_nar = str(outcome.get("narration") or "").strip()
-        if fill_nar and fill_nar != gap_narration_persisted["text"]:
+        # 登记回合旁白留痕（不随缺口卡弹出而消失）；发卡路径已随卡前置落库，终态只补新增段
+        fill_nar = _fresh_nar(str(outcome.get("narration") or ""))
+        if fill_nar:
             await _persist_and_broadcast(thread_id, colleague, fill_nar)
         # 问题文本已随选项卡广播（handle_skill_chat_turn 内 emit_input_card）；
         # 卡没发出去（异常/通道缺失）时必须落普通消息，绝不让用户面对静默

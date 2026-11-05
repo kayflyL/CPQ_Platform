@@ -330,9 +330,18 @@ class _SkillTurnRuntime:
         不再直播；thinking/工具活动仍实时转发（活动感不受影响），真提问走 pause 载荷。
         """
         sub = (payload or {}).get("sub") or {}
+        _nar_key = self._cur_step.get("key") or "_"
         if sub.get("kind") == "chunk" and sub.get("delta"):
-            self.node_narration.setdefault(self._cur_step.get("key") or "_", []).append(sub["delta"])
+            self.node_narration.setdefault(_nar_key, []).append(sub["delta"])
             return
+        if sub.get("kind") == "tool":
+            # 工具调用=过程段边界（分隔符 _nar_final 消费）。同节点多次工具调用之间的
+            # 正文是过程旁白：2026-11-04 实测大脑两次 fill 各复述一遍「已为您登记」+两版
+            # 机箱问句，全量拼接落库=自言自语×2。定稿只保留最后一段。
+            self.node_narration.setdefault(_nar_key, []).append("\x00")
+        elif sub.get("kind") == "chunk_reset":
+            # 重试清空已收正文（与 UI 侧消费端同语义），继续转发
+            self.node_narration.pop(_nar_key, None)
         if self.event_sink:
             await self.event_sink(payload)
 
@@ -355,7 +364,7 @@ class _SkillTurnRuntime:
     def _finalize_engine(self) -> None:
         engine = self.engine
         for k, v in self.node_narration.items():
-            engine[self.narration_key_of(k) or k] = "".join(v).strip()
+            engine[self.narration_key_of(k) or k] = _nar_final("".join(v))
         engine["steps_done_list"] = sorted(engine["steps_done"])
 
     def _ask_gap(self, a: dict) -> dict:
@@ -569,6 +578,12 @@ class _SkillTurnRuntime:
             "当前线索登记表：\n" + json.dumps(_slots, ensure_ascii=False),
             "近期回合工作记录（你已做过的检索/提交/问询，勿重复劳动）：\n"
             + "\n".join(str(n) for n in (self.mem.get("brain_notes") or [])[-2:]),
+            # 旁白通道机制（引擎属性，非话术）：落库定稿只留最后一次工具调用后的正文段，
+            # 工具调用之间的过程话不单独展示；下一张卡由引擎按登记状态出，与预告必然错位。
+            "旁白通道：你回合里的文字是对客户的正式留言（做了什么+依据），工具调用之间的"
+            "中间话不会单独展示，别复述工具结果里已确认的内容两遍；向客户的提问一律通过"
+            "工具出卡，不要在文字里预告「接下来确认X」——下一张卡由引擎按登记状态决定，"
+            "预告的问题和实际弹出的卡对不上。",
             steps_line,
         ) if p])
         if _rows_ctx or _rows_all:
@@ -1094,6 +1109,18 @@ async def run_skill_agent_turn(*, thread_id: str, role_key: str, persona: str,
         tool_guard=tool_guard, price_ok=price_ok, opportunity_id=opportunity_id,
         model=model, reasoning_effort=reasoning_effort, temperature=temperature,
         max_tokens=max_tokens, save_mem=save_mem, write_mode=write_mode).run()
+
+
+def _nar_final(blob: str) -> str:
+    """节点旁白定稿：只保留最后一个非空过程段（段=工具调用之间的正文，\x00 分隔）。
+
+    过程段是大脑边干边说的中间话（每次工具调用前的复述/预告），全量拼接会把
+    「已为您登记」这类话按工具调用次数翻倍落库；最后一段是收尾定稿，保留它。
+    """
+    if "\x00" not in blob:
+        return blob.strip()
+    segs = [s.strip() for s in blob.split("\x00") if s.strip()]
+    return segs[-1] if segs else ""
 
 
 def _merged_narration(result_ctx: dict) -> str:

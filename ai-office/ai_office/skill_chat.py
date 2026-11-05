@@ -84,6 +84,10 @@ def _gap_data_question(g: dict) -> str:
         cat = str(pm.get("category") or "").strip()
         spec = str(pm.get("request_spec") or "").strip()
         head = "还需要确认配件：" + (f"「{cat}" if cat else "「配件") + (f" · {spec}」" if spec and spec != cat else "」")
+        conflict = str(g.get("platform_conflict") or "").strip()
+        if conflict:
+            # 引擎事实：该行描述与锁定机型平台不符，候选已按平台收窄（机制判定，非 AI 判断）
+            head += f"（该行描述按归置规则属 {conflict} 平台，与已锁定机型不符——下面只摆本机适配件）"
         return head + "怎么配？（选推荐项、库内自选或直接告诉我型号都可以）"
 
     def _opt_text(o):

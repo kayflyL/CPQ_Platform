@@ -75,9 +75,16 @@ function platformOf(r: CompatibilityRule): string {
   return String(then.value || '')
 }
 
-function itemsOf(r: CompatibilityRule): { category: string; text: string }[] {
+function itemsOf(r: CompatibilityRule): { category: string; text: string; qty?: number }[] {
   const then = (r.body?.then || {}) as any
-  return (then.items || []).map((i: any) => ({ category: String(i.category || ''), text: String(i.text || '') }))
+  return (then.items || []).map((i: any) => {
+    const q = Number(i.qty)
+    return {
+      category: String(i.category || ''),
+      text: String(i.text || ''),
+      ...(Number.isFinite(q) && q > 0 ? { qty: Math.round(q) } : {}),
+    }
+  })
 }
 
 function evidenceOf(r: CompatibilityRule): string {
@@ -98,7 +105,7 @@ const sceneForm = reactive({
   name: '',
   status: 'active' as RuleStatus,
   signals: [] as string[],
-  items: [] as { category: string; text: string }[],
+  items: [] as { category: string; text: string; qty?: number }[],
   evidence: '',
   desc: '',
 })
@@ -149,7 +156,14 @@ function platBody(f: typeof platForm) {
 function sceneBody(f: typeof sceneForm) {
   return {
     when: { any: f.signals.map(w => ({ field: 'config.scenario_blob', op: 'contains', value: w })) },
-    then: { action: 'baseline', title: f.name.trim(), items: f.items.filter(i => i.text.trim()) },
+    then: {
+      action: 'baseline', title: f.name.trim(),
+      items: f.items.filter(i => i.text.trim()).map(i => ({
+        category: i.category,
+        text: i.text.trim(),
+        ...(i.qty && i.qty > 0 ? { qty: Math.round(i.qty) } : {}),
+      })),
+    },
     desc: '场景配置基线：AI 推荐配件时照此校准数量与必备件；客户明确给过数量时以客户为准',
     evidence: f.evidence.trim(),
   }
@@ -346,7 +360,8 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
         <label>配置要点（类目 + 一句话要求） <i>*</i></label>
         <div v-for="(it, i) in sceneForm.items" :key="i" class="rr-item">
           <a-select v-model:value="it.category" :options="ITEM_CATS.map(c => ({ label: c, value: c }))" class="rr-item-cat" />
-          <a-input v-model:value="it.text" placeholder="一句话要求，可带数量口径" />
+          <a-input v-model:value="it.text" placeholder="一句话要求" />
+          <a-input-number v-model:value="it.qty" :min="1" :precision="0" class="rr-item-qty" placeholder="推荐数量" />
           <button class="rr-item-x" @click="delItem(i)">✕</button>
         </div>
         <button class="rr-additem" @click="addItem">＋ 加一条要点</button>
@@ -430,9 +445,10 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 .rr-fld.grow2 { flex: 2; }
 .rr-fld label { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
 .rr-fld label i { color: var(--cpq-accent-danger); font-style: normal; margin-left: 2px; }
-.rr-item { display: grid; grid-template-columns: 120px 1fr 28px; gap: 8px; align-items: center; }
+.rr-item { display: grid; grid-template-columns: 120px 1fr 110px 28px; gap: 8px; align-items: center; }
 .rr-item + .rr-item { margin-top: 8px; }
 .rr-item-cat { width: 120px; }
+.rr-item-qty { width: 110px; }
 .rr-item-x { border: 0; background: transparent; color: var(--cpq-text-muted); cursor: pointer; font-size: var(--cpq-font-size-base); }
 .rr-item-x:hover { color: var(--cpq-accent-danger); }
 .rr-additem {

@@ -9,8 +9,10 @@
         <span class="am-q-page">{{ mqPage + 1 }} / {{ multiQ.length }}</span>
       </div>
       <template v-for="(opt, i) in mqCur?.options || []" :key="`${mqCur?.slot}-${opt.value}`">
-        <div v-if="i === 0 && mqCur?.options.some(o2 => o2.group)" class="am-q-group-label"><span>{{ opt.group }}</span></div>
-        <div v-else-if="i > 0 && opt.group && opt.group !== (mqCur?.options[i-1]?.group || '')" class="am-q-group-label"><span>{{ opt.group }}</span></div>
+        <div v-if="i === 0 && mqCur?.options.some(o2 => o2.group)" class="am-q-group-label">
+          <span>{{ opt.group }}</span>
+        </div>
+        <div v-if="i > 0 && opt.group && opt.group !== (mqCur?.options[i-1]?.group || '')" class="am-q-group-label"><span>{{ opt.group }}</span></div>
         <button
           type="button"
           class="am-q-opt"
@@ -33,6 +35,28 @@
           </span>
         </button>
       </template>
+      <!-- 额外自选放正式选项之后（2026-11-05 标记）：推荐项点选为主，目录候选收进下拉 -->
+      <div v-if="mqShowPick" class="am-q-group-label">
+        <span>{{ mqCur?.options[0]?.group || (mqCur?.slot === 'server_model' ? '机型' : '配件') }}</span>
+        <a-select
+          class="am-q-pick-select"
+          width="100%"
+          size="small"
+          show-search
+          allow-clear
+          :disabled="!optionInteractive"
+          :placeholder="mqCur?.partsCard ? '从配件库自选…' : '从在售目录自选…'"
+          :value="undefined"
+          :open="pickOpen[mqPickSlot]"
+          :loading="!!pickLoading[mqPickSlot]"
+          :options="pickSelectOptions(mqPickSlot)"
+          :filter-option="filterPickOption"
+          @dropdownVisibleChange="(o: boolean) => setPickOpen(mqPickSlot, o)"
+          @change="(v: any) => mqOnPickSelect(mqPickSlot, v)"
+          @blur="setPickOpen(mqPickSlot, false)"
+        />
+      </div>
+      <div v-if="mqShowPick && pickError[mqPickSlot]" class="am-q-pick-err">{{ pickError[mqPickSlot] }}</div>
       <div v-if="mqStepperVisible" class="am-q-stepper">
         <span class="am-q-stepper-label">数量</span>
         <button type="button" class="am-q-step-btn" :disabled="mqQty <= 1" @click="mqQty = Math.max(1, mqQty - 1)">−</button>
@@ -84,25 +108,7 @@
       <template v-for="(opt, i) in question.options" :key="`${opt.slot}-${opt.value}`">
         <div v-if="isGroupStart(i)" class="am-q-group-label">
           <span>{{ opt.group }}</span>
-          <a-select
-            v-if="isPartsCard && props.threadId"
-            class="am-q-pick-select"
-            size="small"
-            show-search
-            allow-clear
-            :disabled="!optionInteractive"
-            placeholder="从配件库自选…"
-            :value="undefined"
-            :open="pickOpen[opt.slot]"
-            :loading="!!pickLoading[opt.slot]"
-            :options="pickSelectOptions(opt.slot)"
-            :filter-option="filterPickOption"
-            @dropdownVisibleChange="(o: boolean) => setPickOpen(opt.slot, o)"
-            @change="(v: any) => onPickSelect(opt.slot, v)"
-            @blur="setPickOpen(opt.slot, false)"
-          />
         </div>
-        <div v-if="isGroupStart(i) && pickError[opt.slot]" class="am-q-pick-err">{{ pickError[opt.slot] }}</div>
         <button
           type="button"
           class="am-q-opt"
@@ -125,6 +131,27 @@
           </span>
         </button>
       </template>
+      <!-- 额外自选放正式选项之后（2026-11-05 标记）：推荐项点选为主，目录/库候选收进下拉 -->
+      <div v-if="showPickRow" class="am-q-group-label">
+        <span>{{ question.options[0]?.group || (isModelCard ? '机型' : '配件') }}</span>
+        <a-select
+          class="am-q-pick-select"
+          size="small"
+          show-search
+          allow-clear
+          :disabled="!optionInteractive"
+          :placeholder="isPartsCard ? '从配件库自选…' : '从在售目录自选…'"
+          :value="undefined"
+          :open="pickOpen[pickSlot]"
+          :loading="!!pickLoading[pickSlot]"
+          :options="pickSelectOptions(pickSlot)"
+          :filter-option="filterPickOption"
+          @dropdownVisibleChange="(o: boolean) => setPickOpen(pickSlot, o)"
+          @change="(v: any) => onPickSelect(pickSlot, v)"
+          @blur="setPickOpen(pickSlot, false)"
+        />
+      </div>
+      <div v-if="showPickRow && pickError[pickSlot]" class="am-q-pick-err">{{ pickError[pickSlot] }}</div>
       <div v-if="stepperVisible" class="am-q-stepper">
         <span class="am-q-stepper-label">数量</span>
         <button type="button" class="am-q-step-btn" :disabled="qtyVal <= 1" @click="qtyVal = Math.max(1, qtyVal - 1)">−</button>
@@ -158,7 +185,7 @@
             @click="submitParts"
           >确认提交</button>
         </template>
-        <template v-else-if="question.options.length">选择一项，或直接输入其他回答</template>
+        <template v-else-if="question.options.length">{{ isModelCard ? '选择一项、下拉自选，或直接输入' : '选择一项，或直接输入其他回答' }}</template>
         <template v-else>直接输入你的回答</template>
       </div>
     </div>
@@ -302,6 +329,11 @@ const mqQty = ref(1)
 const mqQtyFor: Record<string, number> = reactive({})
 
 const mqCur = computed(() => multiQ.value?.[mqPage.value] || null)
+/** 合批卡自选下拉（正式选项之后）：行卡挂行槽位，机型题挂 server_model */
+const mqPickSlot = computed<string>(() => mqCur.value?.options[0]?.slot || mqCur.value?.slot || '')
+const mqShowPick = computed(() =>
+  !!props.threadId && !!mqCur.value &&
+  ((mqCur.value.partsCard && !!mqCur.value.options.length) || mqCur.value.slot === 'server_model'))
 const mqAnyAnswer = computed(() => {
   const cur = mqCur.value
   if (!cur) return false
@@ -350,6 +382,21 @@ function mqPick(o: QOption) {
   }
 }
 
+/** 合批卡的库内自选（与单问卡 onPickSelect 同源）：落进该题答案，数量取候选默认量 */
+function mqOnPickSelect(slot: string, value: any) {
+  if (!value) return
+  const cur = multiQ.value?.find((q) => q.slot === slot)
+  if (!cur || !props.optionInteractive) return
+  const o = (pickOptions.value[slot] || []).find((x) => x.value === value)
+  if (!o || o.disabled) return
+  mqAnswers.value = { ...mqAnswers.value, [slot]: { value: o.value, label: o.label } }
+  if (cur.partsCard && o.qty_max) {
+    mqQty.value = Math.min(o.qty_max, o.qty || 1)
+    mqQtyFor[slot] = mqQty.value
+  }
+  pickOpen.value[slot] = false
+}
+
 function mqNext() {
   if (multiQ.value && mqPage.value < multiQ.value.length - 1) mqPage.value++
   else mqSubmit()
@@ -385,6 +432,17 @@ const partsSlot = computed<string>(() => {
 })
 
 const isPartsCard = computed(() => !!partsSlot.value && !!(question.value?.options.length))
+
+/** 机型选型卡：卡面摆推荐项，其余在售候选收进「从在售目录自选」下拉（2026-11-05 标记） */
+const isModelCard = computed(() => question.value?.slot === 'server_model')
+
+/** 自选下拉挂哪个槽：机型卡=server_model；配件行卡=行槽位 */
+const pickSlot = computed<string>(() =>
+  (isModelCard.value ? 'server_model' : partsSlot.value) || question.value?.slot || '')
+
+/** 下拉行显示条件（选项循环之后）：机型卡必有；配件行卡有候选时才有 */
+const showPickRow = computed(() =>
+  !!props.threadId && (isModelCard.value || (isPartsCard.value && !!question.value?.options.length)))
 
 const adjustable = computed(() => {
   const opts = question.value?.options.filter((o) => o.slot === partsSlot.value) || []
@@ -542,7 +600,12 @@ function onPickSelect(slot: string, value: any) {
   const o = (pickOptions.value[slot] || []).find((x) => x.value === value)
   if (!o || o.disabled) return
   picked.value = o
-  qtyVal.value = Math.min(qtyMax.value, partsSlot.value === 'storage' ? 2 : qtyMax.value)
+  if (slot === 'server_model') {
+    // 机型卡与点选项同路径：选中即作答（无数量步进、无提交钮环节）
+    emit('select-option', o.value, o.slot)
+  } else {
+    qtyVal.value = Math.min(qtyMax.value, partsSlot.value === 'storage' ? 2 : qtyMax.value)
+  }
   pickOpen.value[slot] = false
 }
 </script>

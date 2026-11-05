@@ -205,7 +205,13 @@ def fill_tool_parameters() -> dict:
                 desc = (f"{label}：取值来自在售目录机型；客户明确给出型号时登记原样型号，"
                         f"未给则留待机型选型步骤锁定")
             else:
-                desc = (f"{label}：从下拉选项结合实际需求选一个规范值登记；客户明确说了就按客户原意直接选")
+                # 推断值也须先登记（2026-11-04 实测：描述只写「客户明确说了才选」，大脑
+                # 推断出规范值后不敢落表、口头说「已记录」实际登记全空，确认卡退化成
+                # 无推荐生候选反问）。登记≠客户确认：求证归系统确认卡（unconfirmed
+                # premise → system_gaps，推荐值+影子标注都在那张卡上）。
+                desc = (f"{label}：从下拉选项中选规范值登记。客户原话明说、或能按规则/目录"
+                        f"事实唯一映射到规范值时，按映射结果登记（登记≠客户已确认，系统随后"
+                        f"会出确认卡求证）；确实无法唯一确定才留空交反问")
                 try:
                     from app.services.catalog_options import catalog_whitelist
                     _dl = catalog_whitelist({}, {}, "")
@@ -241,7 +247,10 @@ def fill_tool_parameters() -> dict:
                 "description": {"type": "string", "description": "客户原话规格，原样保留型号/数量/单位"},
                 "catalogue": {"type": "string", "description": "匹配到的目录部件型号；登记阶段留空由选型节点填"},
                 "note": {"type": "string", "description": "备注，可空"},
-                "qty": {"type": "integer", "description": "数量"},
+                "qty": {"type": "integer",
+                        "description": ("数量：客户明说以客户为准；客户没提时按优先级推断——"
+                                        "节点规则基线（知识块里的推荐数量）> 机型基准约束"
+                                        "（如内存通道数、盘位）> 1。登记≠客户确认，卡上可改")},
             },
             "required": ["part_category", "description"],
         },

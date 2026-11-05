@@ -1,5 +1,54 @@
 import type { AssistantMessage } from '@/api/assistant'
 
+// ── 回放带(dev-only):全站 WS 事件唯一收口点滚存现场。标记时导出 window.__wsTape
+//    最近片段+截图归档,定位读现场而非重跑复现。chunk 增量聚成一条 stream 段防刷屏,
+//    任何非 chunk 事件断开段;单条超限截形留记。回放带永不抛错、不触碰主流程状态。
+//    HMR 重载模块时保留旧带(__wsTape 已在 window 上则续用)。 ──
+interface WsTapeEntry { t: number; type: string; data?: any }
+const WS_TAPE_CAP = 400
+const WS_TAPE_STREAM_CAP = 20000
+const WS_TAPE_ENTRY_CAP = 8000
+const wsTape: WsTapeEntry[] = (() => {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return []
+  const prev = (window as any).__wsTape
+  return Array.isArray(prev) ? prev : []
+})()
+let tapeStream: WsTapeEntry | null = null
+function tapeRecord(data: any): void {
+  if (!import.meta.env.DEV) return
+  try {
+    const type = String(data?.type || 'unknown')
+    if (type === 'chunk') {
+      const delta = String(data?.delta || '')
+      if (!delta) return
+      if (!tapeStream) {
+        tapeStream = { t: Date.now(), type: 'stream', data: '' }
+        wsTape.push(tapeStream)
+      }
+      if ((tapeStream.data as string).length < WS_TAPE_STREAM_CAP) {
+        tapeStream.data = (tapeStream.data as string) + delta
+      }
+      return
+    }
+    tapeStream = null
+    let payload: any
+    if (type === 'chunk_reset') {
+      payload = undefined
+    } else {
+      payload = JSON.parse(JSON.stringify(data ?? {}))
+      if (JSON.stringify(payload).length > WS_TAPE_ENTRY_CAP) payload = { _truncated: true, type }
+    }
+    wsTape.push({ t: Date.now(), type, data: payload })
+    if (wsTape.length > WS_TAPE_CAP) wsTape.splice(0, wsTape.length - WS_TAPE_CAP)
+  } catch { /* 回放带自损,主流程无感 */ }
+}
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  ;(window as any).__wsTape = wsTape
+  ;(window as any).__wsMark = (label?: string) => {
+    try { wsTape.push({ t: Date.now(), type: `⚑ ${String(label || 'mark')}` }) } catch { /* noop */ }
+  }
+}
+
 export interface NodeTrace {
   step: string
   label: string
@@ -299,6 +348,7 @@ export function handleAssistantChatWsEvent(
   state: AssistantChatWsState,
   data: any,
 ): boolean {
+  tapeRecord(data)
   lastEventAt.set(state, Date.now())
   switch (data?.type) {
     case 'pipeline_start':
@@ -396,7 +446,8 @@ export function handleAssistantChatWsEvent(
       state.waiting = false
       state.statusText = ''
       state.running = false
-      state.streamingText = ''
+      // 暂停不清旁白:落库消息随 done 才到(实测滞后 ~3s),先清会让全屏旁白闪空。
+      // 旁白由 done(推消息并清流式,同拍交接)或 adoptTurnEnd(watchdog 兜底)清。
       transitionTask(state, { type: 'paused', pause: data.pause })
       return true
     case 'pipeline_waiting':
@@ -405,7 +456,9 @@ export function handleAssistantChatWsEvent(
       // 「中断在 xx · 等待你」，不再无限计时假跑（用户实测"卡在第 6 步"的实底）。
       state.waiting = false
       state.running = false
-      state.streamingText = ''
+      // 卡消息随 done 才落库（后端广播 pause 后还要收尾 ~3s），这 3s 静止是「卡顿感」
+      // 的实底：给出可见的整理状态，chat_progress 卡到达即被覆盖清空。
+      if (Array.isArray(data.gaps) && data.gaps.length) state.statusText = '正在整理选项卡…'
       transitionTask(state, { type: 'paused', pause: data.pause })
       return true
     case 'analysis_cancelled':
@@ -440,6 +493,7 @@ export function handleAssistantChatWsEvent(
       state.queuedCount = Math.max(0, Number(data.depth) || 0)
       return true
     case 'chat_progress':
+      state.statusText = ''
       pushMessage(state, data.message)
       return true
     case 'chunk':

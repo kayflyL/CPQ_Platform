@@ -366,30 +366,47 @@ class _FillNode(DefaultNodePlugin):
             return []
         out = []
         for key in missing:
-            cands = self._catalog_dimension_candidates(engine, key)
-            if not cands:
-                continue
-            out.append({"slot": key, "reason_code": "premise_confirm", "question": "",
-                        "options": [{"label": c, "value": c, "desc": "", "slot": key,
-                                     "group": "目录候选"} for c in cands[:6]]})
+            # 与求证卡同一装饰路径（候选+词典信号推荐兜底+影子标注）——两条卡脸
+            # 一套逻辑，别再各自手搓选项数组（2026-11-04 晚实测漏修教训）。
+            g = self._premise_confirm_gap(engine, {"key": key, "value": ""})
+            if isinstance(g, dict) and g:
+                out.append(g)
             if len(out) >= 4:
                 break
         return out
 
     def _premise_confirm_gap(self, engine: dict, field: dict) -> Optional[dict]:
-        """一个前提字段的确认缺口：选项=目录候选（推断值标推荐+规则影子校验标注）。"""
+        """一个前提字段的确认缺口：选项=目录候选（推断值标推荐+规则影子校验标注）。
+
+        登记值缺失时用词典卡信号词扫客户需求原文兜底（唯一命中才标推荐）——
+        大脑犹豫没登记时确认卡不退化成裸目录序（2026-11-04 晚实测：大脑把
+        「国产服务器」判成整机级歧义没登记，卡上 Polaris 无推荐标注）。
+        """
         ext = engine.get("ext") if isinstance(engine.get("ext"), dict) else {}
         key = str(field.get("key") or "").strip()
         value = str(field.get("value") or "").strip()
+        seeded = False
+        if not value:
+            try:
+                seed_fn = hp.fn_port("requirement_knowledge.dict_signal_seed")
+                value = str(seed_fn(str(engine.get("requirement_text") or ""), key) or "").strip()
+                seeded = bool(value)
+            except Exception:
+                logger.warning("词典信号推荐兜底失败（降级：不标推荐）", exc_info=True)
         if not key:
             return None
         cands = self._catalog_dimension_candidates(engine, key)
+        # 推荐值置顶（2026-11-04 实测：目录序 [Orion, Polaris] 时推荐标在原位=第二位，
+        # 确认卡序号 1 就成了错项）。候选顺序保持稳定，仅把推荐值前提。
+        if value:
+            cands = sorted(cands, key=lambda c: (str(c).strip() != value,))
         opts = []
         for cand in cands[:6]:
             o = {"label": cand, "value": cand, "desc": "", "slot": key, "group": "目录候选"}
             if cand == value:
                 o["recommended"] = True
-                o["desc"] = "当前登记值（按你的需求初判，可改）"
+                o["desc"] = ("按归置规则信号命中你的需求原文（推断，可改）" if seeded
+                             else "当前登记值（按你的需求初判，可改）")
             opts.append(o)
         if value and not any(o.get("recommended") for o in opts):
             opts.insert(0, {"label": value, "value": value, "desc": "当前登记值（按你的需求初判，可改）",
@@ -627,11 +644,37 @@ class _KpNode(DefaultNodePlugin):
         ctx["kp_required_cats"] = kp_required_categories(_kc)
 
     def _row_qty(self, engine: dict, row_key: str) -> int:
-        part = _row_part(engine, _row_meta(engine, row_key))
+        meta = _row_meta(engine, row_key)
+        part = _row_part(engine, meta)
         try:
-            return max(1, int(part.get("qty") or 1))
+            qty = int(part.get("qty") or 0)
         except (TypeError, ValueError):
-            return 1
+            qty = 0
+        if qty <= 0:
+            qty = 1
+        if qty <= 1 and isinstance(meta, dict):
+            # 行申报量住在 spec 文本里（「2 颗」「4 条」「2 块组 RAID 1」）时确定性提取——
+            # 文本是业务输入，解析非发明（与登记数字字段接受「3年」同口径）；显式 qty 不覆盖。
+            import re as _re
+            m = _re.search(r"(\d{1,3})\s*(颗|条|块|个|路|片|根|支)",
+                           str(meta.get("description") or ""))
+            if m:
+                qty = max(qty, int(m.group(1)))
+        if qty <= 1 and isinstance(meta, dict):
+            # 仍无量时看大脑的推荐量（按规则基线/机型约束推断的那份，推荐未过期才采信）
+            try:
+                from ai_office.skill_node_state import KP_RECOMMEND, kp_state
+                pick_for_row = hp.fn_port("part_selector.pick_for_row")
+                pick_is_stale = hp.fn_port("part_selector.pick_is_stale")
+                cat = str(meta.get("category") or "").strip()
+                desc = str(meta.get("description") or "").strip()
+                _rec = pick_for_row(kp_state(engine).get(KP_RECOMMEND) or {}, cat, desc)
+                _rec = _rec[0] if isinstance(_rec, list) and _rec else _rec
+                if isinstance(_rec, dict) and not pick_is_stale(_rec, cat, desc):
+                    qty = max(qty, int(_rec.get("qty") or 0) or qty)
+            except Exception:
+                logger.debug("行推荐量回退失败（按行申报量）", exc_info=True)
+        return max(1, qty)
 
     def _qty_bounds(self, engine: dict, category: str, row_qty: int) -> tuple:
         """行卡数量 (qty, qty_max)：默认量 = 行申报量；上限 = 锁定机型该类目的物理边界
@@ -644,10 +687,12 @@ class _KpNode(DefaultNodePlugin):
 
     def _baseline_caps(self, engine: dict) -> dict:
         """锁定机型扩展能力（目录事实）：随 pick_meta 留底给点击数量收口 clamp，
-        也摆上大脑的桌（推荐数量时的物理上限）。未登记的能力不编数、直接缺省。"""
+        也摆上大脑的桌（推荐数量时的物理上限与基准约束——mem_channels=通道数是
+        「按基准推断推荐数量」的事实源，规则没给数量时大脑按它推断；未登记的
+        能力不编数、直接缺省）。"""
         b = engine.get("_locked_baseline") or {}
         caps: dict = {}
-        for k in ("gpu_slots", "max_dimm", "max_cpu", "bays"):
+        for k in ("gpu_slots", "max_dimm", "max_cpu", "bays", "mem_channels", "psu_bays"):
             try:
                 v = int(b.get(k) or 0)
             except (TypeError, ValueError):
@@ -668,11 +713,34 @@ class _KpNode(DefaultNodePlugin):
             return []
         desc = str(meta.get("description") or "").strip() or cat
         part_recall = hp.fn_port("data_tools.part_recall")
-        q = part_recall(cat, desc=desc, series=_series_of(engine), limit=8,
-                        price_ok=bool(engine.get("price_access")))
+        # 卡面候选 ≤4（2026-11-05 标记：选项铺满半屏没法看）——其余候选走卡上
+        # 「从配件库自选」下拉（card-pick 行分支 limit=50），卡面只摆首选。
+        series = _series_of(engine)
+        recall_desc = desc
+        platform_conflict = ""
+        if series:
+            # 行描述与锁定机型的平台冲突是可判定事实（平台归置词典文本硬命中）。
+            # 冲突时不按原文召回——原文的阵营词会把不适配的料顶上卡（2026-11-05 实测：
+            # Polaris 机 +「Intel 8558」行 → Intel 候选摆上兜底卡，AI 没过目）。
+            # 改按「类目+平台」召回适配件，冲突事实随 gap 带回、卡上如实标注。
+            try:
+                dict_platform_of_text = hp.fn_port("requirement_knowledge.dict_platform_of_text")
+                row_plat = str(dict_platform_of_text(desc) or "").strip()
+                if row_plat and row_plat != series:
+                    platform_conflict = row_plat
+                    recall_desc = ""
+            except Exception:
+                logger.warning("行平台冲突判定失败（按原描述召回）", exc_info=True)
+        if platform_conflict:
+            from app.services.data_tools import part_query
+            q = part_query(cat, series=series, limit=4,
+                           price_ok=bool(engine.get("price_access")))
+        else:
+            q = part_recall(cat, desc=recall_desc, series=series, limit=4,
+                            price_ok=bool(engine.get("price_access")))
         qty, qty_max = self._qty_bounds(engine, cat, qty)
         opts: list = []
-        for c in ((q.get("rows") or []) if q.get("ok") else [])[:8]:
+        for c in ((q.get("rows") or []) if q.get("ok") else [])[:4]:
             if not isinstance(c, dict) or not str(c.get("name") or "").strip():
                 continue
             name = str(c.get("name"))
@@ -683,8 +751,8 @@ class _KpNode(DefaultNodePlugin):
             brief = " · ".join(f"{k}:{v}" for k, v in (c.get("specs") or {}).items())[:80]
             opts.append({"label": name, "value": name, "pick": pick, "description": brief,
                          "desc": brief, "qty": qty, "qty_max": qty_max,
-                         "group": "配件库候选"})
-        return opts
+                         "group": "平台适配件" if platform_conflict else "配件库候选"})
+        return opts, platform_conflict
 
     def _waived_options(self, engine: dict, row_key: str) -> list:
         """客户点名型号、库内确实无料时的第三条出路（行保留 + 标注，终检放行）。
@@ -737,7 +805,7 @@ class _KpNode(DefaultNodePlugin):
         brain_opts = [o for o in ((ask or {}).get("options") or []) if isinstance(o, dict)]
         usable = any(o.get("pick") or o.get("absent") or o.get("waived") for o in brain_opts)
         out = [] if usable else self._row_pick_options(engine, row_key,
-                                                       self._row_qty(engine, row_key))
+                                                       self._row_qty(engine, row_key))[0]
         if not any(o.get("waived") for o in list(out) + brain_opts):
             out = out + self._waived_options(engine, row_key)
         # 选项 → 信号仍由统一出口解释（skill_plan_runtime.ask_option_signal），节点不造信号
@@ -786,9 +854,20 @@ class _KpNode(DefaultNodePlugin):
         「保持原需求」（waived）；选项信号仍由唯一出口（ask_option_signal）解释。
         """
         out = []
-        for p in (engine.get("kp_parts") or []):
-            if not (isinstance(p, dict) and p.get("unmatched")):
-                continue
+        pend = [p for p in (engine.get("kp_parts") or [])
+                if isinstance(p, dict) and p.get("unmatched")]
+        # 行卡顺序跟抽屉必配类目序走（业务配置=插头，机制只消费顺序）：CPU 这类牵动
+        # 全局适配的类目在抽屉里排前面就先问（2026-11-05 标记：CPU 排第 3/4，
+        # 先定平台件再问外围才是依赖正确的顺序）。稳定排序，同类目保持原相对次序。
+        try:
+            kp_required_categories = hp.fn_port("skill_phases.kp_required_categories")
+            _kc = (engine.get("flow_configs") or {}).get("kp_reason")
+            _kc = _kc if isinstance(_kc, dict) else {}
+            order = {str(c).strip(): i for i, c in enumerate(kp_required_categories(_kc))}
+        except Exception:
+            order = {}
+        pend.sort(key=lambda p: order.get(str(p.get("category") or "").strip(), 10 ** 9))
+        for p in pend:
             g = self._stuck_row_gap(engine, p)
             if isinstance(g, dict) and g:
                 out.append(g)
@@ -811,8 +890,8 @@ class _KpNode(DefaultNodePlugin):
         ref = str((_row_meta(engine, row_key) or {}).get("row_id") or "").strip() or row_key
         row_qty = self._row_qty(engine, ref)
         qty, qty_max = self._qty_bounds(engine, cat, row_qty)
-        opts = (self._row_pick_options(engine, ref, row_qty)
-                + self._waived_options(engine, ref))
+        pick_opts, platform_conflict = self._row_pick_options(engine, ref, row_qty)
+        opts = (pick_opts + self._waived_options(engine, ref))
         if not opts:
             return None
         from ai_office.skill_plan_runtime import ask_option_signal
@@ -829,6 +908,7 @@ class _KpNode(DefaultNodePlugin):
             o.setdefault("slot", row_slot)
         return {"slot": row_slot, "reason_code": "kp_pick", "question": "",
                 "row": ref, "parts_card": True,
+                **({"platform_conflict": platform_conflict} if platform_conflict else {}),
                 "qty": qty, "qty_max": qty_max,
                 "pick_meta": {"row": ref, "category": cat, "request_spec": desc,
                               "row_qty": row_qty,
