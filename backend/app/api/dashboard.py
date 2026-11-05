@@ -414,6 +414,33 @@ def _infer_region(name: str) -> str:
     return _infer_province(name) or "未分类"
 
 
+# 国家推断（世界视图用）：库中无国家字段，仅客户名显式含国名关键词才定位到国；
+# 其余英文客户名归「海外未定位」，不上世界图（宁缺毋滥，不猜国家）。
+_COUNTRY_TABLE = [
+    ("United States", ("美国", "美利坚")), ("Germany", ("德国",)), ("Japan", ("日本",)),
+    ("South Korea", ("韩国",)), ("Singapore", ("新加坡",)), ("India", ("印度",)),
+    ("United Kingdom", ("英国",)), ("France", ("法国",)), ("Netherlands", ("荷兰",)),
+    ("Vietnam", ("越南",)), ("Malaysia", ("马来西亚",)), ("Thailand", ("泰国",)),
+    ("Indonesia", ("印尼", "印度尼西亚")), ("Brazil", ("巴西",)), ("Canada", ("加拿大",)),
+    ("Australia", ("澳大利亚", "澳洲")), ("Russia", ("俄罗斯",)), ("United Arab Emirates", ("阿联酋",)),
+    ("Saudi Arabia", ("沙特",)), ("Israel", ("以色列",)), ("Italy", ("意大利",)),
+    ("Spain", ("西班牙",)), ("Mexico", ("墨西哥",)), ("Turkey", ("土耳其",)),
+    ("Poland", ("波兰",)), ("Sweden", ("瑞典",)), ("Finland", ("芬兰",)),
+    ("Norway", ("挪威",)), ("Denmark", ("丹麦",)), ("Switzerland", ("瑞士",)),
+    ("Philippines", ("菲律宾",)),
+]
+
+
+def _infer_country(name: str) -> str:
+    n = (name or "").strip()
+    if not n:
+        return ""
+    for en, kws in _COUNTRY_TABLE:
+        if any(kw in n for kw in kws):
+            return en
+    return ""
+
+
 def _parse_dt(s: Optional[str]):
     if not s:
         return None
@@ -549,6 +576,7 @@ def get_cockpit(
                 "loss_keys": ex.get("loss_reason_keys") or [],
                 "region": _infer_region(o.customer_name or ""),
                 "province": _infer_province(o.customer_name or ""),
+                "country": _infer_country(o.customer_name or ""),
             })
         rec_by_oid = {r["oid"]: r for r in recs}
 
@@ -750,6 +778,12 @@ def get_cockpit(
         # ── 地区（推断口径）+ 客户排行 ──
         province_counts = [d for d in _count(R, "province") if d["name"] != "海外"]
         overseas = len([r for r in R if r["province"] == "海外"])
+        country_map = {}
+        for r in R:
+            c = r["country"] or ("China" if r["province"] != "海外" else "")
+            if c:
+                country_map[c] = country_map.get(c, 0) + 1
+        country_counts = [{"name": k, "count": v} for k, v in sorted(country_map.items(), key=lambda x: x[1], reverse=True)]
         cust_map = {}
         for r in R:
             if not r["customer"]:
@@ -788,7 +822,7 @@ def get_cockpit(
             "markup": {"boxes": boxes, "bins": bins_out},
             "win": {"win_reasons": win_reasons, "loss_reasons": loss_reasons,
                     "won_models": won_models, "cycle": cycle, "new_vs_repeat": new_vs_repeat},
-            "region": {"provinces": province_counts, "overseas": overseas},
+            "region": {"provinces": province_counts, "countries": country_counts, "overseas": overseas},
             "customers": {"top": customers},
             "options": options,
         }

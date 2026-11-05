@@ -228,9 +228,18 @@
         </div>
         <div class="conclusion" v-html="conRegion" />
         <div class="glass card-block" style="margin-bottom: var(--cpq-space-4)">
-          <div class="card-head">地区分布<span class="note">按客户名关键词推断的省份口径 · 点省份下钻 · 未识别地区不在图上（客户排行仍可见）</span></div>
+          <div class="card-head">地区分布
+            <span style="flex: 1" />
+            <span class="map-toggle">
+              <button :class="{ active: mapMode === 'world' }" @click="switchMapMode('world')">世界</button>
+              <button :class="{ active: mapMode === 'china' }" @click="switchMapMode('china')">国内</button>
+            </span>
+          </div>
+          <div class="card-head-sub" style="margin: calc(-1 * var(--cpq-space-2)) 0 var(--cpq-space-3); font-weight: 400">
+            {{ mapMode === 'china' ? '按客户名关键词推断的省份口径 · 点省份下钻 · 未识别地区不在图上（客户排行仍可见）' : '按客户名关键词识别国家 · 库中无国家字段，仅客户名含国名时上图；海外未定位的不计入' }}
+          </div>
           <div v-if="mapReady" class="chart-big">
-            <v-chart :option="mapOpt" autoresize @click="(p: any) => onDimClick('province', p)" />
+            <v-chart :option="mapOpt" autoresize @click="(p: any) => onMapClick(p)" />
           </div>
           <div v-else class="chart-empty">地图加载中…</div>
         </div>
@@ -250,8 +259,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import * as echarts from 'echarts/core'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { LineChart, BarChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { LineChart, BarChart, MapChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent, VisualMapComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import dayjs from 'dayjs'
 import axios from 'axios'
@@ -266,7 +275,7 @@ import RankBar from '@/components/opportunity/charts/RankBar.vue'
 import ConversionTable from '@/components/opportunity/charts/ConversionTable.vue'
 import MarkupBoxplot from '@/components/opportunity/charts/MarkupBoxplot.vue'
 
-use([CanvasRenderer, LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent])
+use([CanvasRenderer, LineChart, BarChart, MapChart, GridComponent, TooltipComponent, LegendComponent, VisualMapComponent])
 
 defineOptions({ name: 'OpportunityCockpit' })
 
@@ -736,31 +745,48 @@ const regionStats = computed(() => {
     statRow('blue', '海', '海外商机数', rg.overseas ?? 0, null),
   ]
 })
-/* 地图：geoJSON 内置 public/geo/china.json（不依赖 CDN），注册一次全局可用 */
+/* 地图：geoJSON 内置 public/geo/（不依赖 CDN），按需注册；中国/世界双视图 */
 const mapReady = ref(false)
-onMounted(async () => {
+const mapMode = ref<'china' | 'world'>('china')
+const registered = reactive({ china: false, world: false })
+async function ensureMap(mode: 'china' | 'world') {
+  if (registered[mode]) { mapReady.value = true; return }
   try {
-    const res = await fetch('/geo/china.json')
-    echarts.registerMap('china', await res.json())
+    const res = await fetch(`/geo/${mode}.json`)
+    echarts.registerMap(mode, await res.json())
+    registered[mode] = true
     mapReady.value = true
   } catch { /* 离线时地图卡显示加载中提示 */ }
-})
+}
+async function switchMapMode(mode: 'china' | 'world') {
+  await ensureMap(mode)   // 先注册成功再切，避免 setOption 撞上未注册地图名
+  mapMode.value = mode
+}
+onMounted(() => ensureMap('china'))
+function onMapClick(p: any) {
+  if (mapMode.value === 'china' && p?.name && p.componentType === 'series') setFilter('province', p.name)
+}
 const mapOpt = computed(() => {
-  const items = (data.value?.region?.provinces || []) as { name: string; count: number }[]
+  const mode = mapMode.value
+  if (!registered[mode]) return {}   // reactive 依赖：geoJSON 注册完成后才出 option
   const c = chartColors.value
+  const items = mode === 'china'
+    ? (data.value?.region?.provinces || []) as { name: string; count: number }[]
+    : (data.value?.region?.countries || []) as { name: string; count: number }[]
   const maxV = Math.max(1, ...items.map(d => d.count))
   return {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'item', backgroundColor: c.tooltipBg, textStyle: { color: c.tooltipText }, borderColor: c.tooltipBorder, borderWidth: 1,
-      formatter: (p: any) => `${p.name}<br/>商机 <b>${p.value || 0}</b>${items.length ? '<br/><span style="color:#86909c">点击下钻</span>' : ''}` },
+      formatter: (p: any) => `${p.name}<br/>商机 <b>${p.value || 0}</b>${mode === 'china' && items.length ? '<br/><span style="color:#86909c">点击下钻</span>' : ''}` },
     visualMap: { min: 0, max: maxV, left: 8, bottom: 4, calculable: true, text: ['高', '低'],
       textStyle: { color: c.axisLabel, fontSize: 10 }, inRange: { color: ['#D6E8FF', '#1677FF'] } },
     series: [{
-      type: 'map', map: 'china', roam: true,
+      type: 'map', map: mode, roam: true,
       label: { show: false }, itemStyle: { areaColor: '#EEF4FB', borderColor: '#fff', borderWidth: .5 },
       emphasis: { label: { show: true, fontSize: 11, color: c.tooltipText }, itemStyle: { areaColor: '#91CCFF' } },
       select: { disabled: true },
-      data: items,
+      // ECharts map 的 data 需要 {name, value}；后端给的是 {name, count}
+      data: items.map(d => ({ name: d.name, value: d.count })),
     }],
   }
 })
@@ -889,6 +915,10 @@ const conRegion = computed(() => {
 .card-head { display: flex; align-items: center; gap: 10px; font-size: var(--cpq-font-size-base); font-weight: 600; letter-spacing: .5px; color: var(--cpq-text-primary); margin-bottom: var(--cpq-space-3); }
 .card-head::after { content: ''; flex: 1; height: 1px; background: var(--cpq-overlay-a15); }
 .card-head .note { font-weight: 400; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); letter-spacing: 0; white-space: nowrap; }
+.card-head-sub { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+.map-toggle { display: inline-flex; gap: 2px; background: var(--cpq-overlay-w5); border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-full); padding: 2px; }
+.map-toggle button { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-secondary); border: none; background: transparent; padding: 2px 12px; border-radius: var(--cpq-radius-full); cursor: pointer; font-family: inherit; }
+.map-toggle button.active { background: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); font-weight: 600; }
 .conclusion { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); background: var(--cpq-overlay-a4); border-radius: var(--cpq-radius-md); padding: var(--cpq-space-2) var(--cpq-space-3); margin-bottom: var(--cpq-space-3); }
 .conclusion b { color: var(--cpq-accent-primary); font-weight: 600; }
 .conclusion .good { color: var(--cpq-notif-green); font-weight: 600; }
