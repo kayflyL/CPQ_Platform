@@ -405,11 +405,10 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
             <a-radio-button value="compose">合并采购</a-radio-button>
             <a-radio-button value="alternative">备选对比</a-radio-button>
           </a-radio-group>
-          <a-button v-if="!readonly" size="small" @click="addConfig">+ 配置</a-button>
         </div>
       </div>
 
-      <div v-if="configs.length" class="rf-config-tabs">
+      <div class="rf-config-tabs">
         <button
           v-for="(cfg, idx) in configs"
           :key="cfg.name"
@@ -421,6 +420,8 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
           <span>{{ cfg.server_model || `配置 ${idx + 1}` }}</span>
           <span v-if="!readonly" class="rf-config-tab-close" @click.stop="removeConfig(cfg)">×</span>
         </button>
+        <!-- 加配置贴在配置标签后：新标签往哪长，按钮就在哪（同商机详情页/配置完成页） -->
+        <a-button v-if="!readonly" size="small" @click="addConfig">+ 配置</a-button>
       </div>
 
       <div v-if="activeConfig" class="rf-config">
@@ -604,6 +605,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
 }
 .rf-config-tabs {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   margin: 0 0 12px;

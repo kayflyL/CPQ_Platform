@@ -14,6 +14,7 @@ export interface LeadRecord {
   contact_name: string
   contact_phone: string
   contact_email: string
+  delivery_region: string             // 交付地区（国内-广东 / 海外-日本 / 海外-不在列表中），转化时原样写入商机
   requirement_text: string
   config_slots: RequirementSlots | null
   expected_delivery: string

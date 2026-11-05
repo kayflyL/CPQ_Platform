@@ -310,6 +310,7 @@ async def submit_lead(
     contact_name: str = Form(""),
     contact_phone: str = Form(""),
     contact_email: str = Form(""),
+    delivery_region: str = Form(""),
     expected_delivery: str = Form(""),
     source: str = Form("catalog_general"),
     config_slots: str = Form(""),
@@ -368,6 +369,7 @@ async def submit_lead(
         "contact_name": _clean_str(contact_name, 50),
         "contact_phone": phone,
         "contact_email": email_c,
+        "delivery_region": _clean_str(delivery_region, 40),
         "requirement_text": text_clean,
         "config_slots": slots,
         "expected_delivery": _clean_str(expected_delivery, 40),
@@ -383,7 +385,8 @@ async def submit_lead(
             repo.merge_submission(open_hit["lead_id"], text_clean,
                                   attachments_append=attachments_meta,
                                   config_slots=slots,
-                                  expected_delivery=lead["expected_delivery"])
+                                  expected_delivery=lead["expected_delivery"],
+                                  delivery_region=lead["delivery_region"])
             logger.info("lead merged into %s from %s", open_hit["lead_id"], lead_id)
             return {"ok": True, "lead_id": open_hit["lead_id"], "merged": True}
         repo.insert(lead)

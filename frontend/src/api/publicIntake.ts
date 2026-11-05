@@ -19,6 +19,7 @@ export interface LeadSubmitPayload {
   contact_name: string
   contact_phone: string
   contact_email?: string
+  delivery_region?: string        // 交付地区（国内-广东 / 海外-日本 / 海外-不在列表中）
   expected_delivery?: string
   source?: 'catalog_model' | 'catalog_general'
   config_slots?: string            // RequirementSlots JSON（后端白名单键重建）
@@ -44,6 +45,7 @@ export const publicLeadApi = {
     fd.append('contact_name', data.contact_name || '')
     fd.append('contact_phone', data.contact_phone || '')
     if (data.contact_email) fd.append('contact_email', data.contact_email)
+    if (data.delivery_region) fd.append('delivery_region', data.delivery_region)
     if (data.expected_delivery) fd.append('expected_delivery', data.expected_delivery)
     fd.append('source', data.source || 'catalog_general')
     if (data.config_slots) fd.append('config_slots', data.config_slots)

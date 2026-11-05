@@ -133,6 +133,7 @@ onMounted(() => { load(); loadRejectDict() })
         <div v-if="lead" class="ld-sub">
           {{ lead.lead_id }} · 来源 {{ SOURCE_LABEL[lead.source] || lead.source }} · {{ fmtTime(lead.created_at) }}
           · 联系人 {{ lead.contact_name || '—' }} · {{ lead.contact_phone }}
+          <template v-if="lead.delivery_region"> · 交付地区 {{ lead.delivery_region }}</template>
           <template v-if="lead.contact_email"> · {{ lead.contact_email }}</template>
         </div>
       </div>

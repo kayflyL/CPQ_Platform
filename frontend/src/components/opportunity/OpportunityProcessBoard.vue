@@ -21,6 +21,7 @@ import dayjs from 'dayjs'
 import { portalApi } from '@/api/portal'
 import { projectApi } from '@/api'
 import { MODAL_BODY_MAX_HEIGHT } from '@/constants/modalPresets'
+import DeliveryRegionSelect from '@/components/common/DeliveryRegionSelect.vue'
 import type { FlowCard, PortalBoard, RequirementVersion, RequirementSlots } from '@/api/portal'
 import type { Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
@@ -963,7 +964,9 @@ defineExpose({ reload: loadBoard })
                         <a-auto-complete v-model:value="basicForm.industry" :options="getFilteredOptions('industry')" :default-active-first-option="false" placeholder="如 教育/政府/金融/制造" @focus="loadFieldHistory('industry')" @keydown.enter="saveBasic" />
                       </a-form-item>
                       <a-form-item label="交付地区">
-                        <a-auto-complete v-model:value="basicForm.delivery_region" :options="getFilteredOptions('delivery_region')" :default-active-first-option="false" placeholder="如 国内/海外/偏远" @focus="loadFieldHistory('delivery_region')" @keydown.enter="saveBasic" />
+                        <!-- 折叠面板选择器（共享 DeliveryRegionSelect，同 /lead）：修原自由输入致分桶/统计口径漂移；
+                             触发钮原样回显存量自由文本，重新选择后才收敛为编码值 -->
+                        <DeliveryRegionSelect v-model:value="basicForm.delivery_region" dense />
                       </a-form-item>
                       <a-form-item label="交付周期">
                         <a-auto-complete v-model:value="basicForm.delivery_cycle" :options="getFilteredOptions('delivery_cycle')" :default-active-first-option="false" placeholder="如 4周" @focus="loadFieldHistory('delivery_cycle')" @keydown.enter="saveBasic" />

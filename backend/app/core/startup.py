@@ -79,6 +79,22 @@ def ensure_quotation_created_by():
             c.execute(text("ALTER TABLE opportunities.quotations ADD COLUMN created_by TEXT"))
 
 
+def ensure_lead_delivery_region():
+    """线索交付地区列（幂等迁移，boot 时自愈）：opportunities.opportunity_leads 加 delivery_region。
+    公开登记表采集的交付地区中转列，与商机权威字段 extra_fields.delivery_region 同名同义，
+    线索转化时原样写入商机（口径不分裂）。手工对齐见 migrations/20261105_lead_delivery_region.sql。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='opportunity_leads'"
+        ))}
+    if "delivery_region" not in cols:
+        with opp_engine.begin() as c:
+            c.execute(text("ALTER TABLE opportunities.opportunity_leads ADD COLUMN delivery_region VARCHAR(40) DEFAULT ''"))
+
+
 def ensure_reasoning_flow_launch_form():
     """启动表单独立列（幂等迁移，boot 时自愈）：rules.reasoning_flow 加 launch_form（JSONB）。
     10-24 从 graph JSON 内迁出到专属列（画布/规则/脚本多写者剥键问题，头注见
@@ -1495,6 +1511,13 @@ def init_rules_db():
         print("✅ Quotation created_by column ensured")
     except Exception as e:
         print(f"⚠️ Quotation created_by migrate failed: {e}")
+
+    # 线索交付地区列（公开登记表采集 → 转化原样写入商机 delivery_region，口径不分裂）
+    try:
+        ensure_lead_delivery_region()
+        print("✅ Lead delivery_region column ensured")
+    except Exception as e:
+        print(f"⚠️ Lead delivery_region migrate failed: {e}")
 
     # 启动表单独立列（launch_form 从 graph 迁出；缺列曾致 reasoning_flow 全表查询炸）
     try:

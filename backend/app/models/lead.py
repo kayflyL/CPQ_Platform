@@ -30,6 +30,9 @@ class OpportunityLead(Base):
     contact_name: Mapped[str] = mapped_column(String, default="")
     contact_phone: Mapped[str] = mapped_column(String, default="")
     contact_email: Mapped[str] = mapped_column(String, default="")
+    # 交付地区（中转列，与商机权威字段 opportunities.extra_fields.delivery_region 同名同义；
+    # 转化时原样写入商机，统计口径不分裂。取值形如 国内-广东 / 海外-日本 / 海外-不在列表中）
+    delivery_region: Mapped[str] = mapped_column(String, default="")
 
     requirement_text: Mapped[str] = mapped_column(Text, default="")
     # RequirementSlots 同构（configs[]/config_relation/purchase_qty/…）； None=客户没填配置区
@@ -72,6 +75,7 @@ class OpportunityLead(Base):
             "contact_name": self.contact_name or "",
             "contact_phone": self.contact_phone or "",
             "contact_email": self.contact_email or "",
+            "delivery_region": self.delivery_region or "",
             "requirement_text": self.requirement_text or "",
             "config_slots": _loads(self.config_slots),
             "expected_delivery": self.expected_delivery or "",

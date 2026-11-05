@@ -2,12 +2,14 @@
 /**
  * 公开线索登记表（LeadSubmitForm）—— 商机详情页线索登记表（RequirementForm）的公开宿主。
  * 复用同一组件（publicMode：下拉走公开白名单 API），只加：
- * 联系信息段 + 需求附件上传 + 蜜罐 + 隐私提示；提交走 multipart（附件随表单）。
+ * 客户信息段（置首）+ 需求附件（嵌需求原文与配置之间，同商机详情页）+ 蜜罐 + 隐私提示；提交走 multipart（附件随表单）。
  */
 import { ref, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import RequirementForm from '@/components/flow/RequirementForm.vue'
+import DeliveryRegionSelect from '@/components/common/DeliveryRegionSelect.vue'
 import { publicLeadApi } from '@/api/publicIntake'
+import { NOT_LISTED_REGION_VALUE } from '@/constants/regions'
 
 const props = withDefaults(defineProps<{
   source?: 'catalog_model' | 'catalog_general'
@@ -26,6 +28,7 @@ const company = ref('')
 const contactName = ref('')
 const contactPhone = ref('')
 const contactEmail = ref('')
+const deliveryRegion = ref('')
 const website = ref('')          // 蜜罐：真实用户不可见必为空
 const files = ref<File[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -56,6 +59,7 @@ async function submit() {
   if (!website.value.trim()) {
     if (!company.value.trim()) { message.warning('请填写公司名称'); return }
     if (!/^1\d{10}$/.test(contactPhone.value.trim())) { message.warning('请填写 11 位手机号'); return }
+    if (!deliveryRegion.value) { message.warning('请选择交付地区'); return }
     if (files.value.some((f) => !extOk(f.name))) { message.warning('附件格式不支持'); return }
   }
   const slots = reqForm.value?.toSlots() || {}
@@ -67,6 +71,7 @@ async function submit() {
       contact_name: contactName.value,
       contact_phone: contactPhone.value,
       contact_email: contactEmail.value,
+      delivery_region: deliveryRegion.value,
       source: props.source,
       config_slots: JSON.stringify(slots),
       files: files.value,
@@ -83,36 +88,47 @@ async function submit() {
 
 <template>
   <div class="lead-submit">
-    <!-- 需求信息：与商机详情页线索登记表同构（RequirementForm 复用） -->
-    <RequirementForm ref="reqForm" v-model:req-text="reqText" :public-mode="true" />
-
+    <!-- 客户信息置首：先留联系方式，再填需求 -->
     <section class="ls-sec">
-      <h4 class="ls-sec-title">需求附件<span class="ls-hint">选填 · 招标书 / 配置清单 / 现场照片，随线索一起转给业务</span></h4>
-      <div class="att-chips">
-        <span v-for="(f, i) in files" :key="f.name + i" class="att-chip">
-          <b>{{ f.name }}</b><span class="sz">{{ (f.size / 1024).toFixed(0) }} KB</span>
-          <button type="button" @click="removeFile(i)">✕</button>
-        </span>
-      </div>
-      <div class="att-upload">
-        <button class="att-btn" type="button" @click="fileInput?.click()">＋ 上传附件</button>
-        <span>Word / Excel / PDF / 图片 · 单个 ≤ 20MB · 最多 5 个</span>
-        <input ref="fileInput" type="file" multiple hidden accept=".xlsx,.xls,.csv,.pdf,.docx,.doc,.png,.jpg,.jpeg,.gif,.bmp,.txt" @change="addFiles">
-      </div>
-    </section>
-
-    <section class="ls-sec">
-      <h4 class="ls-sec-title">联系信息</h4>
+      <h4 class="ls-sec-title">客户信息</h4>
       <div class="contact-grid">
-        <div class="cg-item"><label>公司名称<em>*</em></label><input v-model="company" placeholder="贵司全称"></div>
+        <div class="cg-item"><label>公司名称<em>*</em></label><input v-model="company" placeholder="客户全称"></div>
         <div class="cg-item"><label>联系人姓名<em>*</em></label><input v-model="contactName" placeholder="怎么称呼您"></div>
         <div class="cg-item"><label>手机号<em>*</em></label><input v-model="contactPhone" placeholder="11 位手机号"></div>
         <div class="cg-item"><label>工作邮箱</label><input v-model="contactEmail" placeholder="name@company.com（选填）"></div>
+        <div class="cg-item cg-region">
+          <label>交付地区<em>*</em></label>
+          <DeliveryRegionSelect v-model:value="deliveryRegion" />
+          <p class="cg-hint">硬件仅配送至下拉列表所列地区，软件与维保服务全球交付。</p>
+          <p v-if="deliveryRegion === NOT_LISTED_REGION_VALUE" class="region-tip">
+            该地区暂不支持硬件交付——软件与维保服务仍全球供货。欢迎提交需求，我们将与您确认可行的方案。
+          </p>
+        </div>
       </div>
       <!-- 蜜罐：隐藏字段，机器人填写即静默丢弃 -->
       <input v-model="website" name="website" tabindex="-1" autocomplete="off" class="hp-field">
       <p class="privacy-line">提交即表示同意我们仅将以上信息用于本次咨询联系，不做其他用途。</p>
     </section>
+
+    <!-- 需求信息：与商机详情页线索登记表同构（RequirementForm 复用）；附件嵌在需求原文与配置之间（同商机详情页） -->
+    <RequirementForm ref="reqForm" v-model:req-text="reqText" :public-mode="true">
+      <template #after-req-text>
+        <section class="ls-sec">
+          <h4 class="ls-sec-title">需求附件<span class="ls-hint">选填 · 招标书 / 配置清单 / 现场照片，随线索一起转给业务</span></h4>
+          <div class="att-chips">
+            <span v-for="(f, i) in files" :key="f.name + i" class="att-chip">
+              <b>{{ f.name }}</b><span class="sz">{{ (f.size / 1024).toFixed(0) }} KB</span>
+              <button type="button" @click="removeFile(i)">✕</button>
+            </span>
+          </div>
+          <div class="att-upload">
+            <button class="att-btn" type="button" @click="fileInput?.click()">＋ 上传附件</button>
+            <span>Word / Excel / PDF / 图片 · 单个 ≤ 20MB · 最多 5 个</span>
+            <input ref="fileInput" type="file" multiple hidden accept=".xlsx,.xls,.csv,.pdf,.docx,.doc,.png,.jpg,.jpeg,.gif,.bmp,.txt" @change="addFiles">
+          </div>
+        </section>
+      </template>
+    </RequirementForm>
 
     <button class="submit-btn" type="button" :disabled="submitting" @click="submit">
       {{ submitting ? '提交中…' : '提交需求登记 →' }}
@@ -153,10 +169,16 @@ async function submit() {
 .cg-item label em { color: var(--cpq-accent-danger); font-style: normal; margin-left: 2px; }
 .cg-item input {
   padding: 8px 12px; font-size: var(--cpq-font-size-base); font-family: inherit;
-  color: var(--cpq-text-primary); background: var(--cpq-bg-input);
-  border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-sm); outline: none;
+  color: var(--cpq-text-primary); background: var(--cpq-glass-2-bg);
+  border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-sm); outline: none;
 }
-.cg-item input:focus { border-color: var(--cpq-accent-primary); }
+.cg-item input:focus { border-color: var(--cpq-accent-primary); box-shadow: 0 0 0 2px var(--cpq-overlay-a15); }
+.cg-hint { margin: 2px 0 0; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); line-height: 1.6; }
+.region-tip {
+  margin: 6px 0 0; padding: 8px 12px; font-size: var(--cpq-font-size-xs); line-height: 1.7;
+  color: var(--cpq-text-secondary); border-radius: var(--cpq-radius-sm);
+  background: var(--cpq-warn-surface); border: 1px solid var(--cpq-warn-border);
+}
 .hp-field { position: absolute; left: -9999px; opacity: 0; height: 0; overflow: hidden; }
 .privacy-line { margin: 10px 0 0; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); line-height: 1.6; }
 .submit-btn {

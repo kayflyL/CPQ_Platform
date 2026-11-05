@@ -211,6 +211,8 @@ def convert_lead(lead_id: str, body: ConvertRequest, user: dict = Depends(requir
             OpportunityRepository().update_meta(opportunity_id, {
                 "lead_id": lead_id,
                 "lead_source": lead["source"],
+                **({"delivery_region": lead["delivery_region"].strip()}
+                   if (lead.get("delivery_region") or "").strip() else {}),
             })
             draft = FlowRepository().create_or_update_requirement_draft(
                 opportunity_id,

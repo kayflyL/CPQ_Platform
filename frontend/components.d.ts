@@ -95,6 +95,7 @@ declare module 'vue' {
     CostSheetWorkbench: typeof import('./src/components/opportunity/CostSheetWorkbench.vue')['default']
     CountNumber: typeof import('./src/components/common/CountNumber.vue')['default']
     CreateOpportunityModal: typeof import('./src/components/opportunity/CreateOpportunityModal.vue')['default']
+    DeliveryRegionSelect: typeof import('./src/components/common/DeliveryRegionSelect.vue')['default']
     DonutChart: typeof import('./src/components/opportunity/charts/DonutChart.vue')['default']
     GroupedConfigDetail: typeof import('./src/components/opportunity/GroupedConfigDetail.vue')['default']
     HumanQueryCard: typeof import('./src/components/assistant/HumanQueryCard.vue')['default']

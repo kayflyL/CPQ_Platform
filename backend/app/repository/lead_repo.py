@@ -51,6 +51,7 @@ class LeadRepository:
             contact_name=(lead.get("contact_name") or "").strip(),
             contact_phone=(lead.get("contact_phone") or "").strip(),
             contact_email=(lead.get("contact_email") or "").strip(),
+            delivery_region=(lead.get("delivery_region") or "").strip(),
             requirement_text=(lead.get("requirement_text") or "").strip(),
             config_slots=_dumps(lead.get("config_slots")),
             expected_delivery=(lead.get("expected_delivery") or "").strip(),
@@ -77,7 +78,8 @@ class LeadRepository:
         return row.to_dict() if row else None
 
     def merge_submission(self, lead_id: str, requirement_text: str, attachments_append: Optional[list] = None,
-                         config_slots: Optional[dict] = None, expected_delivery: str = "") -> None:
+                         config_slots: Optional[dict] = None, expected_delivery: str = "",
+                         delivery_region: str = "") -> None:
         """同手机号重复提交并入：追加需求原文（capped）、并附件、补空槽位，dedup_count +1。"""
         row = self.session.query(OpportunityLead).filter(OpportunityLead.lead_id == lead_id).first()
         if row is None:
@@ -98,6 +100,8 @@ class LeadRepository:
             row.config_slots = _dumps(config_slots)
         if expected_delivery and not row.expected_delivery:
             row.expected_delivery = expected_delivery.strip()
+        if delivery_region and not row.delivery_region:
+            row.delivery_region = delivery_region.strip()
         row.dedup_count = (row.dedup_count or 1) + 1
         row.updated_at = _now()
         self.session.commit()
