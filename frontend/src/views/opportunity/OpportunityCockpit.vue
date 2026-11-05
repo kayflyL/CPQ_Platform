@@ -53,11 +53,14 @@
     <div class="hero-grid">
       <div class="kpi-col">
         <div v-for="k in heroKpisLeft" :key="k.label" class="kpi glass-light">
-          <span class="sdot" :class="k.dot" />
           <div class="kpi-l">{{ k.label }}</div>
           <div class="kpi-v">{{ k.v }}<small>{{ k.unit }}</small></div>
-          <div class="slider"><i :style="{ width: k.s + '%' }" /></div>
-          <div class="kpi-sub">{{ k.sub }}</div>
+          <div class="kpi-stats">
+            <div v-for="st in k.stats" :key="st.label" class="kpi-stat">
+              <span class="ks-l">{{ st.label }}</span>
+              <span class="ks-v">{{ st.value }}</span>
+            </div>
+          </div>
         </div>
       </div>
       <div class="glass hero">
@@ -96,11 +99,14 @@
       </div>
       <div class="kpi-col">
         <div v-for="k in heroKpisRight" :key="k.label" class="kpi glass-light">
-          <span class="sdot" :class="k.dot" />
           <div class="kpi-l">{{ k.label }}</div>
           <div class="kpi-v">{{ k.v }}<small>{{ k.unit }}</small></div>
-          <div class="slider"><i :style="{ width: k.s + '%' }" /></div>
-          <div class="kpi-sub">{{ k.sub }}</div>
+          <div class="kpi-stats">
+            <div v-for="st in k.stats" :key="st.label" class="kpi-stat">
+              <span class="ks-l">{{ st.label }}</span>
+              <span class="ks-v">{{ st.value }}</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -499,32 +505,70 @@ const resultChips = computed(() => {
   }))
 })
 const assetChips = computed(() => {
-  const p = prevKpi.value || {}
-  const d = pctDelta(kpi.value.total_opportunities || 0, p.new_opportunities)
+  const plats: { name: string; count: number }[] = data.value?.structure?.platforms || []
+  const total = kpi.value.total_opportunities || 1
+  const pick = () => {
+    let amd = 0, zx = 0, intel = 0
+    for (const d of plats) {
+      if (/AMD/i.test(d.name)) amd += d.count
+      else if (/兆芯/.test(d.name)) zx += d.count
+      else if (/Intel|英特尔/i.test(d.name)) intel += d.count
+    }
+    return { amd, zx, intel }
+  }
+  const { amd, zx, intel } = pick()
+  const mk = (label: string, glyph: string, color: string, value: number) => ({
+    label, glyph, color, tint: tintOf(color), value, pct: (value / total * 100).toFixed(1) + '%',
+  })
   return [
-    { label: '客户数', glyph: '客', color: '#1677FF', tint: tintOf('#1677FF'), value: kpi.value.customers ?? 0, pct: `同期 ${p.customers ?? '—'}` },
-    { label: '报价单数', glyph: '报', color: '#0ea5b7', tint: tintOf('#0ea5b7'), value: kpi.value.quotes ?? 0, pct: `同期 ${p.quotes ?? '—'}` },
-    { label: '配置总数', glyph: '配', color: '#1677FF', tint: tintOf('#1677FF'), value: kpi.value.total_configs ?? 0, pct: `同期 ${p.new_configs ?? '—'}` },
-    { label: '周期环比', glyph: '环', color: '#2f9d78', tint: tintOf('#2f9d78'), value: kpi.value.total_opportunities ?? 0, pct: d ? d.text : '同期无数据' },
+    mk('AMD', 'A', '#FF6B6B', amd),
+    mk('兆芯', '兆', '#0ea5b7', zx),
+    mk('Intel', 'I', '#1677FF', intel),
+    mk('其他', '他', '#8A94A8', Math.max(0, kpi.value.total_opportunities - amd - zx - intel)),
   ]
 })
 const heroKpisLeft = computed(() => {
   const k = kpi.value
-  const rate = (k.win_rate || 0) / 100
   const rateDelta = (prevKpi.value.win_rate != null && prevKpi.value.win_rate !== undefined)
     ? pctDelta(k.win_rate || 0, prevKpi.value.win_rate) : null
-  const lostExpirePct = k.total_opportunities ? +(((k.lost || 0) + (k.expired || 0)) / k.total_opportunities * 100).toFixed(1) : 0
+  const wm = data.value?.win?.won_markup
   return [
-    { label: '成单率', v: (k.win_rate || 0).toFixed(1), unit: '%', dot: rate >= 0.15 ? 'g' : rate >= 0.1 ? 'y' : 'r', s: Math.min(100, rate * 300), sub: `成单 ${k.won ?? 0} · 环比 ${rateDelta ? rateDelta.text : '—'}` },
-    { label: '丢标+过期占比', v: String(lostExpirePct), unit: '%', dot: lostExpirePct >= 25 ? 'r' : 'y', s: Math.min(100, lostExpirePct), sub: `丢 ${k.lost ?? 0} · 过期 ${k.expired ?? 0}` },
+    {
+      label: '成单率', v: (k.win_rate || 0).toFixed(1), unit: '%',
+      stats: [
+        { label: '成单', value: String(k.won ?? 0) },
+        { label: '环比', value: rateDelta ? rateDelta.text : '—' },
+      ],
+    },
+    {
+      label: '成单平均加点', v: wm?.avg != null ? String(wm.avg) : '—', unit: wm?.avg != null ? ' %' : '',
+      stats: [
+        { label: '中位', value: wm?.median != null ? wm.median + ' %' : '—' },
+        { label: '样本', value: wm ? wm.n + ' 单' : '—' },
+      ],
+    },
   ]
 })
 const heroKpisRight = computed(() => {
   const k = kpi.value
-  const days = data.value?.win?.cycle?.median
+  const prev = prevKpi.value || {}
+  const custDelta = (prev.customers != null && prev.customers) ? pctDelta(k.customers || 0, prev.customers) : null
+  const cfgDelta = (prev.new_configs != null && prev.new_configs) ? pctDelta(k.total_configs || 0, prev.new_configs) : null
   return [
-    { label: '报价单数', v: String(k.quotes ?? 0), unit: ' 单', dot: 'g', s: Math.min(100, (k.quotes || 0) / 10), sub: `同期 ${prevKpi.value.quotes ?? '—'} · 在册报价单` },
-    { label: '成单时效中位', v: days != null ? String(days) : '—', unit: days != null ? ' 天' : '', dot: days != null && days <= 45 ? 'g' : days != null && days <= 70 ? 'y' : 'r', s: days != null ? Math.min(100, days / 1.2) : 4, sub: '建档 → 成单天数' },
+    {
+      label: '客户数', v: String(k.customers ?? 0), unit: ' 家',
+      stats: [
+        { label: '同期', value: String(prev.customers ?? '—') },
+        { label: '环比', value: custDelta ? custDelta.text : '—' },
+      ],
+    },
+    {
+      label: '配置总数', v: String(k.total_configs ?? 0), unit: ' 套',
+      stats: [
+        { label: '同期新增', value: String(prev.new_configs ?? '—') },
+        { label: '环比', value: cfgDelta ? cfgDelta.text : '—' },
+      ],
+    },
   ]
 })
 
@@ -606,7 +650,6 @@ const productStats = computed(() => {
   return [
     statRow('blue', '台', '覆盖平台数', st.platforms.length, null),
     statRow('cyan', '型', '覆盖机型数', data.value.models.data.length, null),
-    statRow('green', '单', '报价单数', kpi.value.quotes ?? 0, p.quotes ?? null),
     statRow('cyan', '配', '配置总数', kpi.value.total_configs ?? 0, p.new_configs ?? null),
   ]
 })
@@ -869,17 +912,13 @@ const conRegion = computed(() => {
 .hero-grid { display: grid; grid-template-columns: minmax(150px, .6fr) minmax(320px, 1.6fr) minmax(150px, .6fr); gap: var(--cpq-space-4); margin-bottom: var(--cpq-space-4); }
 .kpi-col { display: flex; flex-direction: column; gap: var(--cpq-space-4); }
 .kpi-col .kpi { flex: 1; padding: var(--cpq-space-3) var(--cpq-space-4); display: flex; flex-direction: column; justify-content: center; position: relative; }
-.sdot { position: absolute; top: var(--cpq-space-3); right: var(--cpq-space-3); width: 8px; height: 8px; border-radius: var(--cpq-radius-full); }
-.sdot.g { background: var(--cpq-accent-success, #52C9A0); }
-.sdot.y { background: var(--cpq-accent-warning); }
-.sdot.r { background: var(--cpq-accent-danger); }
 .kpi-l { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
 .kpi-v { font-size: var(--cpq-font-size-2xl); font-weight: 700; line-height: 1.3; font-variant-numeric: tabular-nums; margin: var(--cpq-space-1) 0; color: var(--cpq-text-primary); }
 .kpi-v small { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); font-weight: 500; margin-left: var(--cpq-space-1); }
-.kpi-sub { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); margin-top: var(--cpq-space-1); }
-.slider { height: 6px; border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-a8); position: relative; overflow: visible; }
-.slider i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: var(--cpq-radius-full); background: var(--cpq-accent-gradient); transition: width .6s var(--cpq-ease-out-expo); }
-.slider i::after { content: ''; position: absolute; right: -5px; top: 50%; transform: translateY(-50%); width: 12px; height: 12px; border-radius: var(--cpq-radius-full); background: var(--cpq-bg-card); border: 3px solid var(--cpq-accent-primary); }
+.kpi-stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cpq-space-1) var(--cpq-space-4); margin-top: var(--cpq-space-2); }
+.kpi-stat { display: flex; flex-direction: column; }
+.ks-l { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+.ks-v { font-size: var(--cpq-font-size-sm); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--cpq-text-primary); }
 
 .hero { display: flex; align-items: center; justify-content: center; gap: var(--cpq-space-4); padding: var(--cpq-space-4); }
 .hchips { display: flex; flex-direction: column; gap: var(--cpq-space-2); flex: 1; min-width: 0; }

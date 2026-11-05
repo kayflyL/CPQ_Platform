@@ -510,14 +510,12 @@ def get_cockpit(
             Quotation.opportunity_id, Quotation.config_server_models, Quotation.profit_margin,
         ).filter(Quotation.opportunity_id.in_(ids or [""]), Quotation.status != "deleted").all()
 
-        quote_count: dict = {}
         oid_pns: dict = {}       # oid → 该商机报价中出现过的 PN 集合
         oid_quotes: dict = {}    # oid → [(pn, 加点或None)]（报价单逐 PN 曝光）
         pn_exposure: dict = {}   # pn → 次数（全量口径，供筛选项）
         pn_markups: dict = {}    # pn → [加点样本]（全量口径，供筛选项）
         for r in q_rows:
             oid = r.opportunity_id
-            quote_count[oid] = quote_count.get(oid, 0) + 1
             try:
                 d = json.loads(r.config_server_models) if isinstance(r.config_server_models, str) else r.config_server_models
             except (json.JSONDecodeError, TypeError):
@@ -569,7 +567,6 @@ def get_cockpit(
                 "platform": slots.get("platform_type") or "未分类",
                 "chassis": (slots.get("chassis_form") or "未分类").split(",")[0].strip() or "未分类",
                 "cfg": cfg_map.get(o.opportunity_id, 0),
-                "quotes": quote_count.get(o.opportunity_id, 0),
                 "created": created,
                 "win_days": win_days,
                 "win_keys": ex.get("win_reason_keys") or [],
@@ -659,7 +656,6 @@ def get_cockpit(
             "total_opportunities": len(R),
             "total_configs": total_cfg,
             "customers": len({r["customer"] for r in R if r["customer"]}),
-            "quotes": sum(r["quotes"] for r in R),
             "new_opportunities": len(P),
             "new_configs": sum(r["cfg"] for r in P),
             "won": len(won_recs),
@@ -675,7 +671,6 @@ def get_cockpit(
             "won": len(prev_won),
             "win_rate": round(len(prev_won) / len(Prev) * 100, 1) if Prev else None,
             "customers": len({r["customer"] for r in Prev if r["customer"]}),
-            "quotes": sum(r["quotes"] for r in Prev),
             "lost": len([r for r in Prev if r["result"] == "lost"]),
             "expired": len([r for r in Prev if r["result"] == "expired"]),
         }
@@ -767,6 +762,17 @@ def get_cockpit(
         cycle = {"bins": cycle_bins,
                  "median": days_list[len(days_list) // 2] if days_list else None,
                  "p90": days_list[min(len(days_list) - 1, int(len(days_list) * 0.9))] if days_list else None}
+        # 成单平均加点：按商机先对 PN 加点求均值，再对成单商机求均值（与成单机型口径一致）
+        oid_mv: dict = {}
+        for mv, oid in markup_win_s:
+            if rec_by_oid.get(oid, {}).get("result") == "won":
+                oid_mv.setdefault(oid, []).append(mv)
+        oid_avgs = [sum(v) / len(v) for v in oid_mv.values()]
+        won_markup = {
+            "avg": round(sum(oid_avgs) / len(oid_avgs), 1) if oid_avgs else None,
+            "median": round(statistics.median(oid_avgs), 1) if oid_avgs else None,
+            "n": len(oid_avgs),
+        }
         first_month = {}
         for r in recs:
             k = month_key(r)
@@ -821,7 +827,8 @@ def get_cockpit(
             "models": {"data": [[k, v] for k, v in models]},
             "markup": {"boxes": boxes, "bins": bins_out},
             "win": {"win_reasons": win_reasons, "loss_reasons": loss_reasons,
-                    "won_models": won_models, "cycle": cycle, "new_vs_repeat": new_vs_repeat},
+                    "won_models": won_models, "cycle": cycle, "new_vs_repeat": new_vs_repeat,
+                    "won_markup": won_markup},
             "region": {"provinces": province_counts, "countries": country_counts, "overseas": overseas},
             "customers": {"top": customers},
             "options": options,
