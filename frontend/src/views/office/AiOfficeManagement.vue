@@ -129,7 +129,10 @@
             <AiSettingsPanel embedded section="threads" />
           </a-tab-pane>
           <a-tab-pane key="access" tab="账户与权限">
-            <AiSettingsPanel embedded section="access" />
+            <div class="aom-access-stack">
+              <ColleagueAccessPanel :colleagues="colleagues" />
+              <AiSettingsPanel embedded section="access" />
+            </div>
           </a-tab-pane>
         </a-tabs>
       </div>
@@ -187,6 +190,7 @@ import CapabilityCard from '@/components/office/CapabilityCard.vue'
 import SkillRoutePolicyModal from '@/components/office/SkillRoutePolicyModal.vue'
 import SkillStudio from '../admin/reasoning/SkillStudio.vue'
 import ArtifactTemplateCenter from './ArtifactTemplateCenter.vue'
+import ColleagueAccessPanel from './ColleagueAccessPanel.vue'
 
 const props = defineProps<{
   colleagues: any[]
@@ -478,6 +482,13 @@ onMounted(loadSkills)
 
 .aom-panel {
   min-height: 0;
+}
+
+/* 账户与权限：访问权限面板（谁能用哪些 AI 同事）在上，管理面进入门槛（角色表）在下 */
+.aom-access-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cpq-space-4);
 }
 
 .aom-inner-tabs {

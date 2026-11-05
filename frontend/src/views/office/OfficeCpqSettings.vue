@@ -16,10 +16,6 @@
 
       <div class="os-cards">
         <div class="os-card">
-          <ColleagueAccessPanel :colleagues="colleagues" />
-        </div>
-
-        <div class="os-card">
           <div class="os-card-head">
             <div class="os-card-title">系统信息</div>
             <div class="os-card-desc">展示于桌面磁贴；修改后保存即可生效。</div>
@@ -38,17 +34,16 @@
 
 <script setup lang="ts">
 /* CPQ 系统设置页（/office/app/cpq/settings）：
-   卡一 = AI 角色访问权限（ColleagueAccessPanel 原样迁入，真相源搬家不复制）；
-   卡二 = 系统信息（可编辑：名称/描述写回办公室档案 offices 配置，桌面磁贴读它）。 */
+   只管 CPQ 侧的系统信息（名称/描述写回办公室档案 offices 配置，桌面磁贴读它）；
+   AI 办公室内部权限（访问权限/团队隔离/价格可见性/管理面进入门槛）归
+   AI 办公室管理面「运行与权限 → 账户与权限」（AiOfficeManagement），此处不放。 */
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import OfficeTopBar from './OfficeTopBar.vue'
-import ColleagueAccessPanel from './ColleagueAccessPanel.vue'
 import { officeApi, type OfficeProfile } from '@/api/office'
 
 const router = useRouter()
-const colleagues = ref<any[]>([])
 const offices = ref<OfficeProfile[]>([])
 const appName = ref('CPQ 系统')
 const appDesc = ref('')
@@ -75,7 +70,6 @@ async function saveAppMeta() {
 onMounted(async () => {
   try {
     const cfg = await officeApi.teamConfig()
-    colleagues.value = Array.isArray(cfg.colleagues) ? cfg.colleagues : []
     offices.value = Array.isArray(cfg.offices) ? cfg.offices : []
     const cpq = offices.value.find((o) => o.key === 'cpq')
     if (cpq) {
