@@ -10,7 +10,7 @@ import copy
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.api.deps import get_current_user, require_perms, resolve_ws_user
+from app.api.deps import get_current_user, require_perms, resolve_ws_user, user_has_permission
 from app.core.config import get_settings
 from app.repository.feed_user_repo import FeedUserRepository
 from app.repository.reasoning_flow_repo import ReasoningFlowRepository, compute_tool_usage
@@ -23,6 +23,21 @@ from app.services.office_access import allowed_chat_role_keys
 router = APIRouter(prefix="/api/ai-colleagues", tags=["ai-colleagues"])
 
 require_ai_office_manage = require_perms("ai.office.manage")
+# 同事设定编辑（人格提示词/工具绑定/记忆维护/新建删除）：独立于 manage，默认仅 admin。
+require_employee_edit = require_perms("ai.office.employee.edit")
+
+# 无编辑权限者可见的同事字段白名单：档案公开面（名片/头像/能力绑定）。
+# system_prompt、response_profile、model_override、behavior_profile、memory_policy、
+# price_access、relations 一律不出门——设定是办公室内部机密，前端只读不够，接口必须裁。
+_PUBLIC_COLLEAGUE_FIELDS = (
+    "role_key", "name", "color", "avatar_url", "pet_model", "model_url",
+    "enabled", "dispatchable", "opening_message", "description", "capabilities",
+    "tool_ids", "skills", "workflows",
+)
+
+
+def _sanitize_colleague(colleague: dict) -> dict:
+    return {k: colleague[k] for k in _PUBLIC_COLLEAGUE_FIELDS if k in colleague}
 
 _CONFIG_KEY = "ai_colleagues"
 
@@ -964,6 +979,9 @@ def list_colleagues(user: dict = Depends(get_current_user)):
                 if (colleague or {}).get("role_key") in allowed_set
                 or (colleague or {}).get("role_key") == "unknown"
             ]
+        # 无同事设定编辑权 → 只下发档案公开面字段（system_prompt/模型覆盖等不出门）
+        if not user_has_permission(user, "ai.office.employee.edit"):
+            colleagues = [_sanitize_colleague(dict(c or {})) for c in colleagues]
         return {
             "colleagues": colleagues,
             "team_meta": cfg.get("team_meta", dict(_DEFAULT_TEAM_META)),
@@ -977,7 +995,7 @@ def list_colleagues(user: dict = Depends(get_current_user)):
 
 
 @router.post("/")
-def create_colleague(data: ColleagueCreate, manager: dict = Depends(require_ai_office_manage)):
+def create_colleague(data: ColleagueCreate, manager: dict = Depends(require_employee_edit)):
     repo = SystemConfigRepository()
     try:
         cfg = _read_config(repo)
@@ -1359,7 +1377,7 @@ def list_colleague_memories(
     limit: int = 100,
     include_retired: bool = False,
     user_id: Optional[str] = None,
-    manager: dict = Depends(require_ai_office_manage),
+    manager: dict = Depends(require_employee_edit),
 ):
     """治理面记忆列表。默认只看公共域（治理面维护对象）；
     传 user_id 查看该用户的私有域（排查/治理用）。"""
@@ -1373,7 +1391,7 @@ def list_colleague_memories(
 
 
 @router.post("/{role_key}/memories/consolidate")
-async def consolidate_colleague_memories(role_key: str, manager: dict = Depends(require_ai_office_manage)):
+async def consolidate_colleague_memories(role_key: str, manager: dict = Depends(require_employee_edit)):
     from app.services.colleague_memory_service import consolidate_role
     result = await consolidate_role(role_key)
     if not result.get("ok"):
@@ -1382,7 +1400,7 @@ async def consolidate_colleague_memories(role_key: str, manager: dict = Depends(
 
 
 @router.post("/{role_key}/memories")
-def create_colleague_memory(role_key: str, data: MemoryCreate, manager: dict = Depends(require_ai_office_manage)):
+def create_colleague_memory(role_key: str, data: MemoryCreate, manager: dict = Depends(require_employee_edit)):
     from app.repository.colleague_memory_repo import ColleagueMemoryRepository
     item = ColleagueMemoryRepository().add(
         role_key, data.type, data.content,
@@ -1398,7 +1416,7 @@ def update_colleague_memory(
     role_key: str,
     memory_id: int,
     data: MemoryUpdate,
-    manager: dict = Depends(require_ai_office_manage),
+    manager: dict = Depends(require_employee_edit),
 ):
     from app.repository.colleague_memory_repo import ColleagueMemoryRepository
     repo = ColleagueMemoryRepository()
@@ -1413,7 +1431,7 @@ def update_colleague_memory(
 
 
 @router.delete("/{role_key}/memories/{memory_id}")
-def delete_colleague_memory(role_key: str, memory_id: int, manager: dict = Depends(require_ai_office_manage)):
+def delete_colleague_memory(role_key: str, memory_id: int, manager: dict = Depends(require_employee_edit)):
     """管理面删除=强制失效打戳（双时间轴：历史可追溯），不物理删。"""
     from app.repository.colleague_memory_repo import ColleagueMemoryRepository
     repo = ColleagueMemoryRepository()
@@ -1425,14 +1443,14 @@ def delete_colleague_memory(role_key: str, memory_id: int, manager: dict = Depen
 
 
 @router.delete("/{role_key}/memories")
-def clear_colleague_memories(role_key: str, manager: dict = Depends(require_ai_office_manage)):
+def clear_colleague_memories(role_key: str, manager: dict = Depends(require_employee_edit)):
     from app.repository.colleague_memory_repo import ColleagueMemoryRepository
     deleted = ColleagueMemoryRepository().delete_by_role(role_key)
     return {"deleted": deleted, "role_key": role_key}
 
 
 @router.put("/{role_key}")
-def update_colleague(role_key: str, data: ColleagueUpdate, manager: dict = Depends(require_ai_office_manage)):
+def update_colleague(role_key: str, data: ColleagueUpdate, manager: dict = Depends(require_employee_edit)):
     repo = SystemConfigRepository()
     try:
         cfg = _read_config(repo)
@@ -1458,7 +1476,7 @@ def update_colleague(role_key: str, data: ColleagueUpdate, manager: dict = Depen
 
 
 @router.delete("/{role_key}")
-def delete_colleague(role_key: str, manager: dict = Depends(require_ai_office_manage)):
+def delete_colleague(role_key: str, manager: dict = Depends(require_employee_edit)):
     repo = SystemConfigRepository()
     try:
         cfg = _read_config(repo)

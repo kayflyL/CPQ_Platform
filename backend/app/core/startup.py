@@ -712,6 +712,7 @@ _DEFAULT_PERMISSIONS = [
     {"key": "page.office", "name": "AI 办公室菜单与页面", "group": "page", "module": "AI 办公室"},
     {"key": "ai.office.manage", "name": "AI 办公室管理 · 同事 / 团队 / Skill Studio", "group": "action", "module": "AI 办公室"},
     {"key": "ai.office.admin", "name": "AI 办公室管理 · 模型与接入 / 运行与权限", "group": "action", "module": "AI 办公室"},
+    {"key": "ai.office.employee.edit", "name": "AI 办公室 · 编辑同事设定（人格/工具/记忆/删除）", "group": "action", "module": "AI 办公室"},
     {"key": "page.servers", "name": "服务器（机型目录 / 详情 / 配置向导）", "group": "page", "module": "服务器"},
     {"key": "page.parts", "name": "配件", "group": "page", "module": "配件"},
     {"key": "field.parts.price", "name": "配件价格可见（库价/价格历史）", "group": "field", "module": "配件"},

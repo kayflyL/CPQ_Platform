@@ -295,10 +295,10 @@
           <div class="form-section">
             <h4 class="section-title">
               账户与权限
-              <span class="section-hint">控制哪些系统角色可以进入 AI 办公室管理面；具体“谁能聊哪个 AI 角色”见本页上方「AI 角色访问权限」</span>
+              <span class="section-hint">控制哪些系统角色可进入管理面、谁能编辑同事设定；具体“谁能聊哪个 AI 角色”见本页上方「AI 角色访问权限」</span>
             </h4>
             <a-alert
-              message="开启后，该角色的用户会看到 AI 办公室右上角的 Manage Teams 按钮，并可修改 AI 办公室管理配置。"
+              message="「AI 办公室管理」开启后该角色可打开 Manage Teams（只读浏览）；「编辑同事设定」开启后才能修改同事人格/工具/记忆或新建删除同事（默认仅管理员）。"
               type="info"
               show-icon
               style="margin-bottom: 12px"
@@ -323,7 +323,17 @@
                     :checked="record.permissions.includes('ai.office.manage')"
                     size="small"
                     :loading="accessSavingRole === record.role_key"
-                    @change="(checked: boolean) => onAiManageChange(record, checked)"
+                    @change="(checked: boolean) => onAccessKeyChange(record, checked, 'ai.office.manage', 'AI 办公室管理')"
+                  />
+                </template>
+                <template v-else-if="column.key === 'can_edit_employee'">
+                  <span v-if="record.role_key === 'admin'">全部权限</span>
+                  <a-switch
+                    v-else
+                    :checked="record.permissions.includes('ai.office.employee.edit')"
+                    size="small"
+                    :loading="accessSavingRole === record.role_key"
+                    @change="(checked: boolean) => onAccessKeyChange(record, checked, 'ai.office.employee.edit', '编辑同事设定')"
                   />
                 </template>
               </template>
@@ -683,7 +693,8 @@ const accessSavingRole = ref<string | null>(null)
 const accessRoleColumns = [
   { title: '角色 key', dataIndex: 'role_key', key: 'role_key', width: 160 },
   { title: '角色名称', dataIndex: 'name', key: 'role_name' },
-  { title: 'AI 办公室管理', key: 'can_manage', width: 180 },
+  { title: 'AI 办公室管理', key: 'can_manage', width: 150 },
+  { title: '编辑同事设定', key: 'can_edit_employee', width: 130 },
 ]
 
 async function loadAccessRoles() {
@@ -697,15 +708,15 @@ async function loadAccessRoles() {
   }
 }
 
-async function onAiManageChange(role: RoleItem, checked: boolean) {
+async function onAccessKeyChange(role: RoleItem, checked: boolean, permKey: string, label: string) {
   accessSavingRole.value = role.role_key
   try {
     const next = new Set(role.permissions || [])
-    if (checked) next.add('ai.office.manage')
-    else next.delete('ai.office.manage')
+    if (checked) next.add(permKey)
+    else next.delete(permKey)
     await rbacApi.roles.update(role.role_key, { permissions: Array.from(next) })
     role.permissions = Array.from(next)
-    message.success(`${role.name || role.role_key} 已${checked ? '开启' : '关闭'} AI 办公室管理`)
+    message.success(`${role.name || role.role_key} 已${checked ? '开启' : '关闭'}${label}`)
   } catch {
     message.error('保存失败')
   } finally {

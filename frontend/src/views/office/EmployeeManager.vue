@@ -6,7 +6,7 @@
           <div class="em-title">同事</div>
           <div class="em-subtitle">管理、设置和新建 AI 同事</div>
         </div>
-        <a-button size="small" type="primary" @click="openCreate">新建同事</a-button>
+        <a-button v-if="canEdit" size="small" type="primary" @click="openCreate">新建同事</a-button>
       </div>
 
       <div class="em-cards">
@@ -30,7 +30,8 @@
       <template #title>
         <div class="em-modal-title">
           <span class="em-modal-title-text">同事档案</span>
-          <a-button size="small" type="primary" class="em-btn-save-top" :loading="saving" @click="save">保存</a-button>
+          <span v-if="!canEdit" class="em-ro-note">只读 · 仅展示简介与能力</span>
+          <a-button v-if="canEdit" size="small" type="primary" class="em-btn-save-top" :loading="saving" @click="save">保存</a-button>
         </div>
       </template>
       <div class="em-form">
@@ -41,48 +42,49 @@
             <img v-if="draft.avatar_url" :src="draft.avatar_url" alt="" />
             <Live2dPreview v-else :model-key="draft.pet_model" bg-color="transparent" />
           </div>
-          <a-input v-model:value="draft.name" class="em-name-input" :bordered="false" placeholder="同事名称" />
+          <a-input v-if="canEdit" v-model:value="draft.name" class="em-name-input" :bordered="false" placeholder="同事名称" />
+          <div v-else class="em-name-input em-name-static">{{ draft.name }}</div>
           <div class="em-role-line"><span class="em-role-key">{{ draft.role_key }}</span></div>
           <div class="em-chips">
-            <button type="button" class="em-chip" :class="{ on: draft.enabled }" @click="draft.enabled = !draft.enabled">
-              <span class="em-chip-dot"></span>{{ draft.enabled ? '在职' : '停用' }}
-            </button>
-            <button type="button" class="em-chip" :class="{ on: draft.dispatchable }" @click="draft.dispatchable = !draft.dispatchable">
-              <span class="em-chip-dot"></span>可被总助分派
-            </button>
-            <a-tooltip title="在『同事 → 访问权限』页签修改">
+            <span class="em-chip is-static" :class="{ on: draft.enabled }"><span class="em-chip-dot"></span>{{ draft.enabled ? '在职' : '停用' }}</span>
+            <span class="em-chip is-static" :class="{ on: draft.dispatchable }"><span class="em-chip-dot"></span>可被总助分派</span>
+            <a-tooltip v-if="canEdit" title="在「运行与权限 → 账户与权限」的价格可见性开关修改">
               <span class="em-chip is-static" :class="{ on: priceOn }">
                 <span class="em-chip-dot"></span>{{ priceOn ? '价格可见' : '价格不可见' }}
               </span>
             </a-tooltip>
           </div>
           <a-textarea
+            v-if="canEdit"
             v-model:value="draft.opening_message"
             class="em-quote"
             :auto-size="{ minRows: 1, maxRows: 3 }"
             placeholder="开场白（个人陈述）：这位同事开口的第一句"
           />
-          <div class="em-blank">
-            <span>主题色</span>
-            <input v-model="draft.color" type="color" class="em-color" />
-          </div>
-          <div class="em-blank">
-            <span>形象</span>
-            <a-select v-model:value="draft.pet_model" class="em-blank-select" :bordered="false" dropdown-class-name="em-pet-select-dropdown" style="width: 100%">
-              <a-select-option v-for="m in PET_MODEL_CATALOG" :key="m.key" :value="m.key">{{ m.label }}</a-select-option>
-            </a-select>
-          </div>
-          <div class="em-blank">
-            <span>头像 URL</span>
-            <a-input v-model:value="draft.avatar_url" class="em-blank-input" :bordered="false" placeholder="https://…，留空显示形象" />
-          </div>
-          <div class="em-blank">
-            <span>3D 模型</span>
-            <a-input v-model:value="draft.model_url" class="em-blank-input" :bordered="false" placeholder="/models/…/*.vrm，留空自动轮换" />
-          </div>
+          <p v-else-if="draft.opening_message" class="em-quote-static">{{ draft.opening_message }}</p>
+          <template v-if="canEdit">
+            <div class="em-blank">
+              <span>主题色</span>
+              <input v-model="draft.color" type="color" class="em-color" />
+            </div>
+            <div class="em-blank">
+              <span>形象</span>
+              <a-select v-model:value="draft.pet_model" class="em-blank-select" :bordered="false" dropdown-class-name="em-pet-select-dropdown" style="width: 100%">
+                <a-select-option v-for="m in PET_MODEL_CATALOG" :key="m.key" :value="m.key">{{ m.label }}</a-select-option>
+              </a-select>
+            </div>
+            <div class="em-blank">
+              <span>头像 URL</span>
+              <a-input v-model:value="draft.avatar_url" class="em-blank-input" :bordered="false" placeholder="https://…，留空显示形象" />
+            </div>
+            <div class="em-blank">
+              <span>3D 模型</span>
+              <a-input v-model:value="draft.model_url" class="em-blank-input" :bordered="false" placeholder="/models/…/*.vrm，留空自动轮换" />
+            </div>
+          </template>
         </header>
 
-        <section class="em-sec">
+        <section v-if="canEdit" class="em-sec">
           <h3 class="em-sec-title">人格与指令</h3>
           <p class="em-sec-sub">这位同事的大脑——提示词决定ta是谁，风格决定ta怎么说话</p>
           <label class="em-field">
@@ -147,10 +149,11 @@
 
         <section class="em-sec">
           <h3 class="em-sec-title">能力</h3>
-          <p class="em-sec-sub">绑定工作流发起任务流；query_data 可读表 = 工具自有白名单</p>
+          <p class="em-sec-sub">{{ canEdit ? '绑定工作流发起任务流；query_data 可读表 = 工具自有白名单' : '这位同事绑定的工作流与工具（只读）' }}</p>
           <label class="em-field">
             <span>工作流</span>
             <a-select
+              v-if="canEdit"
               v-model:value="draft.workflows"
               class="em-cloud"
               mode="multiple"
@@ -158,10 +161,15 @@
               placeholder="点此添加工作流"
               style="width: 100%"
             />
+            <div v-else class="em-ro-chips">
+              <span v-for="key in draft.workflows" :key="`wf-${key}`" class="em-ro-chip">{{ workflowLabel(key) }}</span>
+              <span v-if="!draft.workflows.length" class="em-ro-empty">未绑定</span>
+            </div>
           </label>
           <label class="em-field">
             <span>可用工具</span>
             <a-select
+              v-if="canEdit"
               v-model:value="draft.tool_ids"
               class="em-cloud"
               mode="multiple"
@@ -169,10 +177,14 @@
               placeholder="点此添加工具"
               style="width: 100%"
             />
+            <div v-else class="em-ro-chips">
+              <span v-for="key in draft.tool_ids" :key="`tool-${key}`" class="em-ro-chip">{{ toolLabel(key) }}</span>
+              <span v-if="!draft.tool_ids.length" class="em-ro-empty">未绑定</span>
+            </div>
           </label>
         </section>
 
-        <section class="em-sec">
+        <section v-if="canEdit" class="em-sec">
           <h3 class="em-sec-title">记忆</h3>
           <p class="em-sec-sub">公共域在此维护（全员共享注入）；对话写入的记忆归用户私有域（仅本人可见），上下各 100 条</p>
           <div class="em-mem-row">
@@ -196,7 +208,7 @@
           </div>
         </section>
 
-        <a-collapse class="em-advanced" :bordered="false">
+        <a-collapse v-if="canEdit" class="em-advanced" :bordered="false">
           <a-collapse-panel key="behavior" header="3D 办公室行为">
             <div class="em-grid">
               <label class="em-field">
@@ -235,7 +247,7 @@
           </a-collapse-panel>
         </a-collapse>
 
-        <div class="em-actions">
+        <div v-if="canEdit" class="em-actions">
           <a-button class="em-btn-danger" danger type="text" :loading="saving" @click="confirmDelete">删除同事</a-button>
         </div>
       </template>
@@ -432,6 +444,7 @@ import { officeApi, type OfficeColleagueMemory } from '@/api/office'
 import Live2dPreview from '@/components/assistant/Live2dPreview.vue'
 import RippleRevealCard from '@/components/office/RippleRevealCard.vue'
 import { PET_MODEL_CATALOG } from '@/store/petModel'
+import { useAuthStore } from '@/store/auth'
 
 const props = defineProps<{
   colleagues: any[]
@@ -441,6 +454,11 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ (e: 'saved'): void; (e: 'close'): void }>()
+
+// 同事设定编辑权（默认仅 admin）：无权者档案整体只读，仅展示简介与能力，
+// 人格/记忆/行为/删除等内部设定不渲染（后端同步裁字段+收端点，双闸）
+const auth = useAuthStore()
+const canEdit = computed(() => auth.can('ai.office.employee.edit'))
 
 const MEMORY_TYPE_META: Record<string, { label: string; color: string }> = {
   user_profile: { label: '用户画像', color: 'blue' },
@@ -521,6 +539,15 @@ const workflowOptions = computed(() =>
     .filter((skill) => skill?.type === 'workflow')
     .map((skill) => ({ value: skill.key, label: skill.name || skill.key })),
 )
+/** 只读档案的能力标签：目录里配到的显示名，配不到退回裸 key */
+function workflowLabel(key: string) {
+  const hit = skills.value.find((skill) => skill?.key === key)
+  return String(hit?.name || key)
+}
+function toolLabel(key: string) {
+  const hit = tools.value.find((tool) => tool?.name === key)
+  return String(hit?.label || hit?.name || key)
+}
 const normalThreads = computed(() => allThreads.value.filter((t) => !t.deleted_at))
 const deletedThreads = computed(() => allThreads.value.filter((t) => t.deleted_at))
 
@@ -693,7 +720,7 @@ loadSkills()
 
 async function loadMemorySummary() {
   const roleKey = draft.value?.role_key
-  if (!roleKey) {
+  if (!roleKey || !canEdit.value) {
     memorySummary.value = { total: 0, pinned: 0, byType: [] }
     return
   }
@@ -993,7 +1020,7 @@ async function handleCreate() {
 }
 
 async function save() {
-  if (!draft.value?.role_key) return
+  if (!draft.value?.role_key || !canEdit.value) return
   if (draft.value.response_profile?.style_mode === 'custom' && !draft.value.response_profile.style_prompt?.trim()) {
     message.warning('已选择自定义风格，请填写自定义风格提示词')
     return
@@ -1266,6 +1293,46 @@ button.em-chip:hover {
 .em-chip.on .em-chip-dot {
   background: #52c41a;
   opacity: 1;
+}
+
+/* ── 只读档案（无同事设定编辑权）：只展示简介与能力，样式沿用编辑面语言 ── */
+.em-name-static {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--cpq-text-primary);
+  line-height: 1.4;
+}
+.em-quote-static {
+  width: min(480px, 100%);
+  margin: 14px 0 0;
+  padding: 6px 4px;
+  border-bottom: 1px dashed var(--cpq-overlay-a20);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--cpq-text-secondary);
+  white-space: pre-wrap;
+}
+.em-ro-note {
+  font-size: var(--cpq-font-size-sm);
+  color: var(--cpq-text-muted);
+}
+.em-ro-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 24px;
+}
+.em-ro-chip {
+  padding: 2px 10px;
+  border-radius: var(--cpq-radius-full);
+  border: 1px solid var(--cpq-glass-border);
+  background: var(--cpq-overlay-a06, rgba(22, 119, 255, 0.05));
+  font-size: var(--cpq-font-size-sm);
+  color: var(--cpq-text-secondary);
+}
+.em-ro-empty {
+  font-size: var(--cpq-font-size-sm);
+  color: var(--cpq-text-muted);
 }
 
 /* 开场白：透明纸面 + 虚线填空。a-textarea(auto-size) 根元素即 textarea，类落在自身——

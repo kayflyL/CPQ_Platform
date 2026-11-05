@@ -881,6 +881,7 @@ const SHORT_LABELS: Record<string, string> = {
   'page.office': '办公室页面',
   'ai.office.manage': '管同事/团队',
   'ai.office.admin': '管模型/接入',
+  'ai.office.employee.edit': '编辑同事设定',
   'page.servers': '服务器页面',
   'page.parts': '配件页面',
   'page.strategies': '解决方案页',
