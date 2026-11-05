@@ -104,6 +104,21 @@
   /* 数字读数 —— tabular 等宽 + lining，配合 .cpq-reading */
   --cpq-num-feature: 'tnum' 1, 'lnum' 1;
 
+  /* ============ 驾驶舱星空场景（页面固定暗色，主题无关常量） ============
+     消费方：OpportunityCockpit.vue 天幕层（星云/极光/地平线辉光/云海） */
+  --ck-sky-1: #04070f;
+  --ck-sky-2: #0a1830;
+  --ck-sky-3: #12264c;
+  --ck-nebula-purple: rgba(109, 74, 255, .30);
+  --ck-nebula-blue: rgba(31, 107, 255, .26);
+  --ck-aurora-teal: rgba(64, 224, 188, .20);
+  --ck-aurora-green: rgba(126, 255, 217, .13);
+  --ck-horizon-glow: rgba(122, 170, 255, .34);
+  --ck-cloud-hi: rgba(198, 216, 246, .46);
+  --ck-cloud-lo: rgba(142, 166, 206, .26);
+  --ck-ring-from: #A855F7;
+  --ck-ring-to: #36CFCF;
+
 
   /* ============ 白玻璃卡片配方 ============
      值按主题分块定义（见下方 data-theme 块）：浅色=Soft Glassmorphism 斜向高光渐变，

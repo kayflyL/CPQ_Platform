@@ -1,5 +1,32 @@
 <template>
   <div class="cockpit-page">
+    <!-- 天幕场景层：星空/星云/极光/云海（fixed 全屏在内容层之下，pointer-events 全穿透；
+         配色常量在 tokens.css --ck-* 块，动效遵循 prefers-reduced-motion） -->
+    <div class="ck-sky" aria-hidden="true">
+      <div class="ck-neb ck-neb-1" />
+      <div class="ck-neb ck-neb-2" />
+      <div class="ck-neb ck-aur-1" />
+      <div class="ck-neb ck-aur-2" />
+      <CockpitStars />
+      <div class="ck-clouds">
+        <svg viewBox="0 0 1440 300" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="ckCloudG" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#c8d8f4" stop-opacity="0" />
+              <stop offset=".45" stop-color="#c8d8f4" stop-opacity=".30" />
+              <stop offset="1" stop-color="#9db4dd" stop-opacity=".55" />
+            </linearGradient>
+            <filter id="ckCloudF" x="-20%" y="-60%" width="140%" height="220%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.008 0.028" numOctaves="4" seed="11" />
+              <feDisplacementMap in="SourceGraphic" scale="110" />
+              <feGaussianBlur stdDeviation="5" />
+            </filter>
+          </defs>
+          <rect x="-80" y="110" width="1600" height="230" fill="url(#ckCloudG)" filter="url(#ckCloudF)" />
+        </svg>
+      </div>
+      <div class="ck-horizon" />
+    </div>
     <!-- 吸顶单条：标题 + 周期/自定义区间 + 维度筛选（滑动常驻）+ 下钻片 -->
     <div class="ck-top">
       <div class="glass-strong ck-bar">
@@ -75,13 +102,26 @@
           <svg viewBox="0 0 200 200">
             <defs>
               <linearGradient id="ckRingGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" stop-color="#1677FF" /><stop offset="1" stop-color="#36CFCF" />
+                <stop offset="0" stop-color="#A855F7" /><stop offset="1" stop-color="#36CFCF" />
               </linearGradient>
+              <radialGradient id="ckRingHalo">
+                <stop offset="0" stop-color="rgba(168,85,247,.28)" />
+                <stop offset=".7" stop-color="rgba(54,207,207,.10)" />
+                <stop offset="1" stop-color="rgba(54,207,207,0)" />
+              </radialGradient>
             </defs>
-            <circle cx="100" cy="100" r="84" fill="none" stroke="rgba(22,119,255,.10)" stroke-width="13" />
-            <circle cx="100" cy="100" r="84" fill="none" stroke="rgba(22,119,255,.10)" stroke-width="13" stroke-dasharray="2 10" stroke-linecap="round" />
+            <circle cx="100" cy="100" r="84" fill="url(#ckRingHalo)" stroke="none" />
+            <circle cx="100" cy="100" r="84" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="13" />
+            <g class="ck-ring-ticks">
+              <circle cx="100" cy="100" r="94" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="3" stroke-dasharray="1.5 7" stroke-linecap="round" />
+            </g>
             <circle cx="100" cy="100" r="84" fill="none" stroke="url(#ckRingGrad)" stroke-width="13" stroke-linecap="round"
               :stroke-dasharray="RING_C" :stroke-dashoffset="ringOffset" transform="rotate(-90 100 100)" />
+            <g class="ck-ring-spark">
+              <path d="M100 6 l1.6 6.4 6.4 1.6 -6.4 1.6 -1.6 6.4 -1.6 -6.4 -6.4 -1.6 6.4 -1.6 Z" fill="#DDEBFF" />
+              <path d="M22 152 l1.2 5 5 1.2 -5 1.2 -1.2 5 -1.2 -5 -5 -1.2 5 -1.2 Z" fill="#9FE8FF" />
+              <path d="M176 138 l1.2 5 5 1.2 -5 1.2 -1.2 5 -1.2 -5 -5 -1.2 5 -1.2 Z" fill="#E4D2FF" />
+            </g>
           </svg>
           <div class="ring-center">
             <div class="rc-lab">商机总量</div>
@@ -261,7 +301,7 @@
 <script setup lang="ts">
 // 商机驾驶舱正式页 —— 原型 docs/prototypes/商机驾驶舱-原型.html 的实装。
 // 数据源 /api/dashboard/cockpit（同 opp_stats 口径）；常态区 Hero 切 Tab 不动；全维度点击下钻走服务端筛选。
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import * as echarts from 'echarts/core'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -272,6 +312,8 @@ import dayjs from 'dayjs'
 import axios from 'axios'
 import { useChartTheme } from '@/composables/useChartTheme'
 import { useAuthStore } from '@/store/auth'
+import { useThemeStore } from '@/store/theme'
+import CockpitStars from '@/components/opportunity/CockpitStars.vue'
 import { PLAT_COLOR } from '@/constants/platform'
 import TrendBarLine from '@/components/opportunity/charts/TrendBarLine.vue'
 import ModelTreemap from '@/components/opportunity/charts/ModelTreemap.vue'
@@ -288,6 +330,16 @@ defineOptions({ name: 'OpportunityCockpit' })
 const auth = useAuthStore()
 const canViewAll = computed(() => auth.can('page.opportunities_all'))
 const { chartColors } = useChartTheme()
+/* 页面固定暗色：进入切暗、离开还原（store 单点切换，CSS/antd/图表三套主题保持同步不错位） */
+const themeStore = useThemeStore()
+let prevTheme: 'dark' | 'light' | null = null
+onMounted(() => {
+  prevTheme = themeStore.mode
+  if (themeStore.mode !== 'dark') themeStore.setMode('dark')
+})
+onUnmounted(() => {
+  if (prevTheme && prevTheme !== 'dark') themeStore.setMode(prevTheme)
+})
 
 const RING_C = 527.8
 const PERIODS = [
@@ -871,7 +923,37 @@ const conRegion = computed(() => {
 
 <style scoped>
 /* 布局间距只用 --cpq-space-*；字号只用字阶 token；颜色/阴影/圆角走 tokens（style-gate 门禁） */
-.cockpit-page { max-width: 1440px; margin: 0 auto; padding: var(--cpq-space-2) var(--cpq-space-5) var(--cpq-space-6); }
+.cockpit-page { position: relative; z-index: 1; max-width: 1440px; margin: 0 auto; padding: var(--cpq-space-2) var(--cpq-space-5) var(--cpq-space-6); }
+
+/* —— 天幕场景（配色见 tokens.css --ck-* 块；星点 canvas 在 CockpitStars.vue）—— */
+.ck-sky { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none;
+  background:
+    radial-gradient(1200px 700px at 78% 8%, var(--ck-nebula-blue), transparent 62%),
+    radial-gradient(1000px 640px at 12% 30%, var(--ck-nebula-purple), transparent 60%),
+    linear-gradient(180deg, var(--ck-sky-1) 0%, var(--ck-sky-2) 55%, var(--ck-sky-3) 100%);
+}
+.ck-neb { position: absolute; border-radius: 50%; filter: blur(70px); }
+.ck-neb-1 { left: -8%; top: 18%; width: 46vw; height: 30vw; background: var(--ck-nebula-purple); opacity: .8; }
+.ck-neb-2 { right: -6%; top: -10%; width: 40vw; height: 26vw; background: var(--ck-nebula-blue); opacity: .7; }
+.ck-aur-1, .ck-aur-2 { border-radius: 50%; position: absolute; filter: blur(46px); }
+.ck-aur-1 { left: 16%; top: 24%; width: 62vw; height: 11vw; --aur-rot: -14deg;
+  background: linear-gradient(90deg, transparent, var(--ck-aurora-teal) 30%, var(--ck-aurora-green) 55%, transparent);
+  animation: ckAur 26s ease-in-out infinite alternate; }
+.ck-aur-2 { left: 36%; top: 46%; width: 52vw; height: 8vw; --aur-rot: -9deg;
+  background: linear-gradient(90deg, transparent, var(--ck-aurora-green) 40%, var(--ck-aurora-teal) 70%, transparent);
+  animation: ckAur 34s ease-in-out infinite alternate-reverse; }
+@keyframes ckAur {
+  from { transform: rotate(var(--aur-rot)) translateX(-3vw); opacity: .55; }
+  to { transform: rotate(var(--aur-rot)) translateX(3vw); opacity: .9; }
+}
+.ck-clouds { position: absolute; left: 0; right: 0; bottom: 0; height: 32vh; }
+.ck-clouds svg { width: 100%; height: 100%; display: block; }
+.ck-horizon { position: absolute; left: 10%; right: 10%; bottom: -7vh; height: 18vh; filter: blur(14px);
+  background: radial-gradient(52% 100% at 50% 100%, var(--ck-horizon-glow), transparent 72%); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ck-aur-1, .ck-aur-2 { animation: none; }
+}
 .bar-divider { width: 1px; align-self: stretch; margin: var(--cpq-space-1) 0; background: var(--cpq-border-primary); }
 .ck-top { position: sticky; top: var(--cpq-space-2); z-index: 30; display: flex; flex-direction: column; gap: var(--cpq-space-2); margin-bottom: var(--cpq-space-4); }
 .ck-bar { display: flex; align-items: center; gap: var(--cpq-space-2) var(--cpq-space-3); flex-wrap: wrap; padding: var(--cpq-space-2) var(--cpq-space-4); border-radius: var(--cpq-radius-xl); }
@@ -930,8 +1012,17 @@ const conRegion = computed(() => {
 .hv { font-size: var(--cpq-font-size-lg); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; color: var(--cpq-text-primary); }
 .hp { margin-left: auto; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hero-ring { position: relative; width: 220px; height: 220px; flex: none; }
-.hero-ring svg { width: 100%; height: 100%; }
+.hero-ring svg { width: 100%; height: 100%; overflow: visible; }
 .hero-ring circle { transition: stroke-dashoffset .9s var(--cpq-ease-out-expo); }
+.ck-ring-ticks { transform-box: view-box; transform-origin: 50% 50%; animation: ckSpin 80s linear infinite; }
+.ck-ring-spark path { animation: ckSpark 4.5s ease-in-out infinite alternate; }
+.ck-ring-spark path:nth-child(2) { animation-delay: 1.5s; }
+.ck-ring-spark path:nth-child(3) { animation-delay: 3s; }
+@keyframes ckSpin { to { transform: rotate(360deg); } }
+@keyframes ckSpark { from { opacity: .35; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .ck-ring-ticks, .ck-ring-spark path { animation: none; }
+}
 .ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .rc-lab { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 .rc-big { font-size: var(--cpq-font-size-3xl); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; color: var(--cpq-text-primary); }
