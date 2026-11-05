@@ -28,6 +28,10 @@ export function useChartTheme() {
       segmentBorder: isDark ? '#101217' : '#ffffff',
       // 排行「其他」项弱化柱色：中性低饱和，与渐变主柱区分
       mutedBar: isDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(120, 132, 156, 0.32)',
+      // 地图（填色图）：无数据区底色 / 行政边界 / visualMap 低值端。浅色=界线可见的蓝灰，暗色=不发光的暗板岩
+      mapArea: isDark ? '#1C2432' : '#EEF4FB',
+      mapBorder: isDark ? 'rgba(255, 255, 255, 0.10)' : '#C7D7EC',
+      mapLow: isDark ? '#24344F' : '#D6E8FF',
       // 趋势涨跌色：绿涨红跌（马卡龙浅色系，呼应 Soft Glassmorphism 语义色）
       up: '#52C9A0',
       down: '#FF6B6B',

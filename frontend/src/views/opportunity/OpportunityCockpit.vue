@@ -822,10 +822,10 @@ const mapOpt = computed(() => {
     tooltip: { trigger: 'item', backgroundColor: c.tooltipBg, textStyle: { color: c.tooltipText }, borderColor: c.tooltipBorder, borderWidth: 1,
       formatter: (p: any) => `${p.name}<br/>商机 <b>${p.value || 0}</b>${mode === 'china' && items.length ? '<br/><span style="color:#86909c">点击下钻</span>' : ''}` },
     visualMap: { min: 0, max: maxV, left: 8, bottom: 4, calculable: true, text: ['高', '低'],
-      textStyle: { color: c.axisLabel, fontSize: 10 }, inRange: { color: ['#D6E8FF', '#1677FF'] } },
+      textStyle: { color: c.axisLabel, fontSize: 10 }, inRange: { color: [c.mapLow, '#1677FF'] } },
     series: [{
       type: 'map', map: mode, roam: true,
-      label: { show: false }, itemStyle: { areaColor: '#EEF4FB', borderColor: '#fff', borderWidth: .5 },
+      label: { show: false }, itemStyle: { areaColor: c.mapArea, borderColor: c.mapBorder, borderWidth: .5 },
       emphasis: { label: { show: true, fontSize: 11, color: c.tooltipText }, itemStyle: { areaColor: '#91CCFF' } },
       select: { disabled: true },
       // ECharts map 的 data 需要 {name, value}；后端给的是 {name, count}
