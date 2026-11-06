@@ -34,6 +34,16 @@ def get_3d_model_by_model(model_id: int):
     return Server3dModelRepository().get_by_model(model_id) or None
 
 
+@router.post("/", dependencies=[Depends(require_perms("page.settings.admin"))])
+def create_3d_model(data: dict):
+    """登记新行(管理页「复制模型」分裂用);部件绑定/组装配置由前端整存整取进 layout_config。"""
+    payload = _clean(data)
+    if not str(payload.get("name") or "").strip():
+        raise HTTPException(400, "请填写模型名称")
+    repo = Server3dModelRepository()
+    return {"ok": True, "model": repo.create(payload, _model_ids(data))}
+
+
 @router.put("/{model_3d_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def update_3d_model(model_3d_id: int, data: dict):
     repo = Server3dModelRepository()

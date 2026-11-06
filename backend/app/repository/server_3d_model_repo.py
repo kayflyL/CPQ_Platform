@@ -93,6 +93,21 @@ class Server3dModelRepository:
                 "SELECT model_id FROM l6.server_3d_model_bindings WHERE model_3d_id=:id ORDER BY model_id"
             ), {"id": id_}).all()]
 
+    def create(self, data: dict, model_ids: Optional[List[int]] = None) -> dict:
+        """登记新行(管理页「复制模型」分裂用);model_ids 传入即绑定,复制语义由调用方清空。"""
+        fields = {k: v for k, v in _normalize(data).items() if k in self._FIELDS}
+        fields.setdefault("kind", "machine")
+        fields.setdefault("part_type", None)  # 整机行无 part_type,INSERT 绑定参数需齐
+        fields["created_at"] = fields["updated_at"] = _now()
+        with l6_engine.begin() as c:
+            new_id = c.execute(text(
+                "INSERT INTO l6.server_3d_models (name, layout_config, kind, part_type, created_at, updated_at) "
+                "VALUES (:name, :layout_config, :kind, :part_type, :created_at, :updated_at) RETURNING id"
+            ), fields).scalar_one()
+        if model_ids:
+            self.set_bindings(new_id, model_ids)
+        return self.get(new_id)
+
     def update(self, id_: int, data: dict, model_ids: Optional[List[int]] = None) -> None:
         fields = {k: v for k, v in _normalize(data).items() if k in self._FIELDS}
         fields["updated_at"] = _now()

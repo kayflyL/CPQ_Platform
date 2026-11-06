@@ -11,8 +11,10 @@ import axios from 'axios'
 import {
   catalogApi, baseConfigApi, guessDocType, MODEL_DOC_TYPES,
   type ServerType, type ServerModel, type BaseConfig, type ModelProductContent, type ConfigContent,
-  type ModelScenario,
+  type ModelScenario, type PortalBannerImage,
 } from '@/api/serverConfig'
+import ImageListEditor from '@/components/server-admin/ImageListEditor.vue'
+import { copyText } from '@/utils/clipboard'
 import { CAP_ICON_KEYS, capIconSvg } from '@/constants/capIcons'
 
 type LifecycleStatus = 'new' | 'active' | 'eol' | 'discontinued'
@@ -47,6 +49,12 @@ const form = ref<{
 })
 
 const typeName = (id?: number) => types.value.find(t => t.id === id)?.name || '—'
+
+/** 多视角图库（product_content.gallery）：详情页 banner 主图之后依次轮播；ImageListEditor v-model 直写 form */
+const gallery = computed<PortalBannerImage[]>({
+  get: () => form.value.product_content.gallery || [],
+  set: v => { form.value.product_content.gallery = v },
+})
 
 // ---- 关联基准配置（一对多·配置变体）----
 const modelConfigs = ref<BaseConfig[]>([])          // 本机型已关联的配置（含主配置）
@@ -244,21 +252,9 @@ async function uploadHighlightImage(file: File): Promise<boolean> {
 }
 
 /** 复制场景配图链接（站内相对路径补全为绝对 URL，站外也能直接用） */
-async function copyScnUrl(s: ModelScenario) {
+function copyScnUrl(s: ModelScenario) {
   if (!s.image) return
-  const full = /^https?:/.test(s.image) ? s.image : location.origin + s.image
-  try {
-    await navigator.clipboard.writeText(full)
-    message.success('图片链接已复制')
-  } catch {
-    const ta = document.createElement('textarea')
-    ta.value = full
-    document.body.appendChild(ta)
-    ta.select()
-    document.execCommand('copy')
-    document.body.removeChild(ta)
-    message.success('图片链接已复制')
-  }
+  copyText(s.image, { absolute: true, successMsg: '图片链接已复制' })
 }
 
 /** 资料类型下拉选项（规格书/彩页/用户手册/其他） */
@@ -329,6 +325,7 @@ async function init() {
           // 旧结构 string[] → {name} 对象；保存后不再写字符串场景
           scenarios: (Array.isArray(pc?.scenarios) ? pc!.scenarios! : [])
             .map(s => (typeof s === 'string' ? { name: s, fit: '', image: '' } : { ...s })),
+          gallery: (pc?.gallery || []).map(g => ({ url: g.url, subtitle: g.subtitle || '' })),
           docs: (pc?.docs || []).map(d => ({ ...d, type: d.type || guessDocType(d.name) })),
         },
       }
@@ -472,7 +469,7 @@ onMounted(init)
               </div>
             </a-modal>
 
-            <!-- 主图 -->
+            <!-- 主图 + 多视角图库（详情页 banner：主图立地平线，图库依次轮播切换） -->
             <div class="sec-label">产品主图</div>
             <div class="img-row">
               <a-upload :before-upload="handleImageUpload" :show-upload-list="false" accept="image/*">
@@ -481,6 +478,9 @@ onMounted(init)
               <a-input v-model:value="form.image_url" class="kv-flex" placeholder="或粘贴图片 URL" allowClear />
             </div>
             <img v-if="form.image_url" :src="form.image_url" class="img-preview" alt="预览" />
+
+            <div class="sec-label">多视角图库<span class="sec-hint">详情页 banner 的其他视角图（正面/背面/接口特写…），在主图之后按顺序箭头切换；不上传则只显示主图</span></div>
+            <ImageListEditor v-model="gallery" upload-type="product" />
 
             <!-- 产品资料（PDF）：详情页「下载资料」下拉 +「产品资料」区块入口，读 product_content.docs -->
             <div class="sec-label">产品资料<span class="sec-hint">详情页「下载资料」入口 · 仅 PDF ≤20MB · 可多选批量上传，每份标类型（规格书/彩页/用户手册）；删除后点「保存」才真正移除文件</span></div>

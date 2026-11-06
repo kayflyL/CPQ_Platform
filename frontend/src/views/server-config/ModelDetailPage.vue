@@ -6,6 +6,7 @@ import { catalogApi, type ServerModel, type ModelScenario } from '@/api/serverCo
 import { publicCatalogApi } from '@/api/publicIntake'
 import AttachmentPreviewModal from '@/components/feed/AttachmentPreviewModal.vue'
 import CapabilityShowcase from '@/components/server-config/CapabilityShowcase.vue'
+import { useBeltCarousel } from '@/composables/useBeltCarousel'
 import { useSeriesStore } from '@/stores/series'
 import { STAGE_THEMES, type StageThemeKey } from '@/constants/stageThemes'
 
@@ -83,6 +84,17 @@ const stageVars = computed(() => {
     '--sky-top': t.bg.match(/#[0-9a-f]{3,8}/i)?.[0] || '#0a0508',
   } as Record<string, string>
 })
+
+// 多视角图轮播：slides = 主图(image_url) + 详情图库(product_content.gallery)；单图时无箭头，观感同旧版。
+// 本体与倒影两层各自 v-for 同步滑动，传送带逻辑共用 useBeltCarousel（目录页 banner 同款），格宽=110vw
+const slides = computed<{ url: string }[]>(() => {
+  const out: { url: string }[] = []
+  if (model.value?.image_url) out.push({ url: model.value.image_url })
+  for (const g of pc.value?.gallery || []) if (g?.url) out.push({ url: g.url })
+  return out
+})
+const { slideOffsets, pendingIdx, prevSlide, nextSlide } =
+  useBeltCarousel(computed(() => slides.value.length))
 
 async function load() {
   loading.value = true
@@ -167,19 +179,39 @@ onBeforeUnmount(() => {
           <!-- 地面光晕（地平线下方旭日投射，照亮倒影区域） -->
           <div class="scene-ground-glow" aria-hidden="true"></div>
 
-          <!-- 倒影（大地上的镜像，地平线下方） -->
-          <div v-if="model.image_url" class="scene-reflection" aria-hidden="true">
-            <img :src="model.image_url" alt="" />
+          <!-- 倒影层（多视角轮播：各图镜像立于地平线下，随主图同步滑动） -->
+          <div v-if="slides.length" class="scene-reflection" aria-hidden="true">
+            <div
+              v-for="(s, i) in slides"
+              :key="s.url"
+              class="hero-slide"
+              :class="{ 'no-anim': pendingIdx === i }"
+              :style="{ transform: `translateX(calc(-50% + ${(slideOffsets[i] ?? i) * 110}vw))` }"
+            ><img :src="s.url" alt="" draggable="false" /></div>
           </div>
 
           <!-- 旭日地平线光带（切割服务器与倒影，横贯，中间最亮） -->
           <div class="scene-horizon" aria-hidden="true"></div>
 
-          <!-- 服务器本体（立在大地/地平线上，放大居中） -->
-          <div class="scene-product">
-            <img v-if="model.image_url" class="product-img" :src="model.image_url" :alt="model.name" />
-            <span v-else class="product-ph">{{ model.name?.charAt(0) || '机' }}</span>
+          <!-- 服务器本体（多视角轮播：立在大地/地平线上，图从画面边缘滑入/出；单图时与旧版一致） -->
+          <div v-if="slides.length" class="scene-product">
+            <div
+              v-for="(s, i) in slides"
+              :key="s.url"
+              class="hero-slide"
+              :class="{ 'no-anim': pendingIdx === i }"
+              :style="{ transform: `translateX(calc(-50% + ${(slideOffsets[i] ?? i) * 110}vw))`, zIndex: (slideOffsets[i] ?? i) === 0 ? 2 : 1 }"
+            ><img class="product-img" :src="s.url" :alt="model.name" draggable="false" /></div>
           </div>
+          <div v-else class="scene-product">
+            <span class="product-ph">{{ model.name?.charAt(0) || '机' }}</span>
+          </div>
+
+          <!-- 轮播箭头（多图才出现；传送带恒向，同目录页 banner） -->
+          <template v-if="slides.length > 1">
+            <button type="button" class="slide-arrow da-left" aria-label="上一张" @click="prevSlide">‹</button>
+            <button type="button" class="slide-arrow da-right" aria-label="下一张" @click="nextSlide">›</button>
+          </template>
 
           <!-- 左上角返回（有来路原路返回，直开才回机型目录）；裸版嵌弹窗，关闭走弹窗自身，不渲染返回 -->
           <a-button v-if="!props.bare" type="text" @click="back" class="scene-back">
@@ -436,27 +468,40 @@ onBeforeUnmount(() => {
 }
 
 /* 倒影（大地上的镜像，顶部紧贴地平线/服务器底部，向下延伸进大地） */
+/* 倒影层（多视角轮播：容器只当定位层，mask/贴地偏移挪到每张倒影上——容器 height:0 时 mask 尺寸会塌） */
 .scene-reflection {
   position: absolute;
-  left: 50%;
+  left: 0; right: 0;
   top: calc(var(--stg) + var(--sky) * 0.7);            /* 倒影顶部 = 地平线 = 服务器底部 */
-  margin-top: -16px;   /* 上移贴近服务器底部（重叠部分被服务器盖，视觉紧贴） */
-  width: 540px;
-  max-width: 64vw;
-  transform: translateX(-50%);
-  opacity: 0.6;
+  height: 0;
   z-index: 5;
   pointer-events: none;
+}
+.scene-reflection .hero-slide {
+  margin-top: -16px;   /* 上移贴近服务器底部（重叠部分被服务器盖，视觉紧贴） */
+  opacity: 0.6;
   -webkit-mask: linear-gradient(to bottom, rgba(0,0,0,0.95) 0%, transparent 58%);
   mask: linear-gradient(to bottom, rgba(0,0,0,0.95) 0%, transparent 58%);
 }
-.scene-reflection img {
+.scene-reflection .hero-slide img {
   width: 100%;
   object-fit: contain;
   display: block;
   transform: scaleY(-1);   /* 图片翻转 = 镜面倒影 */
   filter: blur(2px);
 }
+
+/* 轮播轨道（本体/倒影两层共用，同目录页 banner 的 slide-item）：格宽 110vw 必在画面外 */
+.hero-slide {
+  position: absolute;
+  left: 50%;
+  width: 540px;
+  max-width: 64vw;
+  transform: translateX(-50%);
+  transition: transform 1.15s cubic-bezier(0.55, 0, 0.18, 1);   /* 车驶入：缓起加速 → 平稳刹停 */
+  will-change: transform;
+}
+.hero-slide.no-anim { transition: none; }
 
 /* 旭日地平线光带（切割服务器与倒影；横贯，中间最亮如日出） */
 .scene-horizon {
@@ -486,16 +531,14 @@ onBeforeUnmount(() => {
 /* 服务器本体（放大居中，底部接地平线） */
 .scene-product {
   position: absolute;
-  left: 50%;
-  bottom: calc(var(--sky) * 0.3);            /* 底部立于地平线 */
-  transform: translateX(-50%);
+  left: 0; right: 0;
+  bottom: calc(var(--sky) * 0.3);            /* 层底 = 地平线，服务器立于其上 */
+  height: 0;
   z-index: 7;
-  display: flex;
-  justify-content: center;
+  pointer-events: none;
 }
 .product-img {
-  width: 540px;
-  max-width: 64vw;
+  width: 100%;
   object-fit: contain;
   filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.5));
 }
@@ -521,6 +564,37 @@ onBeforeUnmount(() => {
 .scene-back:hover { color: #fff !important; }
 
 .scene-chip { position: absolute; top: calc(24px + var(--stg)); right: 28px; z-index: 8; }
+
+/* 轮播箭头（多图才渲染；配方同目录页 banner，垂直居中于服务器舞台） */
+.slide-arrow {
+  position: absolute;
+  top: calc(var(--stg) + var(--sky) * 0.55);
+  transform: translateY(-50%);
+  z-index: 9;
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: background 0.25s ease, border-color 0.25s ease;
+  padding: 0;
+}
+.slide-arrow:hover {
+  background: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #fff;
+}
+.da-left { left: 18px; }
+.da-right { right: 18px; }
+@media (prefers-reduced-motion: reduce) {
+  .hero-slide { transition: none; }
+}
 
 /* —— 内容区：原型 R5.3 暗色数据/技术派（四主题联动，--sun-* 来自根 :style） —— */
 .detail-page {

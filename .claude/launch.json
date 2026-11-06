@@ -33,6 +33,13 @@
       "port": 5177
     },
     {
+      "name": "s3d-verify",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "VITE_API_TARGET=http://127.0.0.1:8001 npm run dev -- --port 5179"],
+      "cwd": "frontend",
+      "port": 5179
+    },
+    {
       "name": "frontend-dev",
       "url": "http://localhost:5173"
     },

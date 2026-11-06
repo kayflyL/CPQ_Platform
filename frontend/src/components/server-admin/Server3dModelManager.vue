@@ -8,6 +8,7 @@ import { message, Modal } from 'ant-design-vue'
 import { server3dApi, type Server3dModel } from '@/api/server3d'
 import { catalogApi } from '@/api/serverConfig'
 import ServerModelCard from '@/components/common/ServerModelCard.vue'
+import { PART_TYPE_LABELS } from '@/server3d/partRegistry'
 
 const router = useRouter()
 const loading = ref(false)
@@ -16,7 +17,6 @@ const modelNames = ref<Record<number, string>>({})
 /** 按 kind 分组:整机(可绑机型上配置页)/ 部件库(独立预览,CPU/GPU…逐步扩) */
 const machines = computed(() => models.value.filter(m => (m.kind ?? 'machine') === 'machine'))
 const parts = computed(() => models.value.filter(m => m.kind === 'part'))
-const PART_LABEL: Record<string, string> = { cpu: '部件库 · CPU', fan: '部件库 · 风扇墙' }
 
 const boundLabel = (m: Server3dModel) => {
   const ids = m.model_ids || []
@@ -108,7 +108,7 @@ onMounted(load)
             v-for="m in parts"
             :key="m.id"
             :model="toCardModel(m)"
-            :type-name="PART_LABEL[m.part_type || ''] || '部件库'"
+            :type-name="`部件库 · ${PART_TYPE_LABELS[m.part_type || ''] || m.part_type || '?'}`"
             :show-image="false"
             :show-lifecycle="false"
             :show-specs="false"

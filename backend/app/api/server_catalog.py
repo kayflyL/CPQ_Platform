@@ -136,7 +136,7 @@ _MODEL_IMAGE_URL_PREFIX = "/api/server-catalog/model-image/"
 
 
 def _model_image_urls(rec) -> set:
-    """收集一条机型记录引用的本站图片 URL（主图 image_url + product_content 亮点配图/场景配图）。"""
+    """收集一条机型记录引用的本站图片 URL（主图 image_url + product_content 亮点配图/场景配图/详情图库）。"""
     out: set = set()
 
     def add(u):
@@ -150,6 +150,9 @@ def _model_image_urls(rec) -> set:
         for s in pc.get("scenarios") or []:
             if isinstance(s, dict):
                 add(s.get("image"))
+        for g in pc.get("gallery") or []:
+            if isinstance(g, dict):
+                add(g.get("url"))
     return out
 
 
@@ -337,22 +340,81 @@ def get_portal_banner():
         repo.close()
 
 
-@router.get("/portal-banner/images", dependencies=[Depends(get_current_user)])
-def list_portal_banner_images():
-    """列出本站图片池全量文件（storage/model-images/ 递归，含历史子目录，mtime 倒序）。
-    管理面「门户设置」用：机型主图/场景图/banner 图都可加进轮播或复制链接复用。"""
+# ---- 图片资产管理（storage/model-images 池全量文件 + 全库用途画像；管理面「图片资产」tab 消费）----
+
+def _image_usage_index() -> dict:
+    """扫全量机型 + banner 配置，建 url → [{kind, model_id, model_name}] 用途画像。
+
+    kind: main=机型主图 / highlight=亮点配图 / scenario=场景配图 / gallery=详情图库 / banner=门户轮播图。
+    仅作展示与筛选；删除文件前的安全兜底仍走 count_image_references（LIKE 全文，覆盖未知字段）。
+    """
+    usage: dict = {}
+
+    def add(u, kind, model_id=None, model_name=None):
+        if isinstance(u, str) and u.startswith(_MODEL_IMAGE_URL_PREFIX):
+            usage.setdefault(u, []).append({"kind": kind, "model_id": model_id, "model_name": model_name})
+
+    for m in ServerCatalogRepository().list_models():
+        add(m.get("image_url"), "main", m.get("id"), m.get("name"))
+        pc = m.get("product_content")
+        if isinstance(pc, dict):
+            add(pc.get("highlight_image"), "highlight", m.get("id"), m.get("name"))
+            for s in pc.get("scenarios") or []:
+                if isinstance(s, dict):
+                    add(s.get("image"), "scenario", m.get("id"), m.get("name"))
+            for g in pc.get("gallery") or []:
+                if isinstance(g, dict):
+                    add(g.get("url"), "gallery", m.get("id"), m.get("name"))
+    try:
+        cfg = SystemConfigRepository().get_value(_PORTAL_BANNER_KEY, {})
+        if isinstance(cfg, dict):
+            for u in _banner_image_urls(cfg.get("images")):
+                add(u, "banner")
+    except Exception:
+        pass
+    return usage
+
+
+@router.get("/image-assets", dependencies=[Depends(require_perms("page.settings.admin"))])
+def list_image_assets():
+    """图片池全量文件清单 + 用途画像（机型主图/场景/亮点/详情图库/banner/未引用）。"""
+    usage = _image_usage_index()
     d = FileStorage().base_path / "model-images"
     items = []
     if d.exists():
         for f in sorted(d.rglob("*"), key=lambda p: p.stat().st_mtime, reverse=True):
             if f.is_file():
                 rel = str(f.relative_to(d)).replace("\\", "/")
+                url = f"{_MODEL_IMAGE_URL_PREFIX}{rel}"
+                st = f.stat()
                 items.append({
-                    "url": f"/api/server-catalog/model-image/{rel}",
+                    "url": url,
                     "filename": rel,
-                    "size": f.stat().st_size,
+                    "size": st.st_size,
+                    "mtime": int(st.st_mtime),
+                    "usages": usage.get(url, []),
                 })
     return {"images": items}
+
+
+@router.delete("/image-assets", dependencies=[Depends(require_perms("page.settings.admin"))])
+def delete_image_asset(url: str = Query(..., description="图片完整 URL（/api/server-catalog/model-image/...）")):
+    """删除池内单个图片文件；仍被任何机型/portal banner 引用（LIKE 全文兜底）则拒绝。"""
+    if not url.startswith(_MODEL_IMAGE_URL_PREFIX):
+        raise HTTPException(400, "仅可删除本站图片池内的文件")
+    try:
+        cfg = SystemConfigRepository().get_value(_PORTAL_BANNER_KEY, {})
+        if isinstance(cfg, dict) and url in _banner_image_urls(cfg.get("images")):
+            raise HTTPException(409, "该图片仍被门户 banner 引用，请先在门户设置中移除")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    if ServerCatalogRepository().count_image_references(url) > 0:
+        raise HTTPException(409, "该图片仍被机型引用，请先在机型编辑中移除")
+    if not FileStorage().delete_model_image(url.removeprefix(_MODEL_IMAGE_URL_PREFIX)):
+        raise HTTPException(404, "图片不存在")
+    return {"ok": True}
 
 
 @router.put("/portal-banner")

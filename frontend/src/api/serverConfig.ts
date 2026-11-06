@@ -92,6 +92,11 @@ export const catalogApi = {
   // 门户 banner 配置（system_config 存储；标题/副标题空=门户用内置默认文案）
   getPortalBanner: () => RESP<PortalBanner>(axios.get('/api/server-catalog/portal-banner')),
   savePortalBanner: (data: PortalBanner) => RESP<PortalBanner>(axios.put('/api/server-catalog/portal-banner', data)),
+  /** 图片资产池清单 + 用途画像（机型主图/场景/亮点/详情图库/banner；usages 空=未引用） */
+  listImageAssets: () => RESP<{ images: ImageAsset[] }>(axios.get('/api/server-catalog/image-assets')),
+  /** 删除池内单个图片；仍被机型/banner 引用时后端 409 拒绝（LIKE 全文兜底防误删） */
+  deleteImageAsset: (url: string) =>
+    RESP<{ ok: boolean }>(axios.delete('/api/server-catalog/image-assets', { params: { url } })),
   /** 性能六维打分锚点表（system_config；未配置返回 {}，前端回落内置默认锚点） */
   getPerformanceScoreConfig: () => RESP<PerfScoreConfig>(axios.get('/api/server-catalog/performance-score-config')),
 }
@@ -224,6 +229,20 @@ export interface PortalBanner {
   /** 轮播图列表（首张为主图；空=银河场景做背景） */
   images?: PortalBannerImage[]
 }
+/** 图片用途画像项（图片资产页展示用；kind 对应引用来源） */
+export interface ImageAssetUsage {
+  kind: 'main' | 'highlight' | 'scenario' | 'gallery' | 'banner'
+  model_id?: number | null
+  model_name?: string | null
+}
+/** 图片池资产条目（storage/model-images 文件 + 全库引用画像） */
+export interface ImageAsset {
+  url: string
+  filename: string
+  size: number
+  mtime: number
+  usages: ImageAssetUsage[]
+}
 export interface ServerModelBaseConfig {
   id?: number
   form?: string
@@ -276,6 +295,7 @@ export interface ModelProductContent {
   specs?: { key: string; value: string }[]        // 完整技术规格（详情页沉底折叠，保序）
   scenarios?: (ModelScenario | string)[]          // 场景适配（照片卡；string=旧版标签，展示时按 {name} 兼容）
   features?: { icon?: string; text: string }[]    // 旧版核心特性（只读兼容：无 highlights 时按亮点行降级展示）
+  gallery?: PortalBannerImage[]                   // 多视角图库（详情页 banner 主图之后依次轮播；url 与主图同池）
   docs?: ModelDoc[]                               // 机型资料 PDF 列表（后台上传，随机型保存落库；文件由保存时 diff GC 清理）
 }
 export interface ServerModel {

@@ -13,9 +13,10 @@ import ModelManager from '@/components/server-admin/ModelManager.vue'
 import ServerDrawingPortal from '@/components/server-admin/ServerDrawingPortal.vue'
 import Server3dModelManager from '@/components/server-admin/Server3dModelManager.vue'
 import PortalBannerSettings from '@/components/server-admin/PortalBannerSettings.vue'
+import ImageAssetsPage from '@/components/server-admin/ImageAssetsPage.vue'
 
 const route = useRoute()
-const adminTab = ref<'models' | 'series' | 'base' | 'parts' | 'drawing' | 'model3d' | 'portal'>('models')
+const adminTab = ref<'models' | 'series' | 'base' | 'parts' | 'drawing' | 'model3d' | 'images' | 'portal'>('models')
 
 /** Tab 注册表 —— 分段导航与面板挂载共用 */
 const TABS = [
@@ -25,6 +26,7 @@ const TABS = [
   { key: 'parts',   label: '料号库' },
   { key: 'drawing', label: '图纸配置' },
   { key: 'model3d', label: '3D模型管理' },
+  { key: 'images',  label: '图片资产' },
   { key: 'portal',  label: '门户设置' },
 ] as const
 
@@ -79,6 +81,7 @@ watch(adminTab, (tab) => {
           <PartsLibrary v-show="adminTab === 'parts'" />
           <ServerDrawingPortal v-show="adminTab === 'drawing'" />
           <Server3dModelManager v-show="adminTab === 'model3d'" />
+          <ImageAssetsPage v-show="adminTab === 'images'" />
           <PortalBannerSettings v-show="adminTab === 'portal'" />
         </main>
       </div>

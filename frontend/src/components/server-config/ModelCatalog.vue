@@ -2,11 +2,12 @@
 /** 服务器配置门户主体 — 旭日舞台 banner + 类型胶囊快捷入口 + 全部机型货架。
  *  banner 场景配方复用机型详情页 hero（天空渐变/水印/旭日/地平线光带），固定深蓝「银河 · 擎天」主题；
  *  胶囊=导航（跳类型目录页，配方同详情页底部配色胶囊）；货架只展示上架机型（published_only）。 */
-import { ref, computed, nextTick, onMounted, onActivated, onDeactivated, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { catalogApi, type ServerType, type ServerModel, type PortalBanner } from '@/api/serverConfig'
 import { publicCatalogApi } from '@/api/publicIntake'
 import ServerModelCard from '@/components/common/ServerModelCard.vue'
+import { useBeltCarousel } from '@/composables/useBeltCarousel'
 
 const props = defineProps<{ publicMode?: boolean }>()
 const router = useRouter()
@@ -26,38 +27,10 @@ const banner = ref<PortalBanner>({})
 const bannerTitle = computed(() => banner.value.title?.trim() || DEFAULT_TITLE)
 const slides = computed(() => (banner.value.images || []).filter(e => e?.url))
 
-// 轮播：主图立地平线（详情页同款）+ 镜像倒影，切换如车驶入 —— 从 banner 最边缘滑入/出（±110vw 必在画面外）。
-// 方向纯按钮驱动（传送带恒向）：点左箭头旧图永远向左驶离、新图从右边缘驶入；不随循环索引回弹换向。
-const slideIdx = ref(0)
-const slideOffsets = ref<number[]>([0])       // 每张图的轨道偏移（格=110vw；±1 格即画面外）
-const pendingIdx = ref<number | null>(null)   // 正被无动画瞬移到入场侧的图
-let shifting = false                          // 瞬移窗口内防重入（连点会让两次起点竞态）
-watch(slides, (s) => {
-  slideIdx.value = 0
-  slideOffsets.value = s.map((_, i) => (i === 0 ? 0 : i))   // 其余先停到画面外
-  pendingIdx.value = null
-}, { immediate: true })
-async function shiftSlide(belt: 1 | -1) {     // belt=带移动方向：+1=右箭头(旧图右驶离,新图自左驶入)，-1=左箭头镜像
-  const n = slides.value.length
-  if (n < 2 || shifting) return
-  shifting = true
-  try {
-    const target = (slideIdx.value - belt + n) % n
-    pendingIdx.value = target
-    slideOffsets.value[target] = -belt               // 入场图瞬移到入场侧（驶离方向的对侧）
-    await nextTick()
-    // 双 rAF：等浏览器真的绘出瞬移位置。nextTick 只是微任务，若同帧改回主位，
-    // 两次样式合并成一帧，过渡起点回落到上次绘制位置 → 旧图从错侧滑回、两图交织
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
-    pendingIdx.value = null
-    slideIdx.value = target
-    slideOffsets.value = slideOffsets.value.map((o, i) =>
-      i === target ? 0 : o + belt,                   // 入场图滑入主位；其余（含旧主图）向 belt 侧挪一格驶离
-    )
-  } finally { shifting = false }
-}
-const prevSlide = () => shiftSlide(-1)
-const nextSlide = () => shiftSlide(1)
+// 轮播：主图立地平线（详情页同款）+ 镜像倒影，切换如车驶入 —— 传送带逻辑在 useBeltCarousel（详情页 hero 共用），
+// 格宽=110vw（±1 格必在画面外）
+const { slideIdx, slideOffsets, pendingIdx, prevSlide, nextSlide } =
+  useBeltCarousel(computed(() => slides.value.length))
 // 当前图自带的副标题（空=不显示；随轮播切换淡入淡出）
 const slideSubtitle = computed(() => slides.value[slideIdx.value]?.subtitle?.trim() || '')
 

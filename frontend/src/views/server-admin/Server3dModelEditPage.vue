@@ -7,10 +7,11 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { ArrowLeftOutlined, UpOutlined } from '@ant-design/icons-vue'
-import { server3dApi } from '@/api/server3d'
+import { server3dApi, type Server3dModel } from '@/api/server3d'
 import { catalogApi, type ServerModel } from '@/api/serverConfig'
 import ServerStage3D from '@/components/server-3d/ServerStage3D.vue'
 import { PART_INFO } from '@/server3d/machine'
+import { REGION_SLOT_TYPES, PART_TYPE_LABELS } from '@/server3d/partRegistry'
 
 const route = useRoute()
 const router = useRouter()
@@ -22,27 +23,60 @@ const name = ref('')
 const modelIds = ref<number[]>([])
 /** 部件模型(kind='part'):独立预览,不参与机型绑定与分区标注覆盖 */
 const isPart = ref(false)
-const partType = ref<'cpu' | 'fan' | null>(null)
-const PART_LABEL: Record<string, string> = { cpu: 'CPU', fan: '风扇墙' }
+/** 部件类型:注册表内可选(有工厂能渲染的才在列);stage 侧仅认注册表键 */
+const partType = ref<string | null>(null)
+const partTypeOptions = Object.entries(PART_TYPE_LABELS).map(([value, label]) => ({ value, label }))
+const stagePartType = computed(() => (partType.value && partType.value in PART_TYPE_LABELS ? (partType.value as 'cpu' | 'fan') : null))
 const partSpec = ref<{ family?: 'sp5' | 'kh' } | null>(null)
 /** 分区标注覆盖:仅记录用户填过的字段 */
 const labelForm = ref<Record<string, { name: string; spec: string; desc: string }>>({})
 const labelsOpen = ref(true)
 const serverModels = ref<ServerModel[]>([])
+/* ── 分区绑定(整机行):分区即部件槽位,绑定权在服务器模型行,部件行=纯资产登记 ── */
+const rawLc = ref<Record<string, any>>({})
+const partRows = ref<Server3dModel[]>([])
+/** 分区→部件行绑定表(machine.bindings),键=分区键(cpu/fans/…),值=部件库行id */
+const bindings = ref<Record<string, number | null>>({})
+/** 某分区可绑的部件行(按槽位类型过滤);部件库无该类部件时分区不出绑定下拉 */
+function slotRows(regionKey: string): Server3dModel[] {
+  const t = REGION_SLOT_TYPES[regionKey]
+  return t ? partRows.value.filter((p: Server3dModel) => p.part_type === t) : []
+}
+/** 部件行形态族(部件行 layout_config.family);未绑定=undefined→默认 AMD */
+function partFamily(pid: number | null | undefined): 'sp5' | 'kh' | undefined {
+  if (pid == null) return undefined
+  const row = partRows.value.find((p: Server3dModel) => p.id === pid)
+  try {
+    const f = row?.layout_config ? JSON.parse(row.layout_config)?.family : undefined
+    return f === 'kh' || f === 'sp5' ? f : undefined
+  } catch { return undefined }
+}
+/** 画布预览的处理器形态(=CPU 分区绑定行的形态族;未绑定→默认 AMD) */
+const cpuFamilyResolved = computed<'sp5' | 'kh' | undefined>(() => partFamily(bindings.value.cpu))
 
 const PART_KEYS = Object.entries(PART_INFO).map(([key, v]) => ({ key, def: v.name, defSpec: v.spec, defDesc: v.desc }))
 
 const modelOptions = computed(() => serverModels.value.map(m => ({ value: m.id, label: m.name })))
 const boundNames = computed(() => modelIds.value.map(mid => serverModels.value.find(m => m.id === mid)?.name || `机型#${mid}`))
 
-/** 分区标注 → layout_config.labels(三行全存,画布渲染即所见) */
+/** layout_config 合并保存:labels + machine(cpu_part_id)并入原始 lc,未知键保留 */
 const layoutConfig = computed(() => {
   const labels: Record<string, { name: string; spec: string; desc: string }> = {}
   for (const [k, v] of Object.entries(labelForm.value)) {
     if (!v) continue
     labels[k] = { name: v.name.trim(), spec: v.spec.trim(), desc: v.desc.trim() }
   }
-  return Object.keys(labels).length ? JSON.stringify({ labels }) : null
+  const out: Record<string, unknown> = { ...(rawLc.value || {}) }
+  if (Object.keys(labels).length) out.labels = labels
+  else delete out.labels
+  const cleanBindings = Object.fromEntries(Object.entries(bindings.value).filter(([, v]) => v != null))
+  if (Object.keys(cleanBindings).length) out.machine = { ...((out.machine as any) || {}), bindings: cleanBindings }
+  else if (out.machine) {
+    const mm = { ...((out.machine as any) || {}) }
+    delete mm.bindings
+    if (!Object.keys(mm).length) delete out.machine
+  }
+  return Object.keys(out).length ? JSON.stringify(out) : null
 })
 /** 预览用标注(草稿态即生效) */
 const previewLabels = computed(() => {
@@ -67,10 +101,16 @@ async function load() {
     name.value = m.name
     modelIds.value = [...(m.model_ids || [])]
     isPart.value = m.kind === 'part'
-    partType.value = (m.kind === 'part' && (m.part_type === 'cpu' || m.part_type === 'fan')) ? m.part_type : null
+    partType.value = m.kind === 'part' ? (m.part_type ?? null) : null
     try {
       const lc = m.layout_config ? JSON.parse(m.layout_config) : null
       partSpec.value = lc?.family ? { family: lc.family } : null
+      rawLc.value = lc || {}
+      partRows.value = list.filter(x => x.kind === 'part')
+      const b: Record<string, unknown> = lc?.machine?.bindings || {}
+      bindings.value = Object.fromEntries(
+        Object.entries(b).filter(([, v]) => v != null).map(([k, v]) => [k, Number(v)]),
+      )
       const lf: Record<string, { name: string; spec: string; desc: string }> = {}
       for (const { key, def, defSpec, defDesc } of PART_KEYS) {
         const o = lc?.labels?.[key] || {}
@@ -103,9 +143,9 @@ async function save() {
   if (!name.value.trim()) return message.warning('请填写模型名称')
   saving.value = true
   try {
-    // 部件模型:只改名(不触碰绑定与布局,形态族等由工厂/layout_config 预置)
+    // 部件模型:改名+部件类型(layout_config 形态族不触碰,由部件蓝图定调)
     await server3dApi.update(id.value, isPart.value
-      ? { name: name.value.trim(), model_ids: [] }
+      ? { name: name.value.trim(), part_type: partType.value || undefined, model_ids: [] }
       : {
           name: name.value.trim(),
           model_ids: modelIds.value,
@@ -121,6 +161,27 @@ async function save() {
 
 function back() {
   router.push('/servers/admin?refresh=model3d')
+}
+
+/* ── 复制(分裂):当前行整份登记复制出新行,绑定清空不上架,配置/文案留原样供改 ── */
+const copying = ref(false)
+async function copyModel() {
+  copying.value = true
+  try {
+    const res = await server3dApi.create({
+      name: `${name.value.trim() || '未命名'} · 副本`,
+      kind: isPart.value ? 'part' : 'machine',
+      part_type: partType.value,
+      layout_config: layoutConfig.value,
+      model_ids: [],
+    })
+    message.success('已复制出新模型行(未关联机型),正在打开副本')
+    await router.replace(`/servers/3d-models/${res.model.id}`)
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '复制失败')
+  } finally {
+    copying.value = false
+  }
 }
 
 /* 顶栏融合:深色主题时声明 hero-dark,顶栏透明浅字压在画布上(同服务器目录banner) */
@@ -148,10 +209,10 @@ const previewCounts = { gpus: 8, cpus: 2, dimms: 24, bays: 12 }
   <div class="s3de-root">
     <div class="s3de-stage">
       <ServerStage3D
-        v-if="!isPart" :counts="previewCounts" :labels="previewLabels" class="s3de-stage3d" height="100%"
+        v-if="!isPart" :counts="previewCounts" :labels="previewLabels" :cpu-family="cpuFamilyResolved" class="s3de-stage3d" height="100%"
       />
       <ServerStage3D
-        v-else :part-type="partType" :part-spec="partSpec" class="s3de-stage3d" height="100%"
+        v-else :part-type="stagePartType" :part-spec="partSpec" class="s3de-stage3d" height="100%"
       />
 
       <!-- 左上:返回 + 模型信息 -->
@@ -162,7 +223,7 @@ const previewCounts = { gpus: 8, cpus: 2, dimms: 24, bays: 12 }
         </button>
         <div class="s3de-hud-name">{{ name || '未命名3D模型' }}</div>
         <div class="s3de-hud-sub">
-          <template v-if="isPart">部件模型 · {{ PART_LABEL[partType || ''] || partType }}</template>
+          <template v-if="isPart">部件模型 · {{ PART_TYPE_LABELS[partType || ''] || partType || '?' }}</template>
           <template v-else-if="boundNames.length">
             关联机型 · <b>{{ boundNames[0] }}</b><span v-if="boundNames.length > 1"> 等 {{ boundNames.length }} 台</span>
           </template>
@@ -190,6 +251,10 @@ const previewCounts = { gpus: 8, cpus: 2, dimms: 24, bays: 12 }
             :max-tag-count="3"
           />
         </div>
+        <div class="s3de-field" v-if="isPart">
+          <label class="s3de-label">部件类型(决定画布用哪个部件工厂渲染)</label>
+          <a-select v-model:value="partType" :options="partTypeOptions" placeholder="选择部件类型" />
+        </div>
 
         <div class="s3de-lsec" v-if="!isPart">
           <div class="s3de-lsec-head" @click="labelsOpen = !labelsOpen">
@@ -202,6 +267,19 @@ const previewCounts = { gpus: 8, cpus: 2, dimms: 24, bays: 12 }
                 <span class="s3de-lidx">{{ idx + 1 }}</span>
                 <span class="s3de-ldef" :title="p.def">{{ p.def }}</span>
                 <button type="button" class="s3de-lreset" @click="resetLabel(p.key)">重置</button>
+              </div>
+              <div class="s3de-lrow" v-if="slotRows(p.key).length">
+                <span class="s3de-ltag">绑定</span>
+                <a-select
+                  :value="bindings[p.key] ?? null"
+                  :options="[
+                    { value: null, label: '不绑定(默认形态)' },
+                    ...slotRows(p.key).map(r => ({ value: r.id, label: r.name })),
+                  ]"
+                  size="small"
+                  allow-clear
+                  @update:value="(v: any) => { bindings[p.key] = v ?? null }"
+                />
               </div>
               <div class="s3de-lrow">
                 <span class="s3de-ltag">名称</span>
@@ -234,8 +312,10 @@ const previewCounts = { gpus: 8, cpus: 2, dimms: 24, bays: 12 }
         </div>
 
         <div class="s3de-ops">
+          <a-button v-if="!isPart" block :loading="copying" @click="copyModel">复制此模型(分裂新行)</a-button>
           <a-button type="primary" block :loading="saving" @click="save">保存</a-button>
         </div>
+        <p class="s3de-hint" v-if="!isPart">复制 = 整份登记分裂出新行:绑定清空不上架,组装配置与悬停文案留原样供改。</p>
       </div>
     </div>
   </div>

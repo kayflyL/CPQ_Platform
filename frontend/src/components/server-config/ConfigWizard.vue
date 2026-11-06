@@ -110,6 +110,21 @@ async function load3dModel() {
   if (!props.model.id) { model3d.value = null; return }
   try { model3d.value = await server3dApi.getByModel(props.model.id) }
   catch { model3d.value = null }
+  await resolveModelCpuFamily()
+}
+/** 处理器形态=绑定行声明,不做机型系列名猜测(黑盒拆除):读行配置 bindings.cpu → 部件行 family */
+const modelCpuFamily = ref<'sp5' | 'kh' | undefined>(undefined)
+async function resolveModelCpuFamily() {
+  modelCpuFamily.value = undefined
+  try {
+    const lc = model3d.value?.layout_config ? JSON.parse(model3d.value.layout_config) : null
+    const pid = lc?.machine?.bindings?.cpu
+    if (!pid) return
+    const parts = await server3dApi.list()
+    const prow = (Array.isArray(parts) ? parts : []).find((p: any) => p.id === pid)
+    const plc = prow?.layout_config ? JSON.parse(prow.layout_config) : null
+    if (plc?.family === 'kh' || plc?.family === 'sp5') modelCpuFamily.value = plc.family
+  } catch { /* 绑定缺失/解析失败回退默认形态 */ }
 }
 const counts3d = computed(() => ({
   gpus: gpuQty.value, cpus: cpuQty.value, dimms: memoryQty.value, bays: drivesQty.value,
@@ -861,7 +876,7 @@ defineExpose({ getPublicSnapshot, openSpecSheet })
               v-if="model3d"
               :counts="counts3d"
               :labels="model3dLabels"
-              :cpu-family="series.includes('兆芯') ? 'kh' : undefined"
+              :cpu-family="modelCpuFamily"
               height="420px"
             />
             <ServerAnatomyViewer
@@ -969,7 +984,7 @@ defineExpose({ getPublicSnapshot, openSpecSheet })
               v-if="model3d"
               :counts="counts3d"
               :labels="model3dLabels"
-              :cpu-family="series.includes('兆芯') ? 'kh' : undefined"
+              :cpu-family="modelCpuFamily"
               height="420px"
             />
             <ServerAnatomyViewer

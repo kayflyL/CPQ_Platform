@@ -62,6 +62,7 @@ watch(() => [props.partType, props.partSpec, props.cpuFamily], () => {
   if (host.value) {
     stage = createServerStage(host.value, undefined, { partType: props.partType ?? undefined, partSpec: props.partSpec ?? undefined, cpuFamily: props.cpuFamily ?? undefined })
     stage.applyTheme(currentTheme())
+    ;(window as any).__s3dStage = stage // 调试句柄跟随重建(否则指向已 dispose 的旧舞台)
   }
 })
 

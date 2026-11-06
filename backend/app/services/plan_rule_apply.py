@@ -50,11 +50,12 @@ def apply_plan_selection_rules(plan: dict, kp_parts: list, baseline: dict = None
                                rules: list = None, record_hits: bool = True) -> dict:
     """在方案上补选型配置规则派生/校验结果（原地改 plan 并返回）。
 
-    - plan.chassis_signals.bp_type           背板类型（derive 赋值型首命中；无 → 前端 ?? 'dc' 兜底）
+    2026-11-06 S2 起内部改走 selection_gate.resolve（引擎 v2 单点），**输出契约冻结**：
+    - plan.chassis_signals.bp_type           背板类型（赋值型 derive，priority 最高唯一命中）
     - plan.chassis_signals.cable_qty_by_kind  各类型线缆根数（derive 算术型按 target 聚合，仅落 >0）
-    - plan.selection_alerts                   require/exclude/recommend 命中动作（冲突/缺失/推荐）
-
-    rules 缺省从 DB 读（测试可显式注入，避免依赖 DB）。
+    - plan.selection_alerts                   require/exclude/recommend 告警（槽位数据钳制映射为
+                                              action=recommend/severity=warning，与原数量上限规则
+                                              告警同形，消费端零改动）
     """
     if rules is None:
         rules = load_active_rules()
@@ -63,36 +64,36 @@ def apply_plan_selection_rules(plan: dict, kp_parts: list, baseline: dict = None
         plan.setdefault("selection_alerts", [])
         return plan
 
+    from app.services import selection_gate as gate
     ctx = cre.plan_rule_context(kp_parts, baseline)
-    fired_ids = [
-        r.get("id") for r in rules
-        if r.get("status") == "active" and cre.eval_when(ctx, cre._body(r).get("when"))
-    ]
-    actions = cre.evaluate_rules(rules, ctx)
+    result = gate.resolve(rules, ctx)
+    for w in result.get("model_warnings") or []:
+        logger.warning("selection_gate 模型告警: %s", w.get("message"))
 
     signals = plan.setdefault("chassis_signals", {})
-    # 背板类型：赋值型 derive 首命中（eval_assign_value 按规则顺序 short-circuit）；无命中由消费端兜底
-    bp_type = cre.eval_assign_value(rules, ctx, "config.bp_type")
-    if bp_type:
-        signals["bp_type"] = bp_type
-    # 线缆根数：算术型 derive 按 target 聚合（只落 >0 的类型）
     cables = {}
-    for a in actions:
-        if a.get("action") == "derive" and a.get("deriveTarget") in CABLE_KINDS:
-            cables[a["deriveTarget"]] = int(a.get("deriveQty") or 0)
+    for d in result.get("derived") or []:
+        if d.get("assignField") == "config.bp_type":
+            signals["bp_type"] = d.get("assignValue")
+        elif d.get("deriveTarget") in CABLE_KINDS:
+            cables[d["deriveTarget"]] = int(d.get("deriveQty") or 0)
     if cables:
         signals["cable_qty_by_kind"] = {k: v for k, v in cables.items() if v}
 
-    # 校验告警：require/exclude/recommend（derive 只派生不告警，避免噪音）
     alerts = []
-    for a in actions:
-        if a.get("action") not in ("require", "exclude", "recommend"):
-            continue
+    for a in (result.get("violations") or []) + (result.get("recommends") or []):
+        action = a.get("action")
+        if action == "clamp":  # 数据钳制 → 原数量上限规则同形(消费端契约冻结)
+            action, sev = "recommend", "warning"
+        elif action not in ("require", "exclude", "recommend"):
+            continue  # filter/derive 不进告警(derive 只派生,filter 由候选过滤承担)
+        else:
+            sev = a.get("severity") or "info"
         alert = {
             "ruleId": a.get("ruleId"),
             "ruleName": a.get("ruleName") or "",
-            "action": a.get("action"),
-            "severity": a.get("severity") or "info",
+            "action": action,
+            "severity": sev,
             "desc": a.get("desc") or "",
         }
         if a.get("target"):
@@ -103,7 +104,7 @@ def apply_plan_selection_rules(plan: dict, kp_parts: list, baseline: dict = None
     plan["selection_alerts"] = alerts
 
     if record_hits:
-        _record_hits([i for i in fired_ids if i])
+        _record_hits(gate.fired_rule_ids(rules, ctx))
     return plan
 
 

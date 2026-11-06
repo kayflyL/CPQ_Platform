@@ -24,5 +24,8 @@ export const server3dApi = {
     RESP<Server3dModel | null>(axios.get(`/api/server-3d-models/by-model/${modelId}`)),
   update: (id: number, data: Partial<Server3dModel>) =>
     RESP<{ ok: boolean }>(axios.put(`/api/server-3d-models/${id}`, data)),
+  /** 登记新行(管理页「复制模型」分裂用) */
+  create: (data: Partial<Server3dModel>) =>
+    RESP<{ ok: boolean; model: Server3dModel }>(axios.post('/api/server-3d-models/', data)),
   remove: (id: number) => RESP<{ ok: boolean }>(axios.delete(`/api/server-3d-models/${id}`)),
 }
