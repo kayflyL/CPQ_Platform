@@ -11,6 +11,7 @@ import AssigneePickerModal from '@/components/opportunity/AssigneePickerModal.vu
 import { useDownstreamAssignee, ASSIGNEE_REQUIRED_DETAIL } from '@/composables/useDownstreamAssignee'
 import { useIsMobile } from '@/composables/useIsMobile'
 import ResponsiveModal from '@/components/common/ResponsiveModal.vue'
+import { fmtTime } from '@/utils/quoteCommon'
 import { MODAL_BODY_MAX_HEIGHT } from '@/constants/modalPresets'
 
 const props = defineProps<{
@@ -366,7 +367,8 @@ function requestWithdrawScheme(scheme: BomScheme) {
       :empty="!schemes.length && !pendingRequirements.length"
       empty-text="尚无方案，点击“新建方案”开始配置。"
       :columns="[
-        { label: '创建人 / 时间', width: '180px' },
+        { label: '时间', width: '150px' },
+        { label: '创建人', width: '110px' },
         { label: '方案', width: '200px' },
         { label: '编号', width: '120px' },
         { label: '状态', width: '120px' },
@@ -378,7 +380,8 @@ function requestWithdrawScheme(scheme: BomScheme) {
         v-for="req in pendingRequirements"
         :key="`pending-req-${req.version}`"
       >
-        <td class="rt-dim" data-label="创建人 / 时间">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</td>
+        <td class="rt-time" data-label="时间">{{ fmtTime(req.created_at) }}</td>
+        <td class="rt-dim" data-label="创建人">{{ req.created_by || '—' }}</td>
         <td>
           <span class="rt-strong">需求单 v{{ req.version }}</span>
           <span class="rt-sub">来自线索登记</span>
@@ -400,7 +403,8 @@ function requestWithdrawScheme(scheme: BomScheme) {
         :key="scheme.id"
         @click="openScheme(scheme)"
       >
-        <td class="rt-dim" data-label="创建人 / 时间">{{ scheme.created_by || '—' }} · {{ (scheme.created_at || '').slice(5, 16) }}</td>
+        <td class="rt-time" data-label="时间">{{ fmtTime(scheme.created_at) }}</td>
+        <td class="rt-dim" data-label="创建人">{{ scheme.created_by || '—' }}</td>
         <td><span class="rt-strong">{{ scheme.name }}</span></td>
         <td class="rt-dim" data-label="编号">BOM-{{ scheme.id }}</td>
         <td data-label="状态">

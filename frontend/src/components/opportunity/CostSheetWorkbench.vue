@@ -10,7 +10,7 @@ import { useDownstreamAssignee, ASSIGNEE_REQUIRED_DETAIL } from '@/composables/u
 import { portalApi, type BomScheme, type CostSheet, type FlowCard, type PortalBoard, type PortalSheetConfig } from '@/api/portal'
 import { kpPartsApi, baseConfigApi, type KpPart, type BaseConfigCost } from '@/api/serverConfig'
 import { systemConfigApi } from '@/api/systemConfig'
-import { calcUnitCost } from '@/utils/quoteCommon'
+import { calcUnitCost, fmtTime } from '@/utils/quoteCommon'
 import { matchKpPart } from '@/utils/partNameMatch'
 import { MODAL_BODY_MAX_HEIGHT } from '@/constants/modalPresets'
 import ResponsiveModal from '@/components/common/ResponsiveModal.vue'
@@ -417,7 +417,8 @@ function returnSheet(sheet: CostSheet) {
       :empty="!sheets.length && !pendingBomSchemes.length"
       empty-text="尚无成本表；请先在方案配置节点提交一个 BOM 方案。"
       :columns="[
-        { label: '创建人 / 时间', width: '180px' },
+        { label: '时间', width: '150px' },
+        { label: '创建人', width: '110px' },
         { label: '成本表', width: '220px' },
         { label: '单号', width: '110px' },
         { label: '状态', width: '110px' },
@@ -429,7 +430,8 @@ function returnSheet(sheet: CostSheet) {
         v-for="bom in pendingBomSchemes"
         :key="`pending-bom-${bom.id}`"
       >
-        <td class="rt-dim" data-label="创建人 / 时间">{{ bom.created_by || '—' }} · {{ (bom.created_at || '').slice(5, 16) }}</td>
+        <td class="rt-time" data-label="时间">{{ fmtTime(bom.created_at) }}</td>
+        <td class="rt-dim" data-label="创建人">{{ bom.created_by || '—' }}</td>
         <td>
           <span class="rt-strong">待核价 · {{ bom.name }}</span>
           <span class="rt-sub">来自方案配置</span>
@@ -451,7 +453,8 @@ function returnSheet(sheet: CostSheet) {
         :key="sheet.id"
         @click="openSheet(sheet)"
       >
-        <td class="rt-dim" data-label="创建人 / 时间">{{ sheet.created_by || '—' }} · {{ (sheet.created_at || '').slice(5, 16) }}</td>
+        <td class="rt-time" data-label="时间">{{ fmtTime(sheet.created_at) }}</td>
+        <td class="rt-dim" data-label="创建人">{{ sheet.created_by || '—' }}</td>
         <td><span class="rt-strong">{{ sheet.name }}</span></td>
         <td class="rt-dim" data-label="编号">COST-{{ sheet.id }}</td>
         <td data-label="状态">

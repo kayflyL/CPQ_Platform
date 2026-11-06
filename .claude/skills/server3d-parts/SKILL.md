@@ -50,7 +50,7 @@ description: 服务器3D部件库建模的强制工作流（蓝图→分pass→�
 2. **金属件顶视炸白（2026-11-05 已根治,勿再走参数妥协老路）**：metalness≈1 的件（镀镍 IHS）镜面反射环境光,GGX 高光瓣一过 bloom 阈值,全屏 bloom 直接把三分之一区域放大成纯白。老方案（roughness/envMapIntensity/阈值三参数悬停妥协,验收只量"中心单像素<200"）修不干净——单像素恰好落在大高光瓣的暗缝里就算"过验"。**根治=stage.ts 选择性 bloom 双 composer**：辉光件（整机霓虹=所有 MeshBasicMaterial 面+舞台光环/尘埃）打 BLOOM_LAYER,其余件在 bloom-only 通道涂黑,金属再亮也进不了 bloom;阈值不再悬停妥协。cpu 品牌刻字带 `noBloom` 豁免（白色 Basic 平面不是霓虹）。新件为霓虹时只要用 MeshBasicMaterial 就自动上 bloom 层,非霓虹 Basic 平面记得标 noBloom。**验收标准=区域统计**（renderOnce + drawImage + getImageData）：模型区均值 <150 且白像素（L>240）占比=0,禁用单像素/全局亮度指标。
 3. **金属没有 env 会渲染近黑**：stage 必须有 `scene.environment`（PMREM+RoomEnvironment），强度走 STAGE_THEMES.env。
 4. **暗色三层拉开**：背景 #0a1526 / 地台 / 机体 亮度必须递增可辨，否则糊成一团（11-01 大亮板教训）。
-5. **后台预览面板 rAF 节流**：Browser pane 在后台时动画帧≈0.5fps 且 dt 被钳 0.05，补间看起来冻住——**代码没坏**。验证动画要么用户本地开，要么用 `stage.renderOnce(dt)` 手动步进后把 canvas drawImage 到 2D canvas 转成 `<img>` 覆盖层再截图（WebGL canvas 本体在后台合成不更新，DOM img 会更新）。
+5. **后台预览面板 rAF 节流**：Browser pane 在后台时动画帧≈0.5fps 且 dt 被钳 0.05，补间看起来冻住——**代码没坏**。验证动画要么用户本地开，要么用 `stage.renderOnce(dt)` 手动步进后把 canvas drawImage 到 2D canvas 转成 `<img>` 覆盖层再截图（WebGL canvas 本体在后台合成不更新，DOM img 会更新）。**面板后台初始化时 innerWidth=0**：WebGL canvas 0×0，drawImage 直接抛 InvalidStateError——独立原型页必须挂 resize 监听（高宽钳 ≥1），?snap 截图前重试等 canvas 有宽度；`?v=front|top` 类初始视角参数让节流环境下不用等飞入动画。
 6. **测量要在同一 eval 原子做**：HMR/热改参数会跨 eval 残留脏状态，扫参前先 reload、扫参后恢复原值，否则数据互相矛盾。
 7. **8000 端口后端可能是提权进程**：netstat 看得见 kill 不掉——别硬杀。幂等迁移直接对库执行，新后端代码等它自然重启时 startup 自愈生效。
 8. **E2E 登录**：AUTH 开启时签发 token 用 opportunities.feed_users 里 **is_active=true** 的 admin（曾拿过 is_active=false 的行，/me 永远 401），键 cpq_auth_token。

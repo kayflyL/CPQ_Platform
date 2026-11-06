@@ -26,9 +26,88 @@ export const FAN_PART_INFO: Record<string, { name: string; spec: string; desc: s
 }
 
 /** 主题色(dark=原型值;light 提亮塑胶防糊白) */
-const FAN_THEME = {
+export const FAN_THEME = {
   dark: { plate: '#b7c1cd', frame: '#15171c', rotor: '#1a1d24', hub: '#22262e', sticker: '#3a3f4a', gold: '#d4a94f' },
   light: { plate: '#d6dee8', frame: '#3a4250', rotor: '#4a5060', hub: '#565e6c', sticker: '#565e6c', gold: '#c4984a' },
+}
+
+function mesh(parent: THREE.Group, geo: THREE.BufferGeometry, mat: THREE.MeshPhysicalMaterial,
+  ud: { key: string; name: string; spec: string; desc: string }) {
+  const m = new THREE.Mesh(geo, mat)
+  m.castShadow = true
+  m.receiveShadow = true
+  m.userData = ud
+  parent.add(m)
+  return m
+}
+
+function octagon(size: number, holeR: number) {
+  const c = size / 2, k = size * 0.18
+  const s = new THREE.Shape()
+  s.moveTo(-c + k, -c); s.lineTo(c - k, -c); s.lineTo(c, -c + k); s.lineTo(c, c - k)
+  s.lineTo(c - k, c); s.lineTo(-c + k, c); s.lineTo(-c, c - k); s.lineTo(-c, -c + k); s.closePath()
+  const p = new THREE.Path()
+  p.absarc(0, 0, holeR, 0, Math.PI * 2, true)
+  s.holes.push(p)
+  return s
+}
+
+/* 公共几何缓存:所有扇同形,12 扇共享一份(部件页/整机各复用) */
+let _frameGeo: THREE.ExtrudeGeometry | null = null
+let _bladeGeo: THREE.ExtrudeGeometry | null = null
+function frameGeo() {
+  if (!_frameGeo) _frameGeo = new THREE.ExtrudeGeometry(octagon(80, 34), { depth: 38, bevelEnabled: false })
+  return _frameGeo
+}
+function bladeGeo() {
+  if (!_bladeGeo) {
+    const blade = new THREE.Shape()
+    blade.absarc(0, 0, 33, 0, 0.62, false)
+    blade.absarc(0, 0, 15, 0.62, 0, true)
+    blade.closePath()
+    _bladeGeo = new THREE.ExtrudeGeometry(blade, { depth: 2.4, bevelEnabled: false })
+  }
+  return _bladeGeo
+}
+
+/** 公共单扇模块(8038,mm 域):八角框+四角螺丝+规格贴纸+转子组,userData 语义键已挂。
+ *  材质由调用方注入(部件页/整机各一组,禁每扇新建);整机 halos/爆炸/常转由调用方驱动。 */
+export interface FanModuleMats {
+  frame: THREE.MeshPhysicalMaterial
+  rotor: THREE.MeshPhysicalMaterial
+  hub: THREE.MeshPhysicalMaterial
+  sticker: THREE.MeshPhysicalMaterial
+}
+export function createFanModule(mats: FanModuleMats): { g: THREE.Group; rotor: THREE.Group } {
+  const g = new THREE.Group()
+  mesh(g, frameGeo(), mats.frame,
+    { key: 'fanframe', name: FAN_PART_INFO.fanframe.name, spec: FAN_PART_INFO.fanframe.spec, desc: FAN_PART_INFO.fanframe.desc })
+  for (const [sx, sy] of [[28, 28], [-28, 28], [28, -28], [-28, -28]] as const) {
+    const screw = mesh(g, new THREE.CylinderGeometry(2.5, 2.5, 2.5, 12),
+      mats.hub, { key: 'screw', name: FAN_PART_INFO.screw.name, spec: FAN_PART_INFO.screw.spec, desc: FAN_PART_INFO.screw.desc })
+    screw.rotation.x = Math.PI / 2
+    screw.position.set(sx, sy, 38 - 1)
+  }
+  const sticker = mesh(g, new THREE.BoxGeometry(22, 9, 1),
+    mats.sticker, { key: 'fanframe', name: '规格贴纸', spec: '图形示意', desc: '只做形状不写字(避型号定调)。' })
+  sticker.position.set(22, 28, 38 + 0.5)
+  const rotor = new THREE.Group()
+  rotor.position.set(0, 0, 38 / 2)
+  for (let i = 0; i < 7; i++) {
+    const wrap = new THREE.Group()
+    wrap.rotation.z = i * Math.PI * 2 / 7 + 0.18
+    const b = mesh(wrap, bladeGeo(),
+      mats.rotor, { key: 'rotor', name: FAN_PART_INFO.rotor.name, spec: FAN_PART_INFO.rotor.spec, desc: FAN_PART_INFO.rotor.desc })
+    b.rotation.x = 0.52
+    b.position.z = -1.2
+    wrap.add(b)
+    rotor.add(wrap)
+  }
+  const hub = mesh(rotor, new THREE.CylinderGeometry(12, 12, 38 - 14, 24),
+    mats.hub, { key: 'hub', name: FAN_PART_INFO.hub.name, spec: FAN_PART_INFO.hub.spec, desc: FAN_PART_INFO.hub.desc })
+  hub.rotation.x = Math.PI / 2
+  g.add(rotor)
+  return { g, rotor }
 }
 
 export function createFanModel(spec: FanSpec = {}) {
@@ -73,16 +152,6 @@ export function createFanModel(spec: FanSpec = {}) {
   reg('connector', goldMat)
   reg('screw', hubMat)
 
-  function mesh(parent: THREE.Group, geo: THREE.BufferGeometry, mat: THREE.MeshPhysicalMaterial,
-    ud: { key: string; name: string; spec: string; desc: string }) {
-    const m = new THREE.Mesh(geo, mat)
-    m.castShadow = true
-    m.receiveShadow = true
-    m.userData = ud
-    parent.add(m)
-    return m
-  }
-
   /* L1 护罩框板:圆角矩形开孔阵列+倒角 */
   function roundedHole(hx: number, hy: number, hw: number, hh: number, r: number) {
     const p = new THREE.Path()
@@ -106,58 +175,15 @@ export function createFanModel(spec: FanSpec = {}) {
     plateMat, { key: 'grille', name: FAN_PART_INFO.grille.name, spec: FAN_PART_INFO.grille.spec, desc: FAN_PART_INFO.grille.desc })
   grille.position.z = DEPTH + 6
 
-  /* L2 风扇模块×12:八角环框+螺丝沉孔+贴纸形;L3 转子:7叶弯刀+毂 */
-  function octagon(size: number, holeR: number) {
-    const c = size / 2, k = size * 0.18
-    const s = new THREE.Shape()
-    s.moveTo(-c + k, -c); s.lineTo(c - k, -c); s.lineTo(c, -c + k); s.lineTo(c, c - k)
-    s.lineTo(c - k, c); s.lineTo(-c + k, c); s.lineTo(-c, c - k); s.lineTo(-c, -c + k); s.closePath()
-    const p = new THREE.Path()
-    p.absarc(0, 0, holeR, 0, Math.PI * 2, true)
-    s.holes.push(p)
-    return s
-  }
-  const blade = new THREE.Shape()
-  blade.absarc(0, 0, 33, 0, 0.62, false)
-  blade.absarc(0, 0, 15, 0.62, 0, true)
-  blade.closePath()
-
+  /* L2 风扇模块×12:公共模块工厂;L3 转子单独装 gRotors 供爆炸层驱动 */
   const rotorGroups: THREE.Group[] = []
-  const bladeGeo = new THREE.ExtrudeGeometry(blade, { depth: 2.4, bevelEnabled: false })
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-    const g = new THREE.Group()
-    g.position.set(cellX(c), cellY(r), 0)
-    gFans.add(g)
-    const frame = mesh(g, new THREE.ExtrudeGeometry(octagon(FAN, 34), { depth: DEPTH, bevelEnabled: false }),
-      frameMat, { key: 'fanframe', name: FAN_PART_INFO.fanframe.name, spec: FAN_PART_INFO.fanframe.spec, desc: FAN_PART_INFO.fanframe.desc })
-    void frame
-    for (const [sx, sy] of [[28, 28], [-28, 28], [28, -28], [-28, -28]] as const) {
-      const screw = mesh(g, new THREE.CylinderGeometry(2.5, 2.5, 2.5, 12),
-        hubMat, { key: 'screw', name: FAN_PART_INFO.screw.name, spec: FAN_PART_INFO.screw.spec, desc: FAN_PART_INFO.screw.desc })
-      screw.rotation.x = Math.PI / 2
-      screw.position.set(sx, sy, DEPTH - 1)
-    }
-    const sticker = mesh(g, new THREE.BoxGeometry(22, 9, 1),
-      stickerMat, { key: 'fanframe', name: '规格贴纸', spec: '图形示意', desc: '只做形状不写字(避型号定调)。' })
-    sticker.position.set(22, 28, DEPTH + 0.5)
-
-    const rotor = new THREE.Group()
-    rotor.position.set(cellX(c), cellY(r), DEPTH / 2)
-    for (let i = 0; i < 7; i++) {
-      const wrap = new THREE.Group()
-      wrap.rotation.z = i * Math.PI * 2 / 7 + 0.18
-      const b = mesh(wrap, bladeGeo,
-        rotorMat, { key: 'rotor', name: FAN_PART_INFO.rotor.name, spec: FAN_PART_INFO.rotor.spec, desc: FAN_PART_INFO.rotor.desc })
-      b.rotation.x = 0.52
-      b.position.z = -1.2
-      wrap.add(b)
-      rotor.add(wrap)
-    }
-    const hub = mesh(rotor, new THREE.CylinderGeometry(12, 12, DEPTH - 14, 24),
-      hubMat, { key: 'hub', name: FAN_PART_INFO.hub.name, spec: FAN_PART_INFO.hub.spec, desc: FAN_PART_INFO.hub.desc })
-    hub.rotation.x = Math.PI / 2
-    gRotors.add(rotor)
-    rotorGroups.push(rotor)
+    const mod = createFanModule({ frame: frameMat, rotor: rotorMat, hub: hubMat, sticker: stickerMat })
+    mod.g.position.set(cellX(c), cellY(r), 0)
+    gFans.add(mod.g)
+    mod.rotor.position.set(cellX(c), cellY(r), DEPTH / 2)
+    gRotors.add(mod.rotor)
+    rotorGroups.push(mod.rotor)
   }
 
   /* L4 提手+金手指连接器(底缘,随框板层) */

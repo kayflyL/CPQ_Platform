@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>风扇墙并入整机 · P1 块头比例</title>
+<style>
+  html,body{margin:0;height:100%;background:#0a1526;overflow:hidden;font-family:"Microsoft YaHei",sans-serif}
+  #app{width:100%;height:100%}
+  #hud{position:fixed;top:12px;left:16px;color:#9fc3e8;font-size:13px;letter-spacing:.5px;pointer-events:none}
+  #hud b{color:#dff0ff;font-size:15px}
+  #views{position:fixed;top:12px;right:16px;display:flex;gap:8px}
+  #views button{background:rgba(30,60,100,.55);border:1px solid #2a578c;color:#bcd9f5;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px}
+  #views button:hover{background:rgba(45,90,150,.7)}
+  #snapImg{position:fixed;inset:0;width:100%;height:100%;display:none;z-index:9}
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app"></div>
+<div id="hud"><b>风扇墙并入整机 · P1 块头</b>　6列×2行 8038模块 · halo保留 · 拖拽旋转/滚轮缩放</div>
+<div id="views">
+  <button data-v="inner">3/4内视</button>
+  <button data-v="front">正视</button>
+  <button data-v="top">俯视</button>
+</div>
+<img id="snapImg" alt="">
+<script type="module">
+import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+
+// ── 整机比例(mm→machine 单位同 machine.ts) ──
+const W = 4.6, H = 1.78, D = 7.2
+const MM = 0.00825          // 风扇模块 mm→整机单位(80mm→0.66直径)
+const COLS = 6, ROWS = 2
+const FAN = 80, DEPTH = 38, PITCH = FAN + 2
+const WALL_W = COLS * PITCH, WALL_H = ROWS * PITCH
+const cellX = c => (c - (COLS - 1) / 2) * PITCH
+const cellY = r => ((ROWS - 1) / 2 - r) * PITCH
+
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+renderer.setSize(innerWidth, innerHeight)
+renderer.toneMapping = THREE.ACESFilmicToneMapping
+renderer.toneMappingExposure = 1.15
+renderer.shadowMap.enabled = true
+renderer.shadowMap.type = THREE.PCFSoftShadowMap
+document.getElementById('app').appendChild(renderer.domElement)
+
+const scene = new THREE.Scene()
+scene.background = new THREE.Color('#0a1526')
+scene.fog = new THREE.FogExp2('#0a1526', 0.03)
+const pmrem = new THREE.PMREMGenerator(renderer)
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+scene.environmentIntensity = 0.45
+
+const camera = new THREE.PerspectiveCamera(42, innerWidth / Math.max(innerHeight, 1), 0.1, 200)
+{ // ?v=front|top|inner 初始视角(后台节流下截图用)
+  const v = new URLSearchParams(location.search).get('v')
+  const dir = v === 'front' ? [0, 0.16, 1] : v === 'top' ? [0.02, 1, 0.18] : [0.58, 0.42, 0.7]
+  camera.position.set(0, 0.9, 0).addScaledVector(new THREE.Vector3(...dir).normalize(), 9.5)
+  camera.lookAt(0, 0.9, 0)
+}
+const controls = new OrbitControls(camera, renderer.domElement)
+controls.target.set(0, 0.9, 0)
+controls.enableDamping = true
+controls.dampingFactor = 0.07
+controls.autoRotate = true
+controls.autoRotateSpeed = 0.85
+function flyTo(dir, dur = 0.9) {
+  const p0 = camera.position.clone(), t0 = controls.target.clone()
+  const t1 = new THREE.Vector3(0, 0.9, 0)
+  const dist = 9.5
+  const p1 = t1.clone().addScaledVector(new THREE.Vector3(...dir).normalize(), dist)
+  const start = performance.now()
+  controls.autoRotate = false
+  ;(function step() {
+    const k = Math.min((performance.now() - start) / (dur * 1000), 1)
+    const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2
+    camera.position.lerpVectors(p0, p1, e)
+    controls.target.lerpVectors(t0, t1, e)
+    camera.lookAt(controls.target)
+    if (k < 1) requestAnimationFrame(step)
+    else controls.autoRotate = true
+  })()
+}
+document.getElementById('views').addEventListener('click', e => {
+  const v = e.target.dataset.v
+  if (v === 'front') flyTo([0, 0.16, 1])
+  if (v === 'top') flyTo([0.02, 1, 0.18])
+  if (v === 'inner') flyTo([0.58, 0.42, 0.7])
+})
+
+// ── 灯光(同 stage.ts 暗色) ──
+scene.add(new THREE.AmbientLight('#8fb4dd', 0.65))
+const key = new THREE.DirectionalLight('#eaf4ff', 2.0)
+key.position.set(7, 12, 6); key.castShadow = true
+key.shadow.mapSize.set(2048, 2048)
+scene.add(key)
+const rimCyan = new THREE.PointLight('#1e6fff', 7, 30); rimCyan.position.set(-8, 4, -8); scene.add(rimCyan)
+const rimViolet = new THREE.PointLight('#7c3aed', 5, 30); rimViolet.position.set(8, 3, -9); scene.add(rimViolet)
+const fillTop = new THREE.PointLight('#a5d8ff', 14, 16); fillTop.position.set(0, 4.2, 0.5); scene.add(fillTop)
+
+const floor = new THREE.Mesh(
+  new THREE.CircleGeometry(34, 72),
+  new THREE.MeshStandardMaterial({ color: '#0c1930', roughness: 0.92, metalness: 0.25 }))
+floor.rotation.x = -Math.PI / 2; floor.position.y = -0.08; floor.receiveShadow = true
+scene.add(floor)
+
+// ── 机身壳(半透明示意,仅验证风扇墙比例) ──
+const shellMat = new THREE.MeshStandardMaterial({ color: '#2e4059', metalness: 0.6, roughness: 0.45, transparent: true, opacity: 0.28, depthWrite: false })
+const shell = new THREE.Mesh(new THREE.BoxGeometry(W, H, D), shellMat)
+shell.position.y = H / 2
+scene.add(shell)
+const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(W, H, D)),
+  new THREE.LineBasicMaterial({ color: '#2fa8e8', transparent: true, opacity: 0.5 }))
+edges.position.y = H / 2
+scene.add(edges)
+// 玻璃顶盖沿(发光框,示意机身上缘)
+const frMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#2fa8e8').multiplyScalar(1.1) })
+for (const [sw, sh, sd, sx, sy, sz] of [
+  [W, 0.014, 0.014, 0, H, D / 2], [W, 0.014, 0.014, 0, H, -D / 2],
+  [0.014, 0.014, D, W / 2, H, 0], [0.014, 0.014, D, -W / 2, H, 0]]) {
+  const seg = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, sd), frMat)
+  seg.position.set(sx, sy, sz); scene.add(seg)
+}
+
+// ── 单扇模块(mm 域,照 parts/fan.ts 几何) ──
+const T = { frame: '#15171c', rotor: '#1a1d24', hub: '#22262e', sticker: '#3a3f4a' }
+const frameMat = new THREE.MeshPhysicalMaterial({ color: T.frame, roughness: 0.7, envMapIntensity: 0.15 })
+const rotorMat = new THREE.MeshPhysicalMaterial({ color: T.rotor, roughness: 0.45, iridescence: 0.25, iridescenceIOR: 1.3, envMapIntensity: 0.25 })
+const hubMat = new THREE.MeshPhysicalMaterial({ color: T.hub, roughness: 0.5, envMapIntensity: 0.15 })
+const stickerMat = new THREE.MeshPhysicalMaterial({ color: T.sticker, roughness: 0.6, envMapIntensity: 0.15 })
+function mk(parent, geo, mat) {
+  const m = new THREE.Mesh(geo, mat)
+  m.castShadow = true; m.receiveShadow = true
+  parent.add(m); return m
+}
+function octagon(size, holeR) {
+  const c = size / 2, k = size * 0.18
+  const s = new THREE.Shape()
+  s.moveTo(-c + k, -c); s.lineTo(c - k, -c); s.lineTo(c, -c + k); s.lineTo(c, c - k)
+  s.lineTo(c - k, c); s.lineTo(-c + k, c); s.lineTo(-c, c - k); s.lineTo(-c, -c + k); s.closePath()
+  const p = new THREE.Path(); p.absarc(0, 0, holeR, 0, Math.PI * 2, true)
+  s.holes.push(p); return s
+}
+const bladeShape = new THREE.Shape()
+bladeShape.absarc(0, 0, 33, 0, 0.62, false)
+bladeShape.absarc(0, 0, 15, 0.62, 0, true)
+bladeShape.closePath()
+const bladeGeo = new THREE.ExtrudeGeometry(bladeShape, { depth: 2.4, bevelEnabled: false })
+const rotors = []
+function fanModule() {
+  const g = new THREE.Group()
+  mk(g, new THREE.ExtrudeGeometry(octagon(FAN, 34), { depth: DEPTH, bevelEnabled: false }), frameMat)
+  for (const [sx, sy] of [[28, 28], [-28, 28], [28, -28], [-28, -28]]) {
+    const screw = mk(g, new THREE.CylinderGeometry(2.5, 2.5, 2.5, 12), hubMat)
+    screw.rotation.x = Math.PI / 2
+    screw.position.set(sx, sy, DEPTH - 1)
+  }
+  const sticker = mk(g, new THREE.BoxGeometry(22, 9, 1), stickerMat)
+  sticker.position.set(22, 28, DEPTH + 0.5)
+  const rotor = new THREE.Group()
+  rotor.position.set(0, 0, DEPTH / 2)
+  for (let i = 0; i < 7; i++) {
+    const wrap = new THREE.Group()
+    wrap.rotation.z = i * Math.PI * 2 / 7 + 0.18
+    const b = mk(wrap, bladeGeo, rotorMat)
+    b.rotation.x = 0.52; b.position.z = -1.2
+    wrap.add(b); rotor.add(wrap)
+  }
+  const hub = mk(rotor, new THREE.CylinderGeometry(12, 12, DEPTH - 14, 24), hubMat)
+  hub.rotation.x = Math.PI / 2
+  g.add(rotor); rotors.push(rotor)
+  return g
+}
+
+// ── 新风扇墙:mm 域 6×2,整组缩放进整机单位 ──
+const wall = new THREE.Group()
+wall.scale.setScalar(MM)
+wall.position.set(0, H * 0.52, D * 0.245)
+for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  const m = fanModule()
+  m.position.set(cellX(c), cellY(r), 0)
+  wall.add(m)
+}
+scene.add(wall)
+
+// ── halo 霓虹环(整机域,每扇一环,保留发光) ──
+const haloMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#37c8ff').multiplyScalar(2.0) })
+const R_RING = 0.66 * 0.42
+for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(R_RING, 0.012, 8, 28), haloMat)
+  halo.position.set(cellX(c) * MM, H * 0.52 + cellY(r) * MM, D * 0.245 + (DEPTH + 4) * MM)
+  scene.add(halo)
+}
+
+const clock = new THREE.Clock()
+function tick() {
+  requestAnimationFrame(tick)
+  const dt = Math.min(clock.getDelta(), 0.05)
+  const t = clock.elapsedTime
+  controls.update()
+  for (const r of rotors) r.rotation.z += dt * 1.2
+  haloMat.color.set('#37c8ff').multiplyScalar(1.8 + 0.4 * Math.sin(t * 1.4))
+  renderer.render(scene, camera)
+}
+if (!new URLSearchParams(location.search).get('v')) flyTo([0.58, 0.42, 0.7], 2.0)
+tick()
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / Math.max(innerHeight, 1)
+  camera.updateProjectionMatrix()
+  renderer.setSize(innerWidth, Math.max(innerHeight, 1))
+})
+// ?snap=1: 渲染稳定后把 WebGL canvas 转 img 覆盖层(后台面板 rAF 节流时截图仍是新帧)
+if (new URLSearchParams(location.search).has('snap')) {
+  const snap = () => {
+    if (!renderer.domElement.width) return setTimeout(snap, 300)
+    const c2 = document.createElement('canvas')
+    c2.width = renderer.domElement.width; c2.height = renderer.domElement.height
+    c2.getContext('2d').drawImage(renderer.domElement, 0, 0)
+    const img = document.getElementById('snapImg')
+    img.src = c2.toDataURL('image/png')
+    img.style.display = 'block'
+  }
+  setTimeout(snap, 2500)
+}
+</script>
+</body>
+</html>

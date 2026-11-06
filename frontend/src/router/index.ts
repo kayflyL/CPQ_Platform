@@ -16,6 +16,16 @@ const routes = [
     meta: { title: '无权访问' }
   },
   {
+    // 公开裸版机型详情（顶层路由、无 DefaultLayout 壳）：星河首页弹窗 iframe 专用。
+    // 弹窗里从结构上就不存在布局壳与内部导航——不是隐藏，是没渲染；数据只走公开白名单
+    // 接口（publicMode），URL 被挖出来也只是这个公开页。/catalog 前缀落在 401 拦截豁免内。
+    path: '/catalog/embed/models/:modelId',
+    name: 'PublicModelDetailEmbed',
+    component: () => import('@/views/server-config/ModelDetailPage.vue'),
+    props: { publicMode: true, bare: true },
+    meta: { title: '机型详情', public: true }
+  },
+  {
     path: '/',
     component: DefaultLayout,
     // 根路径分流在守卫里做（判 to.path === '/'，要等 loadMe 恢复会话）：
@@ -25,7 +35,7 @@ const routes = [
         path: '/galaxy',
         name: 'Galaxy',
         component: () => import('@/views/GalaxyHome.vue'),
-        meta: { title: '星河首页' }
+        meta: { title: '星河首页', public: true }
       },
       {
         path: '/portal',

@@ -23,6 +23,7 @@ import dayjs from 'dayjs'
 import { portalApi } from '@/api/portal'
 import { projectApi } from '@/api'
 import { MODAL_BODY_MAX_HEIGHT } from '@/constants/modalPresets'
+import { fmtTime } from '@/utils/quoteCommon'
 import DeliveryRegionSelect from '@/components/common/DeliveryRegionSelect.vue'
 import type { FlowCard, PortalBoard, RequirementVersion, RequirementSlots } from '@/api/portal'
 import type { Quotation } from '@/types/opportunity'
@@ -1010,7 +1011,8 @@ defineExpose({ reload: loadBoard })
                 :empty="!currentReq && !draftReq && !archivedRequirementCards.length"
                 empty-text="尚无需求单，点击“新建需求”开始填写。"
                 :columns="[
-                  { label: '创建人 / 时间', width: '180px' },
+                  { label: '时间', width: '150px' },
+                  { label: '创建人', width: '110px' },
                   { label: '版本', width: '150px' },
                   { label: '状态', width: '120px' },
                   { label: '服务器型号' },
@@ -1024,7 +1026,8 @@ defineExpose({ reload: loadBoard })
                 v-if="currentReq"
                 @click="openRequirementDetail(currentReq.version)"
               >
-                <td class="rt-dim" data-label="创建人 / 时间">{{ currentReq.created_by || '—' }} · {{ (currentReq.created_at || '').slice(5, 16) }}</td>
+                <td class="rt-time" data-label="时间">{{ fmtTime(currentReq.created_at) }}</td>
+                <td class="rt-dim" data-label="创建人">{{ currentReq.created_by || '—' }}</td>
                 <td>
                   <span class="rt-strong">需求单 v{{ currentReq.version }}</span>
                   <span class="rt-sub">线索登记</span>
@@ -1049,7 +1052,8 @@ defineExpose({ reload: loadBoard })
                 v-if="draftReq && draftReq.version !== currentReq?.version"
                 @click="openRequirementDetail(draftReq.version)"
               >
-                <td class="rt-dim" data-label="创建人 / 时间">{{ draftReq.created_by || '—' }} · {{ (draftReq.created_at || '').slice(5, 16) }}</td>
+                <td class="rt-time" data-label="时间">{{ fmtTime(draftReq.created_at) }}</td>
+                <td class="rt-dim" data-label="创建人">{{ draftReq.created_by || '—' }}</td>
                 <td>
                   <span class="rt-strong">需求草稿 v{{ draftReq.version }}</span>
                   <span class="rt-sub">未提交</span>
@@ -1073,7 +1077,8 @@ defineExpose({ reload: loadBoard })
                 :key="req.version"
                 @click="openRequirementDetail(req.version)"
               >
-                <td class="rt-dim" data-label="创建人 / 时间">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</td>
+                <td class="rt-time" data-label="时间">{{ fmtTime(req.created_at) }}</td>
+                <td class="rt-dim" data-label="创建人">{{ req.created_by || '—' }}</td>
                 <td>
                   <span class="rt-strong">需求单 v{{ req.version }}</span>
                   <span class="rt-sub">REQ-{{ req.version }}</span>

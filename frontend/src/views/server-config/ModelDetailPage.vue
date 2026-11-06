@@ -9,7 +9,7 @@ import CapabilityShowcase from '@/components/server-config/CapabilityShowcase.vu
 import { useSeriesStore } from '@/stores/series'
 import { STAGE_THEMES, type StageThemeKey } from '@/constants/stageThemes'
 
-const props = defineProps<{ publicMode?: boolean }>()
+const props = defineProps<{ publicMode?: boolean; bare?: boolean }>()
 const route = useRoute()
 const router = useRouter()
 const model = ref<ServerModel | null>(null)
@@ -100,6 +100,13 @@ function back() {
 }
 function configure() {
   if (!model.value) return
+  // 裸版（星河弹窗 iframe 内）：配置动作升级为整页跳公开配置向导，弹窗随之关闭；
+  // 不在 iframe 内部导航——公开向导挂 DefaultLayout，iframe 里导航会带出一条顶栏
+  if (props.bare) {
+    if (window.top) window.top.location.href = `/catalog/config/${model.value.id}`
+    else router.push(`/catalog/config/${model.value.id}`)
+    return
+  }
   router.push(`${props.publicMode ? '/catalog' : '/servers'}/config/${model.value.id}`)
 }
 
@@ -119,12 +126,12 @@ watch(stageThemeKey, (k) => {
   document.documentElement.style.setProperty('--hero-band-bg', HERO_BAND[k])
 }, { immediate: true })
 onMounted(() => {
-  markHeroDark(true)
+  if (!props.bare) markHeroDark(true)
   load()
   seriesStore.ensureSeries()
 })
 onBeforeUnmount(() => {
-  markHeroDark(false)
+  if (!props.bare) markHeroDark(false)
   document.documentElement.style.removeProperty('--hero-band-bg')
 })
 </script>
@@ -174,8 +181,8 @@ onBeforeUnmount(() => {
             <span v-else class="product-ph">{{ model.name?.charAt(0) || '机' }}</span>
           </div>
 
-          <!-- 左上角返回（有来路原路返回，直开才回机型目录） -->
-          <a-button type="text" @click="back" class="scene-back">
+          <!-- 左上角返回（有来路原路返回，直开才回机型目录）；裸版嵌弹窗，关闭走弹窗自身，不渲染返回 -->
+          <a-button v-if="!props.bare" type="text" @click="back" class="scene-back">
             <template #icon><span style="font-size:16px">←</span></template>
             返回
           </a-button>

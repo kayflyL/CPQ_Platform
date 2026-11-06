@@ -119,6 +119,8 @@ withDefaults(defineProps<{
 :deep(.rt-link.danger) { color: var(--cpq-accent-danger); }
 :deep(.rt-link.muted) { color: var(--cpq-text-muted); }
 :deep(.rt-strong) { font-weight: 400; color: var(--cpq-text-primary); }
+/* 时间列：一天多版时的首要区分信息，第一列加重显示 */
+:deep(.rt-time) { font-weight: var(--cpq-font-weight-semibold); color: var(--cpq-text-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 :deep(.rt-sub) { display: block; margin-top: 3px; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); }
 :deep(.rt-dim) { color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); }
 

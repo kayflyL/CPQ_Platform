@@ -185,7 +185,8 @@ function sheetBadgeClass(sheet: WorktableSheetView): string {
   return 'rt-badge-current'
 }
 const costTableColumns: { label: string; width?: string; align?: 'left' | 'right' | 'center' }[] = [
-  { label: '创建人 / 时间', width: '180px' },
+  { label: '时间', width: '150px' },
+  { label: '创建人', width: '110px' },
   { label: '成本表', width: '190px' },
   { label: '配置' },
   { label: '台数', width: '70px', align: 'right' },
@@ -459,7 +460,8 @@ function returnQuoteToCost(quotationId: string, label: string) {
             :key="sheet.sheet_id"
             @click="openSheetDetail(sheet.sheet_name, sheet.cost_configs)"
           >
-            <td class="rt-dim" data-label="创建人 / 时间">{{ sheet.created_by || '—' }} · {{ (sheet.created_at || '').slice(5, 16) }}</td>
+            <td class="rt-time" data-label="时间">{{ fmtTime(sheet.created_at) }}</td>
+            <td class="rt-dim" data-label="创建人">{{ sheet.created_by || '—' }}</td>
             <td><span class="rt-strong" :title="sheet.sheet_name">{{ sheet.sheet_name }}</span></td>
             <td class="rt-dim" data-label="配置">{{ sheet.configNames }}</td>
             <td class="rt-num" data-label="台数">{{ sheet.totalQty }}</td>
@@ -493,7 +495,8 @@ function returnQuoteToCost(quotationId: string, label: string) {
           :columns="costTableColumns"
         >
           <tr v-if="costConfigs.length || worktableQuotationId" @click="costConfigs.length && openSheetDetail('当前成本表', costConfigs)">
-            <td class="rt-dim" data-label="创建人 / 时间">—</td>
+            <td class="rt-time" data-label="时间">—</td>
+            <td class="rt-dim" data-label="创建人">—</td>
             <td><span class="rt-strong">当前成本表</span></td>
             <td class="rt-dim" data-label="配置">{{ bomConfigs.map((c) => c.name).filter(Boolean).join(' / ') || '—' }}</td>
             <td class="rt-num" data-label="台数">{{ totalQty }}</td>
@@ -635,9 +638,9 @@ function returnQuoteToCost(quotationId: string, label: string) {
           :empty="!visibleQuotations.length"
           empty-text="暂无报价单，请上传或新增报价。"
           :columns="[
-            { label: '创建人 / 时间', width: '180px' },
+            { label: '时间', width: '150px' },
+            { label: '创建人', width: '110px' },
             { label: '报价单', width: '240px' },
-            { label: '单号', width: '160px' },
             { label: '状态', width: '110px' },
             { label: '总价', width: '110px', align: 'right' },
             { label: '利润率', width: '90px', align: 'right' },
@@ -650,12 +653,12 @@ function returnQuoteToCost(quotationId: string, label: string) {
             :key="q.quotation_id"
             @click="quoteSelectMode ? emit('toggle-quote-select', q.quotation_id) : openQuotation(q)"
           >
-            <td class="rt-dim" data-label="创建人 / 时间">{{ q.created_by || '—' }} · {{ (q.created_at || '').slice(5, 16) }}</td>
+            <td class="rt-time" data-label="时间">{{ fmtTime(q.created_at) }}</td>
+            <td class="rt-dim" data-label="创建人">{{ q.created_by || '—' }}</td>
             <td>
               <span class="rt-strong rt-q-title" :title="q.quotation_name || '未命名报价单'">{{ q.quotation_name || '未命名报价单' }}</span>
               <span v-if="q.is_primary" class="rt-sub">当前为主推报价单</span>
             </td>
-            <td class="rt-dim" data-label="单号"><span class="rt-q-id" :title="q.quotation_id">{{ q.quotation_id }}</span></td>
             <td data-label="状态"><span class="rt-badge" :class="`rt-badge-${quoteStateClass(q)}`">{{ quoteState(q) }}</span></td>
             <td class="rt-num" data-label="总价">{{ quotePriceVisible ? money(q.total_price) : '***' }}</td>
             <td class="rt-num" data-label="利润率">{{ quotePriceVisible ? Number(q.profit_margin || 0).toFixed(2) + '%' : '***' }}</td>
@@ -841,7 +844,7 @@ function returnQuoteToCost(quotationId: string, label: string) {
 .qw-send-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 .rt-num { text-align: right; }
-.rt-q-title, .rt-q-id { display: block; word-break: break-word; white-space: normal; min-width: 0; }
+.rt-q-title { display: block; word-break: break-word; white-space: normal; min-width: 0; }
 
 @media (max-width: 768px) {
   /* ── 卡头紧凑双行：card-shell-* 公共部分在 card-shell.css 同断点里；
@@ -874,12 +877,7 @@ function returnQuoteToCost(quotationId: string, label: string) {
     flex: 1 1 auto;
     width: auto;
   }
-  /* 长单号不再逐字竖排：溢出省略，全量见详情 */
-  .rt-q-id {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  /* 长单号不再逐字竖排：溢出省略（单号列已删，报价名防逐字竖排走 rt-q-title 的省略） */
   .card-collapse-inner {
     overflow-x: auto;
   }

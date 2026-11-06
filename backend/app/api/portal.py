@@ -1351,6 +1351,7 @@ def _sync_sheet_to_quotation(opp: dict, quotation_id: Optional[str],
             quotation = quote_repo.create(
                 opp.get("opportunity_id"),
                 quotation_name=f"报价-{customer}-{base}",
+                created_by=created_by,
             )
             # 同一成本表重复提交会生成新版本，附版本号避免重名
             quote_repo.update(

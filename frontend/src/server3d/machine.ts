@@ -1,12 +1,13 @@
 /**
  * server3d/machine.ts — 参数化服务器整机构建(纯TS,零Vue依赖)。
- * 蓝本=ESA240 V3 三视图图纸 + 底座档案:4U / 12×3.5"盘位(4列×3行) / 12×6056风扇 /
+ * 蓝本=ESA240 V3 三视图图纸 + 底座档案:4U / 12×3.5"盘位(4列×3行) / 12×8038风扇(6列×2行,部件库公共模块) /
  * 绿色主板+2×CPU+24×DDR5单行三组(6/12/6) / 深绿Switch板+一排竖插双宽GPU /
  * CRPS 3+1电源 / 13×FHHL PCIe+OCP。配置是变量,模型是函数:数量驱动显隐。
  */
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
-import { glow } from './themes'
+import { glow, type StageTheme } from './themes'
+import { createFanModule, FAN_THEME } from './parts/fan'
 
 export interface MachineConfig {
   bays: number
@@ -37,8 +38,8 @@ export const PART_INFO: Record<string, { name: string; spec: string; desc: strin
     desc: '对应图纸前视图「左挂耳(指示灯/把手)」「右挂耳(VGA/USB/把手)」。',
   },
   fans: {
-    name: '风扇区', spec: '6056 热插拔风扇墙',
-    desc: '整机散热风道第一级。对应图纸俯视图「风扇区」。',
+    name: '风扇区', spec: '8038 热插拔风扇墙 · 6列×2行',
+    desc: '整机散热风道第一级,部件库公共单扇模块组装(同部件页风扇墙)。对应图纸俯视图「风扇区」。',
   },
   cpu: {
     name: 'CPU/内存区', spec: 'AMD 9004/9005 · DDR5 6400',
@@ -242,37 +243,37 @@ export function createMachine(cfg: MachineConfig) {
     }
   }
 
-  // ── 风扇墙(12×6056,旋转+青光环) ──
+  // ── 风扇墙(6列×2行 8038 部件库公共模块;halo青光环保留在整机侧,模块本体不发霓虹) ──
+  const fanModuleMats = {
+    frame: new THREE.MeshPhysicalMaterial({ color: FAN_THEME.dark.frame, roughness: 0.7, envMapIntensity: 0.15 }),
+    rotor: new THREE.MeshPhysicalMaterial({ color: FAN_THEME.dark.rotor, roughness: 0.45, iridescence: 0.25, iridescenceIOR: 1.3, envMapIntensity: 0.25 }),
+    hub: new THREE.MeshPhysicalMaterial({ color: FAN_THEME.dark.hub, roughness: 0.5, envMapIntensity: 0.15 }),
+    sticker: new THREE.MeshPhysicalMaterial({ color: FAN_THEME.dark.sticker, roughness: 0.6, envMapIntensity: 0.15 }),
+  }
   const fanWall = part('fans', new THREE.Vector3(0, 0, 0))
   {
     const n = cfg.fans
-    const r = 0.17
-    const x0 = -(n * (r * 2 + 0.06) - 0.06) / 2
+    const COLS = 6
+    const ROWS = Math.ceil(n / COLS)
+    const MM = 0.00825 // 风扇模块 mm→整机单位(8038=0.66单位直径,蓝图「布局账」)
+    const PITCH = 82 * MM
+    const wall = new THREE.Group()
+    wall.scale.setScalar(MM)
+    wall.position.set(0, H * 0.52, D * 0.245)
+    fanWall.add(wall)
     for (let i = 0; i < n; i++) {
-      const g = new THREE.Group()
-      const frame = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.16, 24), M.body)
-      frame.rotation.x = Math.PI / 2
-      frame.castShadow = true
-      g.add(frame)
-      const hub = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.32, r * 0.32, 0.17, 16), M.fin)
-      hub.rotation.x = Math.PI / 2
-      g.add(hub)
-      const halo = new THREE.Mesh(new THREE.TorusGeometry(r * 0.38, 0.012, 8, 28), tagGlow('fans', M.cyan.clone()))
-      halo.position.z = 0.09
-      g.add(halo)
-      const spin = new THREE.Group()
-      for (let b = 0; b < 7; b++) {
-        const blade = new THREE.Mesh(new THREE.BoxGeometry(r * 0.72, 0.008, r * 0.3), M.fin)
-        blade.position.x = r * 0.45
-        const holder = new THREE.Group()
-        holder.rotation.z = (b / 7) * Math.PI * 2
-        holder.add(blade)
-        spin.add(holder)
-      }
-      g.add(spin)
-      fanSpinners.push({ s: spin, v: 7 + Math.random() * 5 })
-      g.position.set(x0 + i * (r * 2 + 0.06) + r, H * 0.52, D * 0.245)
-      fanWall.add(g)
+      const c = i % COLS, r = Math.floor(i / COLS)
+      const mod = createFanModule(fanModuleMats)
+      mod.g.position.set((c - (COLS - 1) / 2) * 82, ((ROWS - 1) / 2 - r) * 82, 0)
+      wall.add(mod.g)
+      fanSpinners.push({ s: mod.rotor, v: 7 + Math.random() * 5 })
+      const halo = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.012, 8, 28), tagGlow('fans', M.cyan.clone()))
+      halo.position.set(
+        (c - (COLS - 1) / 2) * PITCH,
+        H * 0.52 + ((ROWS - 1) / 2 - r) * PITCH,
+        D * 0.245 + (38 + 4) * MM,
+      )
+      fanWall.add(halo)
     }
   }
   // ── CPU/内存区:绿色主板+双CPU(蓝色顶盖+鳍片塔,随配置增减)+24根内存单行三组 ──
@@ -432,6 +433,22 @@ export function createMachine(cfg: MachineConfig) {
   let glassBase = 0.1
   function setGlassBase(v: number) { glassBase = v }
 
+  // ── 主题:原 M 袋六材质换色(与 stage 回退同式)+ 风扇模块色表(FAN_THEME 双档,深色塑胶保留,浅色提亮防糊白) ──
+  function applyTheme(t: StageTheme, name: 'dark' | 'light') {
+    M.body.color.set(t.body)
+    M.dark.color.set(t.dark)
+    M.fin.color.set(t.fin)
+    M.glass.color.set(t.glass)
+    M.board.color.set(t.board)
+    M.boardDk.color.set(t.boardDk)
+    setGlassBase(t.glassBase)
+    const pal = FAN_THEME[name]
+    fanModuleMats.frame.color.set(pal.frame)
+    fanModuleMats.rotor.color.set(pal.rotor)
+    fanModuleMats.hub.color.set(pal.hub)
+    fanModuleMats.sticker.color.set(pal.sticker)
+  }
+
   function updateTick(dt: number, t: number) {
     explode += (explodeTarget - explode) * (1 - Math.exp(-dt * 5))
     const eo = 1 - Math.pow(1 - explode, 3)
@@ -476,7 +493,7 @@ export function createMachine(cfg: MachineConfig) {
   return {
     root, M, parts, glowMats, PART_INFO, KEY_ALIAS,
     units: { gpuUnits, cpuUnits, dimmUnits, bayTrays },
-    setCounts, setExploded, updateTick, setHover, setGlassBase,
+    setCounts, setExploded, updateTick, setHover, setGlassBase, applyTheme,
     get explodeRatio() { return explode },
   }
 }

@@ -20,7 +20,7 @@ export function marginBadgeClass(margin?: number | null): string {
 
 export function fmtTime(value?: string): string {
   if (!value) return '—'
-  return value.length >= 16 ? value.slice(5, 16) : value
+  return value.length >= 16 ? value.slice(5, 16).replace('T', ' ') : value
 }
 
 export function money(value?: number | null): string {

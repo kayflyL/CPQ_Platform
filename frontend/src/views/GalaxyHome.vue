@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 
-/** 星河首页（/galaxy）—— 静态星河页以 iframe 内嵌，保留顶栏导航。
+/** 星河首页（/galaxy，meta.public 匿名可访问）—— 静态星河页以 iframe 内嵌，保留顶栏导航。
  *  融合手法：外层容器整屏深空底色（与星河页背景同色），顶栏让位带透出同一深色；
  *  hero-dark 让顶栏文字用浅色 token。
- *  星河页点击机型详情时 postMessage 过来，这里弹居中模态内嵌**真实详情页**（iframe 整页搬入，
- *  样式内容与 /servers/models/:id 完全一致），关闭即回到星河，无页面跳转。 */
+ *  星河页点击机型详情时 postMessage 过来，这里弹居中模态内嵌**公开裸版详情页**
+ *  （/catalog/embed/models/:id：顶层公开路由、无布局壳、数据只走公开白名单接口），
+ *  弹窗内从结构上就不存在内部导航——不是隐藏，是没渲染；关闭即回到星河，无页面跳转。 */
 
 // 星河页版本号：变更星河页内容时递增，强制浏览器拉新（防旧缓存）
 
@@ -61,11 +62,11 @@ onBeforeUnmount(() => {
     <template #title>
       <span class="gmm-title">服务器详情</span>
     </template>
-    <!-- 真实详情页整页嵌入：样式/内容与 /servers/models/:id 完全一致 -->
+    <!-- 公开裸版详情页整页嵌入：无布局壳，数据走公开白名单接口（/api/public/catalog/*） -->
     <iframe
       v-if="modelId"
       class="gmm-frame"
-      :src="`/servers/models/${modelId}`"
+      :src="`/catalog/embed/models/${modelId}`"
       :title="'服务器详情'"
     />
   </a-modal>
