@@ -8,6 +8,10 @@ defineProps<{
   saving: boolean
   form: any
   fieldOpts: { value: string; label: string }[]
+  /** excludes 候选谓词字段(part. 前缀寻址候选件) */
+  partFieldOpts?: { value: string; label: string }[]
+  /** KP 类目清单(同类一致多选 / excludes 目标) */
+  kpCatOptions?: { value: string; label: string }[]
   categoryOpts: { value: string; label: string }[]
   filterFn: (input: string, option: any) => boolean
 }>()
@@ -18,7 +22,12 @@ const emit = defineEmits<{
   (e: 'save'): void
   (e: 'add-cond'): void
   (e: 'del-cond', index: number | string): void
+  (e: 'add-ex-cond'): void
+  (e: 'del-ex-cond', index: number | string): void
 }>()
+
+/** excludes 候选谓词操作符:比 WHEN 多一个 not_exists(缺属性=命中即排除) */
+const EX_OP_OPTIONS = [...RULE_OP_OPTIONS, { value: 'not_exists', label: '无值' }]
 </script>
 
 <template>
@@ -36,17 +45,17 @@ const emit = defineEmits<{
       <div class="cre-edit-form glass-light">
         <a-form layout="vertical" size="small">
           <a-row :gutter="16">
-            <a-col :span="12">
+            <a-col :span="9">
               <a-form-item label="规则名称">
                 <a-input v-model:value="form.name" placeholder="如：选 GPU 需配 GPU 线缆" />
               </a-form-item>
             </a-col>
-            <a-col :span="6">
+            <a-col :span="5">
               <a-form-item label="规则类型">
                 <a-select v-model:value="form.type" :options="RULE_TYPE_OPTIONS" />
               </a-form-item>
             </a-col>
-            <a-col :span="6">
+            <a-col :span="5">
               <a-form-item label="业务分类">
                 <a-auto-complete
                   :value="form.category"
@@ -55,6 +64,11 @@ const emit = defineEmits<{
                   :filter-option="filterFn"
                   @update:value="(v: any) => form.category = String(v || '')"
                 />
+              </a-form-item>
+            </a-col>
+            <a-col :span="5">
+              <a-form-item label="优先级">
+                <a-input v-model:value="form.priority" placeholder="数值小者先判（空=0）" />
               </a-form-item>
             </a-col>
           </a-row>
@@ -118,6 +132,41 @@ const emit = defineEmits<{
             </template>
             <template v-else-if="form.type === 'recommend'">
               <a-auto-complete :value="form.target" :options="fieldOpts" placeholder="推荐目标 kp.GPU" style="width: 100%" :filter-option="filterFn" @update:value="(v: any) => form.target = String(v || '')" />
+            </template>
+            <template v-else-if="form.type === 'homogeneous'">
+              <a-form-item label="同类一致类目（勾选类目内出现多种即冲突）">
+                <a-select v-model:value="form.homoCats" mode="multiple" :options="kpCatOptions || []" placeholder="如：Memory / CPU / GPU" />
+              </a-form-item>
+              <div class="cre-cond-row">
+                <span style="color: var(--cpq-text-secondary); font-size: 12px">判同字段</span>
+                <a-input v-model:value="form.homoField" placeholder="pn（默认）" style="width: 220px" />
+              </div>
+            </template>
+            <template v-else-if="form.type === 'resource'">
+              <div class="cre-cond-row">
+                <a-auto-complete :value="form.resLhsField" :options="fieldOpts" placeholder="左侧 config.tdp_sum" style="flex: 1" :filter-option="filterFn" @update:value="(v: any) => form.resLhsField = String(v || '')" />
+                <span style="color: var(--cpq-text-secondary); font-size: 12px">×</span>
+                <a-input :value="form.resLhsScale" placeholder="倍率(可空)" style="width: 110px" @change="(e: any) => form.resLhsScale = e.target.value" />
+                <a-select :value="form.resOp" style="width: 88px" :options="RULE_OP_OPTIONS.filter(o => ['<=','>=','<','>','=='].includes(o.value))" @change="(v: any) => form.resOp = v" />
+                <a-auto-complete :value="form.resRhsField" :options="fieldOpts" placeholder="右侧 config.psu_capacity" style="flex: 1" :filter-option="filterFn" @update:value="(v: any) => form.resRhsField = String(v || '')" />
+                <span style="color: var(--cpq-text-secondary); font-size: 12px">×</span>
+                <a-input :value="form.resRhsScale" placeholder="倍率(可空)" style="width: 110px" @change="(e: any) => form.resRhsScale = e.target.value" />
+              </div>
+              <p style="margin: 4px 0 0; color: var(--cpq-text-muted); font-size: 12px">约束不满足 = 硬违规；两侧缺数据（如 PSU 容量未录）时引擎跳过并记模型告警，不误报。</p>
+            </template>
+            <template v-else-if="form.type === 'excludes'">
+              <a-form-item label="被排除的类目（该类目下命中条件的候选件不出现）">
+                <a-auto-complete :value="form.exTarget" :options="kpCatOptions || []" placeholder="如：Raid card" style="width: 260px" :filter-option="filterFn" @update:value="(v: any) => form.exTarget = String(v || '')" />
+              </a-form-item>
+              <a-form-item label="候选排除条件（part. 前缀寻址候选件；命中即排除）">
+                <div v-for="(c, i) in form.exConds" :key="i" class="cre-cond-row">
+                  <a-auto-complete :value="c.field" :options="partFieldOpts || []" placeholder="part.spec.电容" style="width: 220px" :filter-option="filterFn" @update:value="(v: any) => c.field = String(v || '')" />
+                  <a-select :value="c.op" style="width: 96px" :options="EX_OP_OPTIONS" @change="(v: any) => c.op = v" />
+                  <a-input :value="String(c.value ?? '')" placeholder="值（无值型可空）" style="flex: 1; min-width: 120px" @change="(e: any) => c.value = e.target.value" />
+                  <a-button type="text" danger size="small" @click="emit('del-ex-cond', i)"><DeleteOutlined /></a-button>
+                </div>
+                <a-button type="dashed" size="small" block @click="emit('add-ex-cond')"><PlusOutlined /> 增加排除条件</a-button>
+              </a-form-item>
             </template>
           </a-form-item>
 

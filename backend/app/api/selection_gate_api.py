@@ -80,9 +80,20 @@ def resolve_selection(data: dict):
 
     compat = _load_compat_by_part() if (model_row and (model_row.get("series") or model_row.get("model"))) else {}
     candidates = _load_candidates() if want_options else {}
+    # id→目录行映射:已选件平台校验(_selected_platform_violations)需要 applicable,选项不必开
+    catalog_by_id = {}
+    if model_row:
+        try:
+            for rows in (candidates.values() if candidates else []):
+                for row in rows:
+                    if row.get("id") is not None:
+                        catalog_by_id[row["id"]] = {"applicable": row.get("applicable")}
+        except Exception:
+            catalog_by_id = {}
 
     ctx = build_context(model_row, selected, candidates=candidates, compat_by_part=compat,
                         opportunity=data.get("opportunity") or {})
+    ctx["catalog_by_id"] = catalog_by_id
 
     rule_repo = CompatibilityRuleRepository()
     try:

@@ -13,7 +13,10 @@ router = APIRouter(prefix="/api/compatibility-rules", tags=["compatibility-rules
                    dependencies=[Depends(get_optional_user)])
 
 _VALID_STATUS = {"draft", "testing", "active", "archived"}
-_VALID_TYPE = {"require", "exclude", "derive", "filter", "recommend"}
+# v2 新增:homogeneous(同类一致)/resource(资源预算)/excludes(候选排除,part. 前缀谓词)——
+# 引擎语义见 services/selection_gate.py;require 覆盖「必配/依赖」,不另设 requires 类型
+_VALID_TYPE = {"require", "exclude", "derive", "filter", "recommend",
+               "homogeneous", "resource", "excludes"}
 
 
 @router.get("/")

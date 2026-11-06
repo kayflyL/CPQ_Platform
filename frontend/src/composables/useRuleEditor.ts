@@ -37,6 +37,23 @@ export function useRuleEditor(opts: RuleEditorOptions) {
     return kp
   })
 
+  /** excludes 候选谓词字段:part. 前缀寻址候选件(结构化属性,键名走库内原始键) */
+  const partFieldOpts = computed(() => {
+    const out: { value: string; label: string }[] = [
+      { value: 'part.pn', label: 'part.pn' }, { value: 'part.name', label: 'part.name' },
+      { value: 'part.brand', label: 'part.brand' },
+    ]
+    for (const c of kpCats.value) {
+      for (const k of (kpSpecKeys.value[c] || [])) {
+        out.push({ value: `part.spec.${k}`, label: `part.spec.${k}` })
+      }
+    }
+    return out
+  })
+
+  /** 类目清单(同类一致类目多选 / excludes 目标类目) */
+  const kpCatOptions = computed(() => kpCats.value.map(c => ({ value: c, label: c })))
+
   const filterFn = (input: string, option: any) => {
     const opt = typeof option === 'string' ? option : String(option?.value ?? option?.label ?? '')
     return opt.toLowerCase().includes((input || '').toLowerCase())
@@ -55,6 +72,12 @@ export function useRuleEditor(opts: RuleEditorOptions) {
       target: '', min_qty: '', unique_field: 'pn', specKey: '', specVal: '',
       basis: '', per: 1, round: 'ceil', deriveMode: 'calc', assignField: 'config.bp_type', assignValue: '',
       fScope: 'server_model', fField: 'series', fOp: '==', fValue: 'opportunity.platform_type',
+      // v2 新类型:同类一致 / 资源预算 / 候选排除;priority 显式(空=0)
+      priority: '',
+      homoCats: ['Memory', 'CPU', 'GPU'], homoField: 'pn',
+      resLhsField: 'config.tdp_sum', resLhsScale: '1.2', resOp: '<=',
+      resRhsField: 'config.psu_capacity', resRhsScale: '',
+      exTarget: '', exConds: [{ field: 'part.spec.', op: 'not_exists', value: '' }],
       desc: '',
     }
   }
@@ -83,6 +106,15 @@ export function useRuleEditor(opts: RuleEditorOptions) {
       basis: t.basis || '', per: t.per || 1, round: t.round || 'ceil',
       deriveMode: (t.field && 'value' in t) ? 'assign' : 'calc', assignField: t.field || 'config.bp_type', assignValue: t.value ?? '',
       fScope: t.scope || 'server_model', fField: t.field || 'series', fOp: t.op || '==', fValue: t.value || 'opportunity.platform_type',
+      priority: b.priority != null ? String(b.priority) : '',
+      homoCats: Array.isArray(t.categories) && t.categories.length ? t.categories : ['Memory', 'CPU', 'GPU'],
+      homoField: t.field || 'pn',
+      resLhsField: t.check?.lhs?.field || 'config.tdp_sum', resLhsScale: t.check?.lhs?.scale != null ? String(t.check.lhs.scale) : '',
+      resOp: t.check?.op || '<=',
+      resRhsField: t.check?.rhs?.field || 'config.psu_capacity', resRhsScale: t.check?.rhs?.scale != null ? String(t.check.rhs.scale) : '',
+      exTarget: legacyParseCat(t.target),
+      exConds: (Array.isArray(t.candidate) ? t.candidate : t.candidate ? [t.candidate] : [{ field: 'part.spec.', op: 'not_exists', value: '' }])
+        .map((c: any) => ({ field: c.field || '', op: c.op || 'not_exists', value: c.value ?? '' })),
       desc: b.desc || r.description || '',
     }
     editModalVisible.value = true
@@ -114,8 +146,31 @@ export function useRuleEditor(opts: RuleEditorOptions) {
         break
       case 'filter': then = { action: 'filter', scope: f.fScope, field: f.fField, op: f.fOp, value: f.fValue }; break
       case 'recommend': then = { action: 'recommend', target: f.target }; break
+      case 'homogeneous':
+        then = { action: 'homogeneous', categories: (f.homoCats || []).filter(Boolean), field: f.homoField || 'pn' }
+        break
+      case 'resource': {
+        const lhs: any = { field: f.resLhsField }
+        if (f.resLhsScale !== '' && f.resLhsScale != null) lhs.scale = Number(f.resLhsScale)
+        const rhs: any = { field: f.resRhsField }
+        if (f.resRhsScale !== '' && f.resRhsScale != null) rhs.scale = Number(f.resRhsScale)
+        then = { action: 'resource', check: { lhs, op: f.resOp, rhs } }
+        break
+      }
+      case 'excludes': {
+        const conds = (f.exConds || []).filter((c: any) => c.field).map((c: any) => ({ field: c.field, op: c.op, value: c.value }))
+        then = { action: 'excludes', target: `kp.${f.exTarget}`, candidate: conds.length === 1 ? conds[0] : conds }
+        break
+      }
     }
-    return { when, then, desc: f.desc || form.value.name }
+    const body: any = { when, then, desc: f.desc || form.value.name }
+    if (f.priority !== '' && f.priority != null && Number.isFinite(Number(f.priority))) body.priority = Number(f.priority)
+    return body
+  }
+
+  /** excludes.then.target 是 'kp.<类目>' 全路径,编辑表单只留类目名 */
+  function legacyParseCat(target: string | undefined): string {
+    return String(target || '').startsWith('kp.') ? String(target).slice(3) : String(target || '')
   }
 
   async function save() {
@@ -127,6 +182,18 @@ export function useRuleEditor(opts: RuleEditorOptions) {
     }
     if (f.type === 'derive' && f.deriveMode === 'assign' && !String(f.assignValue ?? '').trim()) {
       message.warning('请填赋值的值（如 tri）'); return
+    }
+    if (f.type === 'homogeneous' && !(f.homoCats || []).filter(Boolean).length) {
+      message.warning('请至少勾选一个类目'); return
+    }
+    if (f.type === 'resource' && (!f.resLhsField || !f.resRhsField)) {
+      message.warning('请填资源表达式两侧字段'); return
+    }
+    if (f.type === 'excludes' && !f.exTarget?.trim()) {
+      message.warning('请填被排除的类目'); return
+    }
+    if (f.type === 'excludes' && !(f.exConds || []).some((c: any) => c.field)) {
+      message.warning('请至少填一个候选排除条件'); return
     }
     const body = buildBody()
     const category = f.category?.trim() || null
@@ -170,12 +237,14 @@ export function useRuleEditor(opts: RuleEditorOptions) {
 
   function addCond() { form.value.whenAll.push({ field: '', op: '>=', value: '' }) }
   function delCond(i: number | string) { form.value.whenAll.splice(Number(i), 1) }
+  function addExCond() { form.value.exConds.push({ field: '', op: 'not_exists', value: '' }) }
+  function delExCond(i: number | string) { form.value.exConds.splice(Number(i), 1) }
 
   onMounted(loadKpMeta)
 
   return {
-    fieldOpts, filterFn,
+    fieldOpts, partFieldOpts, kpCatOptions, filterFn,
     editing, isNew, saving, form, editModalVisible,
-    openNew, openEdit, closeEdit, save, remove, toggleStatus, addCond, delCond,
+    openNew, openEdit, closeEdit, save, remove, toggleStatus, addCond, delCond, addExCond, delExCond,
   }
 }

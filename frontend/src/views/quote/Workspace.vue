@@ -285,7 +285,8 @@
                     :step-num="i + 2"
                     :lines="kpLinesForCat(cfg, cat)"
                     :max-qty="maxQtyFor(cfg, cat)"
-                    :picker-items="pickerCatalog[cat] || []"
+                    :picker-items="gatePickerCatalog[cat] || []"
+                    :filter-note="gateFilterNote(cat)"
                     :price-of="priceOf"
                     :removable="!CORE_KP_CATS.includes(cat)"
                     :is-gpu="cat === 'GPU'"
@@ -507,6 +508,24 @@
                 <div class="fin-setting-row">
                   <label>批量调价</label>
                   <a-button size="small" @click="openBatchModal">机头 / KP 利润率 · 质保年限</a-button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 装配账本：功耗/槽位实时（数据来自基准配置，引擎 resolve.budget） -->
+            <div class="glass fin-card assembly-ledger" v-if="gate.budget.value">
+              <div class="selection-advice-head">
+                <span class="selection-advice-title">装配账本</span>
+                <span v-if="gate.gateDegraded.value" class="ledger-degraded">引擎降级 · 暂不校验</span>
+              </div>
+              <div class="ledger-power">
+                <div class="led-row"><span>装机功耗</span><b>{{ fmtW(ledgerPower.load) }}</b></div>
+                <div class="led-gauge"><i :class="ledgerPower.cls" :style="{ width: ledgerPower.pct + '%' }"></i></div>
+                <div class="led-row"><span>PSU 容量</span><b>{{ fmtW(ledgerPower.cap) }}</b></div>
+              </div>
+              <div class="ledger-slots">
+                <div v-for="s in ledgerSlots" :key="s.key" class="led-row">
+                  <span>{{ s.label }}</span><b>{{ s.used }}<span class="led-sep">/</span>{{ s.max ?? '—' }}</b>
                 </div>
               </div>
             </div>
@@ -1047,8 +1066,9 @@ import { ref, reactive, onMounted, onBeforeUnmount, computed, h, nextTick, watch
 import { useRouter, useRoute } from 'vue-router'
 import { useQuoteStore, type ConfigData, type Item } from '@/store/quote'
 import { usePricingRulesStore } from '@/stores/pricingRules'
-import { useSelectionRulesStore } from '@/stores/selectionRules'
 import { normalizeDriveKind } from '@/stores/selectionEngine'
+import { useSelectionGate, gateAlertsOf } from '@/composables/useSelectionGate'
+import type { GatePartInput } from '@/api/selectionGate'
 import { alertIcon } from '@/constants/ruleMeta'
 import { useSettingsStore } from '@/store/settings'
 import { useAuthStore } from '@/store/auth'
@@ -1087,7 +1107,6 @@ const SpecSheet = defineAsyncComponent(() => import('@/components/server-config/
 
 const store = useQuoteStore()
 const pricingRulesStore = usePricingRulesStore()
-const selectionRulesStore = useSelectionRulesStore()
 const settingsStore = useSettingsStore()
 const auth = useAuthStore()
 /** 报价工作台价格可见性（字段级权限，配置驱动） */
@@ -1310,6 +1329,19 @@ const {
   onAddKpCard,
   loadKpCatalog,
 } = useQuoteKpCatalog(store, activeConfig)
+
+// ── 选型配置引擎(单一判定出口):已选行/机型变化 → resolve;候选过滤/账本/告警全走引擎 ──
+const gate = useSelectionGate({
+  baseConfigId: () => {
+    const cfg = activeConfig.value
+    if (!cfg) return null
+    return (baseConfigOf(cfg) as any)?.id ?? null
+  },
+  series: () => chassisSeries.value || '',
+  serverModel: () => activeConfig.value?.server_model || '',
+  kpRows: () => buildGateParts(activeConfig.value),
+})
+
 function persistTaxRate() {
   axios.put('/api/system-config/tax_rate', { value: store.taxRate }).catch(() => {})
 }
@@ -2092,6 +2124,21 @@ const handleSave = async () => {
     if (!confirmed) return
   }
 
+  // 选型配置引擎轻量保存前校验:手选流已被过滤挡在源头,这里只兜底残留
+  // (Excel 导入行/切机型失效/组合冲突/缺必配);「仍要保存」= 显式豁免(留痕后置 S4)
+  const hardViolations = gate.violations.value.filter(v => v.severity === 'conflict' || v.severity === 'require')
+  if (hardViolations.length) {
+    const confirmed = await Modal.confirm({
+      title: `保存前校验 · ${hardViolations.length} 项需要处理`,
+      content: h('div', { style: 'font-size:13px;line-height:1.8;color:var(--cpq-text-primary);' },
+        hardViolations.map(v => h('div', `· ${v.desc}`))),
+      okText: '仍要保存',
+      cancelText: '返回修改',
+      okType: 'danger',
+    })
+    if (!confirmed) return
+  }
+
   warnLowMarginIfNeeded()
 
   saveLoading.value = true
@@ -2170,53 +2217,68 @@ function markPrimary(name: string) {
   store.saveProject()
 }
 
-// 兼容性规则引擎：构建当前配置 context（KP 按 category 聚合 + kpPartByPn enrich specs + 平台/系列/SATA 数），跑 WHEN→THEN
-function buildRuleContext(cfg: ConfigData) {
-  const kpItems = (cfg.items || []).filter((i: Item) => i.category === 'Key Parts')
-  const kp: Record<string, { qty: number; items: Array<Item & { spec?: Record<string, any>; name?: string }>; spec: Record<string, any> }> = {}
-  const driveQty: Record<string, number> = { SATA: 0, SAS: 0, NVMe: 0 }
-  for (const it of kpItems) {
-    const cat = it.part_category
-    if (!cat) continue
-    const spec = (it.pn ? kpPartByPn(it.pn)?.specs : null) || {}
-    if (!kp[cat]) kp[cat] = { qty: 0, items: [], spec: {} }
-    kp[cat].qty += Number(it.qty) || 0
-    kp[cat].items.push({ ...it, spec })
-    if (!Object.keys(kp[cat].spec).length && Object.keys(spec).length) kp[cat].spec = spec
-    const kind = normalizeDriveKind(spec.interface || spec.kind || spec.Type)
-      || normalizeDriveKind(it.pn || it.catalogue || '')
-    if (kind && driveQty[kind] != null) driveQty[kind] += Number(it.qty) || 0
+// 选型配置引擎:已选行装配(resolve 入参;specs 从料号目录 enrich,供功耗/盘协议判定)
+function buildGateParts(cfg: ConfigData | undefined) {
+  const out: GatePartInput[] = []
+  if (!cfg) return out
+  const psuQty = Number((cfg as any).bom_context?.psu_qty || 0)
+  for (const it of (cfg.items || [])) {
+    if (it.category !== 'Key Parts') continue
+    const part = it.pn ? kpPartByPn(it.pn) : undefined
+    out.push({
+      category: it.part_category || '',
+      pn: it.pn || '',
+      name: it.catalogue || it.pn || '',
+      qty: Number(it.qty) || 0,
+      id: part?.id ?? null,
+      specs: part?.specs || {},
+    })
   }
-  const drive_kinds = (Object.keys(driveQty) as string[]).filter(k => driveQty[k] > 0)
-  const cap = baseConfigOf(cfg)
-  return {
-    kp,
-    config: {
-      series: chassisSeries.value,
-      model: cfg.server_model,
-      sata_qty: driveQty.SATA,
-      sas_qty: driveQty.SAS,
-      nvme_qty: driveQty.NVMe,
-      drive_kinds,
-      // 机型能力档案注入：让「CPU/内存/GPU/盘/电源 超上限」类规则在工作台同样触发（此前缺失 → 规则静默不命中）
-      max_cpu: cap.max_cpu,
-      max_dimm: cap.max_dimm,
-      max_tdp: cap.max_tdp,
-      gpu_slots: cap.gpu_slots,
-      psu_bays: cap.psu_bays,
-      bays: cap.bays,
-      psu_qty: Number((cfg as any).bom_context?.psu_qty || 0),
-    },
-    opportunity: {},
-  }
+  if (psuQty > 0) out.push({ category: 'PSU', pn: 'psu', name: '电源', qty: psuQty })
+  return out
 }
-const selectionActions = computed(() => {
-  const cfg = activeConfig.value
-  if (!cfg) return []
-  return selectionRulesStore.evaluateRules(buildRuleContext(cfg))
+// 选型建议数据源 = 引擎 resolve(硬违规在前);前端本地求值已退役
+const selectionAlerts = computed(() => gateAlertsOf(gate.violations, gate.recommends))
+// 候选过滤:类目下拉只显合规件;该类目引擎无数据/降级时不过滤(fail-open)
+const gatePickerCatalog = computed<Record<string, PickerItem[]>>(() => {
+  const out: Record<string, PickerItem[]> = {}
+  for (const [cat, list] of Object.entries(pickerCatalog.value)) {
+    const allowed = gate.allowedNames.value[cat]
+    const blockedN = gate.filteredCount.value[cat] || 0
+    out[cat] = (allowed && (allowed.size > 0 || blockedN > 0))
+      ? list.filter(p => allowed.has(p.name))
+      : list
+  }
+  return out
 })
-// 提醒列表：选型规则的 require/exclude/derive/recommend 命中
-const selectionAlerts = computed(() => selectionActions.value.filter(a => a.action !== 'filter'))
+function gateFilterNote(cat: string): string {
+  const n = gate.filteredCount.value[cat] || 0
+  return n > 0 ? `已按机型过滤 ${n} 件不兼容` : ''
+}
+// 装配账本:功耗条 + 槽位占用(数据来自基准配置,引擎 budget)
+const LEDGER_LABELS: Record<string, string> = {
+  max_cpu: 'CPU', max_dimm: '内存', bays: '盘位', gpu_slots: 'GPU', psu: '电源',
+}
+const ledgerSlots = computed(() => {
+  const slots = gate.budget.value?.slots || {}
+  return Object.entries(slots).map(([key, s]) => ({
+    key, label: LEDGER_LABELS[key] || key, used: s.used, max: s.max,
+  }))
+})
+const ledgerPower = computed(() => {
+  const b = gate.budget.value
+  const load = b?.psu_load_w ?? null
+  const cap = b?.psu_capacity_w ?? null
+  const ratio = load != null && cap ? load / cap : null
+  return {
+    load, cap,
+    pct: ratio != null ? Math.min(100, Math.round(ratio * 100)) : 0,
+    cls: ratio == null ? '' : ratio > 1 ? 'over' : ratio > 0.83 ? 'hot' : '',
+  }
+})
+function fmtW(v: number | null | undefined): string {
+  return v == null ? '—' : `${Math.round(v)}W`
+}
 
 // 利润率告警：读策略中心 margin_alert 策略（开关 + 门槛 + 文案）；只在保存商机时检查全部配置，不锁、不自动改价。
 function warnLowMarginIfNeeded() {
@@ -2472,7 +2534,7 @@ function adoptFromSyncModal() {
 
 onMounted(async () => {
   // 并行加载：导出模板 / 质保默认值 / 机型目录 / KP 料号目录（下拉 + create 默认 + 机箱卡 series + KP 新建模式都依赖）
-  await Promise.all([loadTemplates(), loadWarrantyDefaults(), loadServerModels(), loadKpCatalog(), loadGpuCableItems(), pricingRulesStore.ensurePricingRules(), selectionRulesStore.ensureRules()])
+  await Promise.all([loadTemplates(), loadWarrantyDefaults(), loadServerModels(), loadKpCatalog(), loadGpuCableItems(), pricingRulesStore.ensurePricingRules()])
   const firstModel = serverModels.value[0]
 
   // Check routing context
@@ -2699,6 +2761,18 @@ onMounted(async () => {
 .selection-alert.require { color: #c8861a; background: var(--cpq-overlay-warn30, rgba(244,210,138,0.18)); border-color: var(--cpq-accent-warning, #F4D28A); }
 .selection-alert.warning { color: var(--cpq-accent-warning, #F4D28A); background: rgba(244,210,138,0.14); border-color: rgba(244,210,138,0.32); }
 .selection-advice-card { margin-top: 12px; }
+/* 装配账本:功耗条 + 槽位占用(引擎 resolve.budget;视觉值全走 --cpq-* token) */
+.assembly-ledger { margin-top: 12px; }
+.ledger-degraded { color: var(--cpq-accent-warning,#F4D28A); font-size: var(--cpq-font-size-sm); }
+.ledger-power { margin-bottom: 10px; }
+.led-row { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
+.led-row b { color: var(--cpq-text-primary); font-variant-numeric: tabular-nums; }
+.led-row .led-sep { color: var(--cpq-text-disabled,#9BA1AA); margin: 0 3px; }
+.led-gauge { height: 8px; border-radius: 999px; background: var(--cpq-overlay-fill,rgba(0,0,0,.06)); overflow: hidden; margin: 6px 0; }
+.led-gauge i { display: block; height: 100%; border-radius: 999px; background: var(--cpq-accent-primary); transition: width .25s var(--cpq-ease-smooth,ease); }
+.led-gauge i.hot { background: var(--cpq-accent-warning,#F4D28A); }
+.led-gauge i.over { background: var(--cpq-accent-danger,#FF6B6B); }
+.ledger-slots { border-top: 1px solid var(--cpq-glass-border); padding-top: 8px; }
 .selection-advice-card .selection-alerts { margin: 0; padding: 0 14px 14px; }
 .selection-advice-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px; }
 .selection-advice-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); }

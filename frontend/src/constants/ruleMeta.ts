@@ -16,16 +16,20 @@ import type { RuleType } from '@/api/compatibilityRules'
 // ── ① 规则类型 ──
 export interface RuleTypeDef { value: RuleType; label: string; cssVar: string; hex: string }
 export const RULE_TYPE_DEFS: RuleTypeDef[] = [
-  { value: 'require',   label: '必配/依赖', cssVar: 'var(--cpq-accent-primary)', hex: '#1677ff' },
-  { value: 'exclude',   label: '互斥',     cssVar: 'var(--cpq-accent-danger)',  hex: '#ff4d4f' },
-  { value: 'derive',    label: '派生',     cssVar: 'var(--cpq-color-purple)',  hex: '#a855f7' },
-  { value: 'filter',    label: '过滤',     cssVar: 'var(--cpq-accent-warning)', hex: '#fa8c16' },
-  { value: 'recommend', label: '推荐',     cssVar: 'var(--cpq-color-success)',  hex: '#52c41a' },
+  { value: 'require',      label: '必配/依赖', cssVar: 'var(--cpq-accent-primary)', hex: '#1677ff' },
+  { value: 'exclude',      label: '互斥',     cssVar: 'var(--cpq-accent-danger)',  hex: '#ff4d4f' },
+  { value: 'derive',       label: '派生',     cssVar: 'var(--cpq-color-purple)',  hex: '#a855f7' },
+  { value: 'filter',       label: '过滤',     cssVar: 'var(--cpq-accent-warning)', hex: '#fa8c16' },
+  { value: 'recommend',    label: '推荐',     cssVar: 'var(--cpq-color-success)',  hex: '#52c41a' },
+  { value: 'homogeneous',  label: '同类一致', cssVar: 'var(--cpq-accent-danger)',  hex: '#ff4d4f' },
+  { value: 'resource',     label: '资源预算', cssVar: 'var(--cpq-accent-warning)', hex: '#fa8c16' },
+  { value: 'excludes',     label: '候选排除', cssVar: 'var(--cpq-color-purple)',  hex: '#a855f7' },
 ]
 export const RULE_TYPE_MAP = Object.fromEntries(RULE_TYPE_DEFS.map(t => [t.value, t])) as Record<RuleType, RuleTypeDef>
 /** 规则卡徽标单字（RuleCard badge，需求规则页同款单字徽标语法） */
 export const RULE_TYPE_BADGE: Record<RuleType, string> = {
   require: '必', exclude: '斥', derive: '派', filter: '滤', recommend: '推',
+  homogeneous: '同', resource: '资', excludes: '排',
 }
 /** a-select 选项形式（编辑器类型下拉用） */
 export const RULE_TYPE_OPTIONS = RULE_TYPE_DEFS.map(t => ({ value: t.value, label: t.label }))

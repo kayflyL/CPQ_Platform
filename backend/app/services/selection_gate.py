@@ -227,6 +227,31 @@ def _resolve_expr(ctx: dict, expr: Any) -> Optional[float]:
     return None
 
 
+def _selected_platform_violations(ctx: dict) -> list[dict]:
+    """已选件平台校验:过滤只拦「再选」,已进单的不合规件(Excel 导入/切机型残留)
+    在这里归因报出。catalog_by_id 由 API 层装配(候选目录的 id→applicable 映射)。"""
+    out: list[dict] = []
+    catalog = ctx.get("catalog_by_id") or {}
+    if not catalog:
+        return out
+    for cat, node in (ctx.get("kp") or {}).items():
+        for it in node.get("items") or []:
+            pid = it.get("id")
+            row = catalog.get(pid)
+            if not row:
+                continue
+            ok, why = platform_fit({"id": pid, "applicable": row.get("applicable")}, ctx)
+            if not ok:
+                pn = it.get("pn") or it.get("name") or str(pid)
+                out.append({
+                    "ruleId": None, "ruleName": "平台适配", "action": "require",
+                    "severity": _HARD_SEVERITY,
+                    "desc": f"{cat}「{pn}」与当前机型不符({why});换兼容件或移除该行",
+                    "target": cat, "caused_by": [f"{cat} {pn}"],
+                })
+    return out
+
+
 def _slot_violations(ctx: dict) -> list[dict]:
     """数据钳制(第 1 层,无规则):已选数量 > 槽位上限 → conflict。上限空/0=未录=不钳。"""
     out: list[dict] = []
@@ -294,6 +319,8 @@ def resolve(rules: list[dict], ctx: dict, with_trace: bool = False) -> dict:
 
     # 1) 数据钳制(第 1 层)
     violations.extend(_slot_violations(ctx))
+    # 1.5) 已选件平台校验(残留场景兜底:过滤只管再选,进单的不合规件在这里报出)
+    violations.extend(_selected_platform_violations(ctx))
 
     # 2) 方案校验规则(第 3 层;require/exclude/derive/recommend 复用 legacy eval_then 语义)
     for r in rules or []:

@@ -179,6 +179,19 @@ def test_fired_rule_ids():
     assert ids == [17, 20]
 
 
+def test_selected_part_platform_violation():
+    """已选件平台校验:过滤只拦再选,进单的不合规件(导入/切机型残留)在 resolve 报出。"""
+    ctx = _ctx_zhaoxin({"CPU": [{"pn": "AMD EPYC 9354", "name": "AMD EPYC 9354", "qty": 1, "id": 111}]})
+    ctx["catalog_by_id"] = {111: {"applicable": {"series": ["AMD"]}}}
+    out = resolve([], ctx)
+    hits = [v for v in out["violations"] if v.get("ruleName") == "平台适配"]
+    assert len(hits) == 1 and hits[0]["severity"] == "conflict" and "AMD EPYC 9354" in hits[0]["desc"]
+    # 目录里没有的件(无 id / 未录)不误报
+    ctx2 = _ctx_zhaoxin({"CPU": [{"pn": "老件", "name": "老件", "qty": 1}]})
+    ctx2["catalog_by_id"] = {111: {"applicable": {"series": ["AMD"]}}}
+    assert not [v for v in resolve([], ctx2)["violations"] if v.get("ruleName") == "平台适配"]
+
+
 if __name__ == "__main__":
     fns = [(k, v) for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0

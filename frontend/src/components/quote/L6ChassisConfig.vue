@@ -16,7 +16,7 @@ import {
   type PartMaster, type BaseConfig, type RearSlot, type RearIOSlotOption, type BomTemplate,
 } from '@/api/serverConfig'
 import { useServerConfig, type GpuArch } from '@/composables/useServerConfig'
-import { useSelectionRulesStore, type RuleContext, type RuleAction } from '@/stores/selectionRules'
+import { selectionGateApi, type GateAction } from '@/api/selectionGate'
 import { evalBomContext, type BomEvalContext } from '@/utils/bomRuleEngine'
 import { loadBomCategoryAliases, getBomCategoryAliases } from '@/utils/bomCategoryAliases'
 import { CORE_DRIVE_KINDS, DEFAULT_REAR_SLOTS, DEFAULT_PSU_BAYS, COMBO_REAR_SLOTS, optionLabel, rearIOBucket } from '@/constants/chassisMeta'
@@ -65,38 +65,51 @@ const {
   optionQty, uniqueRealOptions,
 } = useServerConfig()
 
-const selectionRulesStore = useSelectionRulesStore()
 const auth = useAuthStore()
 /** 价格可见性：serverconfig 显式传 false；报价工作台未传时按 field.quote.price 控制。 */
 const priceVisible = computed(() => props.priceVisible ?? auth.can('field.quote.price'))
-// CRE 规则求值上下文：盘类型/各类盘数 + GPU 数量，全部取自 kpSummary（随工作台 KP 增删/换型反应式重算）
-const ruleCtx = computed<RuleContext>(() => {
+// 选型引擎(单一判定出口):盘类型/GPU 数量 → resolve derive(背板类型 + 各线缆根数)。
+// kpSummary 是本弹窗的判定输入(随工作台 KP 增删/换型反应式重算);规则改动下次 resolve 即生效。
+const ruleInputs = computed(() => {
   const d = props.kpSummary?.drivesByKind || {}
-  return {
-    kp: { GPU: { qty: props.kpSummary?.gpuQty || 0, items: [], spec: {} } },
-    config: {
-      drive_kinds: (Object.keys(d) as string[]).filter(k => (d as Record<string, number>)[k] > 0),
-      sata_qty: d.SATA || 0, sas_qty: d.SAS || 0, nvme_qty: d.NVMe || 0,
-    },
-    opportunity: {},
+  const parts: Array<{ category: string; name: string; qty: number }> = []
+  if (props.kpSummary?.gpuQty) parts.push({ category: 'GPU', name: 'GPU', qty: props.kpSummary.gpuQty })
+  for (const kind of ['SATA', 'SAS', 'NVMe'] as const) {
+    const q = (d as Record<string, number>)[kind] || 0
+    if (q > 0) parts.push({ category: 'HDD/SSD', name: kind, qty: q })  // 协议词在 name 里,引擎按此判盘协议
   }
+  return { parts, hasDrive: !!(d.SATA || d.SAS || d.NVMe) }
 })
-// CRE 背板规则：盘类型 → 背板类型(tri/dc)，声明式可配、改即生效；注入 useServerConfig.derivedBpType
-const ruleBpType = computed<'tri' | 'dc' | null>(() =>
-  ((selectionRulesStore.assignValue('config.bp_type', ruleCtx.value) as 'tri' | 'dc') ?? null))
-watch(ruleBpType, v => { derivedBpType.value = v }, { immediate: true })
-// CRE 线缆规则：跑 derive 算术规则，按线缆类型(SATA/SAS/NVMe/GPU线)收成动作；数量注入 useServerConfig.derivedCableQty
-const cableActions = computed<Record<string, RuleAction>>(() => {
-  const out: Record<string, RuleAction> = {}
-  for (const a of selectionRulesStore.evaluateRules(ruleCtx.value)) {
-    if (a.action === 'derive' && a.deriveTarget) out[a.deriveTarget] = a
+const cablePer = ref<Record<string, number>>({})  // 每组基数(derivePer),线缆行「每组 N」展示用
+let gateSeq = 0
+watch(ruleInputs, async (inp) => {
+  const mySeq = ++gateSeq
+  if (!inp.hasDrive && !props.kpSummary?.gpuQty) {
+    derivedBpType.value = null
+    derivedCableQty.value = {}
+    return
   }
-  return out
-})
-watch(cableActions, m => {
-  derivedCableQty.value = Object.fromEntries(Object.entries(m).map(([k, a]) => [k, a.deriveQty ?? 0]))
+  try {
+    const r = await selectionGateApi.resolve({ base_config_id: props.baseConfigId ?? null, parts: inp.parts, options: false })
+    if (mySeq !== gateSeq) return
+    const assign: Record<string, any> = {}
+    const cables: Record<string, number> = {}
+    for (const a of (r.derived || []) as GateAction[]) {
+      if (a.assignField) assign[a.assignField] = a.assignValue
+      else if (a.deriveTarget) cables[a.deriveTarget] = a.deriveQty ?? 0
+    }
+    derivedBpType.value = (assign['config.bp_type'] as 'tri' | 'dc') ?? null
+    derivedCableQty.value = cables
+    cablePer.value = Object.fromEntries(
+      ((r.derived || []) as GateAction[]).filter(a => a.deriveTarget && a.derivePer)
+        .map(a => [a.deriveTarget as string, a.derivePer as number]))
+  } catch {
+    if (mySeq !== gateSeq) return
+    derivedBpType.value = null  // 降级:背板类型交消费端兜底(dc),线缆归零(白盒可见性由请求失败本身承载)
+    derivedCableQty.value = {}
+    cablePer.value = {}
+  }
 }, { immediate: true })
-void selectionRulesStore.ensureRules()
 
 /** 电源冗余状态：手册 CRPS 3+1 冗余（4 槽满载）；数量不足提示补配 */
 const psuRedundancy = computed<{ level: 'ok' | 'warn' | 'err' | ''; text: string }>(() => {
@@ -337,7 +350,7 @@ function frontCableInfo(k: string): { pn: string; n: number; group: number | '-'
   const p = frontCables.value.find(x => x.pn === frontCablePickedPn(k))
   return {
     n: props.kpSummary?.drivesByKind?.[k] ?? 0,
-    group: cableActions.value[k]?.derivePer ?? '-',
+    group: cablePer.value[k] ?? '-',
     price: p?.unit_price ?? 0, pn: p?.pn || '',
     name: p?.name || '',
   }

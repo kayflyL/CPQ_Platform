@@ -9,6 +9,7 @@ import axios from 'axios'
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
 export type RuleType = 'require' | 'exclude' | 'derive' | 'filter' | 'recommend'
+  | 'homogeneous' | 'resource' | 'excludes'
 export type RuleStatus = 'draft' | 'testing' | 'active' | 'archived'
 
 export interface CompatibilityRule {

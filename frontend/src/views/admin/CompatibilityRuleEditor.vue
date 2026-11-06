@@ -29,8 +29,8 @@ async function afterChange() {
 
 const { loading, searchText, categoryOpts, whenSummary } = catalog
 const {
-  fieldOpts, filterFn, isNew, saving, form, editModalVisible,
-  openNew, openEdit, closeEdit, save, remove, toggleStatus, addCond, delCond,
+  fieldOpts, partFieldOpts, kpCatOptions, filterFn, isNew, saving, form, editModalVisible,
+  openNew, openEdit, closeEdit, save, remove, toggleStatus, addCond, delCond, addExCond, delExCond,
 } = editor
 
 function countLabel(list: CompatibilityRule[]): string {
@@ -91,9 +91,10 @@ function ruleContent(r: CompatibilityRule): string {
 
     <RuleEditModal
       :open="editModalVisible" :is-new="isNew" :saving="saving" :form="form"
-      :field-opts="fieldOpts" :category-opts="categoryOpts" :filter-fn="filterFn"
+      :field-opts="fieldOpts" :part-field-opts="partFieldOpts" :kp-cat-options="kpCatOptions"
+      :category-opts="categoryOpts" :filter-fn="filterFn"
       @update:open="v => editModalVisible = v" @close="closeEdit" @save="save"
-      @add-cond="addCond" @del-cond="delCond"
+      @add-cond="addCond" @del-cond="delCond" @add-ex-cond="addExCond" @del-ex-cond="delExCond"
     />
   </div>
 </template>

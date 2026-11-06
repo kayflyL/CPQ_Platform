@@ -36,6 +36,8 @@ const props = withDefaults(defineProps<{
   taxRate?: number
   /** 类别数量上限（基准配置能力档案：CPU→max_cpu / Memory→max_dimm / GPU→gpu_slots / HDD-SSD→bays）。undefined=不限 */
   maxQty?: number
+  /** 选型引擎过滤统计小字（不兼容件已被上游从 pickerItems 滤除,这里只报数）。空=不显示 */
+  filterNote?: string
 }>(), {
   exchangeRate: 7,
   taxRate: 0.13,
@@ -91,6 +93,7 @@ function clampQty(i: number, desired: number): number {
       <span class="num">{{ stepNum }}</span>
       <h2>{{ cat }}</h2>
       <span class="hint">{{ pickerItems.length }} 个可选料号</span>
+      <span v-if="filterNote" class="hint gate-filter-note">{{ filterNote }}</span>
       <span v-if="priceVisible" class="amt">¥{{ cardTotal().toLocaleString() }}</span>
       <button v-if="removable" class="kp-del-card" @click="emit('remove-card')">删除卡片</button>
     </div>
@@ -183,6 +186,7 @@ function clampQty(i: number, desired: number): number {
 .sc-phead .num { width: 26px; height: 26px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary,#1677FF); display: flex; align-items: center; justify-content: center; font-size: var(--cpq-font-size-sm); font-weight: 600; }
 .sc-phead h2 { font-size: var(--cpq-font-size-lg); font-weight: 600; margin: 0; color: var(--cpq-text-primary, #E8ECEF); }
 .sc-phead .hint { color: var(--cpq-text-muted,#6E7582); font-size: var(--cpq-font-size-sm); }
+.sc-phead .gate-filter-note { color: var(--cpq-accent-warning,#F4D28A); }
 .sc-phead .amt { margin-left: auto; color: var(--cpq-accent-primary,#1677FF); font-weight: 700; font-size: var(--cpq-font-size-base); }
 .sc-phead.no-price .kp-del-card { margin-left: auto; }
 .kp-del-card { margin-left: 8px; padding: 4px 10px; border: 1px solid var(--cpq-overlay-w20); border-radius: var(--cpq-radius-sm);
