@@ -134,7 +134,7 @@ export function createCpuModel(spec: CpuSpec = {}) {
       new THREE.MeshBasicMaterial({ map: tex, transparent: true }))
     label.rotation.x = -Math.PI / 2
     label.position.y = 5.02
-    label.userData = { key: 'ihs', name: '激光刻字', spec: brand, desc: '品牌字,不含型号(定调)。' }
+    label.userData = { key: 'ihs', name: '激光刻字', spec: brand, desc: '品牌字,不含型号(定调)。', noBloom: true }
     gIhs.add(label)
   }
 

@@ -39,8 +39,8 @@ def sample_ctx():
                 "spec": {"interface": "NVMe"},
             },
         },
-        "config": {"series": "Polaris", "sata_qty": 8},
-        "opportunity": {"platform_type": "Polaris"},
+        "config": {"series": "兆芯", "sata_qty": 8},
+        "opportunity": {"platform_type": "兆芯"},
     }
 
 
@@ -58,15 +58,15 @@ def test_eval_op_compare_numeric():
 
 def test_eval_op_loose_eq():
     assert eval_op("3", "==", 3) is True      # 字符串/数字宽松相等
-    assert eval_op("Polaris", "==", "Polaris") is True
+    assert eval_op("兆芯", "==", "兆芯") is True
     assert eval_op("A", "!=", "B") is True
     assert eval_op("A", "!=", "A") is False
 
 
 def test_eval_op_in():
-    assert eval_op("Polaris", "in", ["Polaris", "Orion"]) is True
-    assert eval_op("Zen", "in", ["Polaris", "Orion"]) is False
-    assert eval_op("Polaris", "in", "Polaris") is False  # expected 非数组安全失败
+    assert eval_op("兆芯", "in", ["兆芯", "AMD"]) is True
+    assert eval_op("Zen", "in", ["兆芯", "AMD"]) is False
+    assert eval_op("兆芯", "in", "兆芯") is False  # expected 非数组安全失败
 
 
 def test_eval_op_contains():
@@ -98,9 +98,9 @@ def test_resolve_field_kp():
 
 def test_resolve_field_config_opportunity():
     ctx = sample_ctx()
-    assert resolve_field(ctx, "config.series") == "Polaris"
+    assert resolve_field(ctx, "config.series") == "兆芯"
     assert resolve_field(ctx, "config.sata_qty") == 8
-    assert resolve_field(ctx, "opportunity.platform_type") == "Polaris"
+    assert resolve_field(ctx, "opportunity.platform_type") == "兆芯"
     assert resolve_field(ctx, "config.missing") is None
 
 
@@ -139,19 +139,19 @@ def test_eval_when_all():
     ctx = sample_ctx()
     assert eval_when(ctx, {"all": [
         {"field": "kp.GPU.qty", "op": ">=", "value": 1},
-        {"field": "config.series", "op": "==", "value": "Polaris"},
+        {"field": "config.series", "op": "==", "value": "兆芯"},
     ]}) is True
     assert eval_when(ctx, {"all": [
         {"field": "kp.GPU.qty", "op": ">=", "value": 1},
-        {"field": "config.series", "op": "==", "value": "Orion"},
+        {"field": "config.series", "op": "==", "value": "AMD"},
     ]}) is False
 
 
 def test_eval_when_any():
     ctx = sample_ctx()
     assert eval_when(ctx, {"any": [
-        {"field": "config.series", "op": "==", "value": "Orion"},
-        {"field": "config.series", "op": "==", "value": "Polaris"},
+        {"field": "config.series", "op": "==", "value": "AMD"},
+        {"field": "config.series", "op": "==", "value": "兆芯"},
     ]}) is True
 
 
@@ -266,21 +266,21 @@ def test_eval_then_derive_skip_when_enough_or_basis_zero():
 # eval_then —— filter / recommend（总是返回动作）
 # ============================================================
 def test_eval_then_filter_resolves_value():
-    ctx = sample_ctx()  # platform_type=Polaris
+    ctx = sample_ctx()  # platform_type=兆芯
     out = eval_then(ctx, rule(body={"then": {"action": "filter", "scope": "server_model",
                                               "field": "series", "op": "==",
                                               "value": "opportunity.platform_type"}}))
     assert len(out) == 1
     assert out[0]["action"] == "filter"
-    assert out[0]["filterValue"] == "Polaris"
+    assert out[0]["filterValue"] == "兆芯"
 
 
 def test_eval_then_recommend():
     ctx = sample_ctx()
-    out = eval_then(ctx, rule(body={"then": {"action": "recommend", "target": "Polaris-G6", "desc": "主推"}}))
+    out = eval_then(ctx, rule(body={"then": {"action": "recommend", "target": "兆芯-G6", "desc": "主推"}}))
     assert len(out) == 1
     assert out[0]["action"] == "recommend"
-    assert out[0]["target"] == "Polaris-G6"
+    assert out[0]["target"] == "兆芯-G6"
 
 
 # ============================================================
@@ -299,16 +299,16 @@ def test_evaluate_rules_status_filter():
 
 
 def test_evaluate_rules_when_gates():
-    ctx = sample_ctx()  # series=Polaris
+    ctx = sample_ctx()  # series=兆芯
     rules = [
-        rule(id=1, body={"when": {"field": "config.series", "op": "==", "value": "Orion"},
-                         "then": {"action": "recommend", "target": "Orion-only"}}),
-        rule(id=2, body={"when": {"field": "config.series", "op": "==", "value": "Polaris"},
-                         "then": {"action": "recommend", "target": "Polaris-rec"}}),
+        rule(id=1, body={"when": {"field": "config.series", "op": "==", "value": "AMD"},
+                         "then": {"action": "recommend", "target": "AMD-only"}}),
+        rule(id=2, body={"when": {"field": "config.series", "op": "==", "value": "兆芯"},
+                         "then": {"action": "recommend", "target": "兆芯-rec"}}),
     ]
     out = evaluate_rules(rules, ctx)
     assert len(out) == 1
-    assert out[0]["target"] == "Polaris-rec"
+    assert out[0]["target"] == "兆芯-rec"
 
 
 def test_evaluate_rules_default_seed_integration():
@@ -316,7 +316,7 @@ def test_evaluate_rules_default_seed_integration():
     ctx = {
         "kp": {"GPU": {"qty": 1, "items": [{"pn": "GPU-A", "spec": {}}], "spec": {}}},
         "config": {"sata_qty": 8, "sas_qty": 0, "nvme_qty": 2, "drive_kinds": ["SATA", "NVMe"]},
-        "opportunity": {"platform_type": "Polaris"},
+        "opportunity": {"platform_type": "兆芯"},
     }
     seed_rules = [
         rule(id=1, name="背板类型：含 NVMe 盘→三模",
@@ -432,8 +432,8 @@ def test_capability_rule_no_max_config_no_fire():
 
 def test_plan_rule_context_exposes_capability():
     from app.services.selection_engine import plan_rule_context
-    ctx = plan_rule_context([], baseline={"series": "Orion", "max_cpu": 2, "max_dimm": 24})
-    assert ctx["config"]["series"] == "Orion"
+    ctx = plan_rule_context([], baseline={"series": "AMD", "max_cpu": 2, "max_dimm": 24})
+    assert ctx["config"]["series"] == "AMD"
     assert ctx["config"]["max_cpu"] == 2
     assert ctx["config"]["max_dimm"] == 24
     assert "max_cpu" not in plan_rule_context([], baseline=None)["config"]

@@ -100,7 +100,7 @@ def _build_bom_excel_rows(d: BomCase, kp_resolved: list) -> list:
 
 
 def _classify(model_id, base_config_id=None) -> dict:
-    """分类信息：系列(server_type: AI/通用…)、平台(series: Orion/Polaris)、机型(model_name)、形态(form)。"""
+    """分类信息：系列(server_type: AI/通用…)、平台(series: AMD/兆芯)、机型(model_name)、形态(form)。"""
     out = {"server_type": "", "series": "", "model_name": "", "form": ""}
     if not model_id:
         return out

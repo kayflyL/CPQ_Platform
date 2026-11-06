@@ -16,6 +16,8 @@ import {
   UpOutlined,
   LeftOutlined,
   MenuOutlined,
+  CheckOutlined,
+  CloseOutlined,
 } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
 import { portalApi } from '@/api/portal'
@@ -886,7 +888,7 @@ defineExpose({ reload: loadBoard })
         <template v-for="(s, i) in stageSteps" :key="s.key">
           <span v-if="i > 0" class="sb-line" :class="{ done: stageSteps[i - 1].state === 'done' }"></span>
           <span class="sb-step" :class="s.state">
-            <i>{{ s.state === 'done' ? '✓' : i + 1 }}</i>
+            <i><CheckOutlined v-if="s.state === 'done'" /><template v-else>{{ i + 1 }}</template></i>
             <span>{{ s.short }}</span>
           </span>
         </template>
@@ -989,7 +991,6 @@ defineExpose({ reload: loadBoard })
               <div class="rw-head-title">
                 <span class="rich-icon-badge"><FileTextOutlined /></span>
                 <div>
-                  <span class="rw-eyebrow">线索登记</span>
                   <h3>需求单工作台</h3>
                 </div>
               </div>
@@ -1234,7 +1235,7 @@ defineExpose({ reload: loadBoard })
       >
         <div class="pd-head-row">
           <h3>流程轨道</h3><span class="pd-chip">4 步审批流</span><span class="pd-sp"></span>
-          <button class="pd-x" type="button" @click="railDrawerOpen = false">✕</button>
+          <button class="pd-x" type="button" @click="railDrawerOpen = false"><CloseOutlined /></button>
         </div>
         <div class="pd-scroll">
           <OpportunityProcessRail
@@ -1263,7 +1264,7 @@ defineExpose({ reload: loadBoard })
       >
         <div class="pd-head-row">
           <h3>协作与动态</h3><span class="pd-chip">本商机</span><span class="pd-sp"></span>
-          <button class="pd-x" type="button" @click="dynDrawerOpen = false">✕</button>
+          <button class="pd-x" type="button" @click="dynDrawerOpen = false"><CloseOutlined /></button>
         </div>
         <div class="pd-scroll">
           <ApprovalFlowPanel
@@ -1419,11 +1420,11 @@ defineExpose({ reload: loadBoard })
   flex: 1;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) clamp(280px, 22vw, 360px);
-  gap: 14px;
+  gap: var(--cpq-space-3);
   align-items: stretch;
   height: 100%;
   min-height: 0;
-  padding: 14px 20px 16px;
+  padding: var(--cpq-space-3) 20px var(--cpq-space-4);
   min-width: 0;
 }
 .board-body.rail-collapsed {
@@ -1508,7 +1509,7 @@ defineExpose({ reload: loadBoard })
 .process-workbench {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--cpq-space-3);
   min-height: 0;
   overflow-y: auto;
   padding: 0 2px 12px 0;
@@ -1563,13 +1564,10 @@ defineExpose({ reload: loadBoard })
   gap: 12px;
   min-width: 0;
 }
-.rw-eyebrow {
-  display: none;
-}
 .rw-head h3 {
   margin: 0;
   color: var(--cpq-text-primary);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1584,11 +1582,11 @@ defineExpose({ reload: loadBoard })
   overflow: hidden;
 }
 .tl-head {
-  padding: 11px 14px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--cpq-glass-border);
   background: var(--cpq-overlay-w4);
-  font-weight: 700;
-  font-size: 14px;
+  font-weight: var(--cpq-font-weight-semibold);
+  font-size: var(--cpq-font-size-base);
   color: var(--cpq-text-primary);
 }
 
@@ -1631,19 +1629,6 @@ defineExpose({ reload: loadBoard })
 .opp-info-title-text {
   min-width: 0;
 }
-.rich-icon-badge {
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--cpq-radius-md);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.92), rgba(139, 92, 246, 0.88));
-  color: #fff;
-  font-size: 18px;
-  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.28);
-}
 .rich-status-check {
   display: inline-flex;
   align-items: center;
@@ -1665,90 +1650,16 @@ defineExpose({ reload: loadBoard })
   background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(var(--cpq-glass-card-blur));
 }
-.card-shell-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--cpq-overlay-w10);
-  background: transparent;
-}
-.card-shell-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-.card-shell-title > div {
-  min-width: 0;
-}
-.card-shell-eyebrow {
-  display: block;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--cpq-text-muted);
-}
-.card-shell-title h3 {
-  margin: 3px 0 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
-}
 .card-shell-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--cpq-space-2);
   flex-wrap: wrap;
-}
-/* 整条卡头横条可点击展开/收起；头部操作区 @click.stop 隔离按钮 */
-.card-head-toggle {
-  cursor: pointer;
-}
-.card-chevron {
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-sm);
-  background: var(--cpq-overlay-w4);
-  color: var(--cpq-text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: transform 0.2s ease, background 0.15s ease, color 0.15s ease;
-}
-.card-chevron:hover {
-  background: var(--cpq-overlay-w8);
-  color: var(--cpq-text-primary);
-}
-.card-chevron.collapsed {
-  transform: rotate(180deg);
-}
-.card-collapse {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition: grid-template-rows 0.22s ease;
-}
-.card-collapse.collapsed {
-  grid-template-rows: 0fr;
-}
-/* 折叠态必须彻底为 0 高：内层 padding 会撑起网格最小行高，露出内容残影 */
-.card-collapse.collapsed > .card-collapse-inner {
-  padding-top: 0;
-  padding-bottom: 0;
-}
-.card-collapse-inner {
-  min-height: 0;
-  overflow: hidden;
 }
 .opp-info-eyebrow {
   display: block;
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -1756,8 +1667,8 @@ defineExpose({ reload: loadBoard })
 }
 .opp-info-title h4 {
   margin: 3px 0 0;
-  font-size: 17px;
-  font-weight: 600;
+  font-size: var(--cpq-font-size-lg);
+  font-weight: var(--cpq-font-weight-semibold);
   color: var(--cpq-text-primary);
   overflow: hidden;
   white-space: nowrap;
@@ -1780,13 +1691,13 @@ defineExpose({ reload: loadBoard })
 .opp-info-item dt {
   flex-shrink: 0;
   min-width: 72px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 .opp-info-item dd {
   flex: 1;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-primary);
   text-align: right;
   white-space: nowrap;
@@ -1797,7 +1708,7 @@ defineExpose({ reload: loadBoard })
 .drawer-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--cpq-space-3);
 }
 
 .node-body {
@@ -1807,13 +1718,13 @@ defineExpose({ reload: loadBoard })
 }
 .node-edit-tip {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 .node-empty {
-  padding: 18px;
+  padding: var(--cpq-space-4);
   color: var(--cpq-text-muted);
-  font-size: 13px;
+  font-size: var(--cpq-font-size-sm);
 }
 .board-load-error {
   display: flex;
@@ -1856,8 +1767,8 @@ defineExpose({ reload: loadBoard })
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-a15);
   color: var(--cpq-accent-primary);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--cpq-font-size-sm);
+  font-weight: var(--cpq-font-weight-semibold);
 }
 .node-title-wrap {
   flex: 1;
@@ -1865,17 +1776,17 @@ defineExpose({ reload: loadBoard })
 }
 .node-title-wrap h3 {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--cpq-font-size-base);
+  font-weight: var(--cpq-font-weight-semibold);
   color: var(--cpq-text-primary);
 }
 .node-title-wrap p {
   margin: 3px 0 0;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 .node-version {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-secondary);
   border: 1px solid var(--cpq-glass-border);
   border-radius: var(--cpq-radius-xs);
@@ -1883,7 +1794,7 @@ defineExpose({ reload: loadBoard })
 }
 .node-state {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   border: 1px solid var(--cpq-glass-border);
   border-radius: var(--cpq-radius-full);
@@ -1989,19 +1900,15 @@ defineExpose({ reload: loadBoard })
   .opp-info-panel {
     margin: 0;
   }
-  /* ── 卡头统一紧凑双行（方案A，全节点一致：商机信息/需求单/方案配置/成本核算）──
-     行1 = 小logo + 标题（可收缩省略，防逐字竖排）；
-     行2 = 状态徽章 + 操作小按钮（11px 字/24px 高，flex 均分一行铺满，永不换行遮挡）+ 折叠钮。
-     标题 flex-basis 100% 独占首行，其余项必然落到第二行——任何屏宽行为一致 */
+  /* ── 卡头统一紧凑双行（方案A）── 行1=标题，行2=状态徽章+操作小按钮+折叠钮。
+     card-shell-* 公共部分在 card-shell.css 同断点媒体查询里，这里只放本组件私有类 */
   .opp-info-head,
-  .rw-head,
-  .card-shell-head {
+  .rw-head {
     flex-wrap: wrap;
     gap: 6px 8px;
   }
   .opp-info-title,
-  .rw-head-title,
-  .card-shell-title {
+  .rw-head-title {
     order: 1;
     flex: 1 1 100%;
     min-width: 0;
@@ -2011,24 +1918,6 @@ defineExpose({ reload: loadBoard })
   }
   .opp-info-eyebrow {
     white-space: nowrap;
-  }
-  .opp-info-title-text h4,
-  .card-shell-title h3 {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  /* 小 logo：40px 紫渐变大块 → 26px 小方；折叠钮 30 → 26 */
-  .rich-icon-badge {
-    width: 26px;
-    height: 26px;
-    font-size: 13px;
-    border-radius: 8px;
-    box-shadow: none;
-  }
-  .card-chevron {
-    width: 26px;
-    height: 26px;
   }
   .opp-info-tools,
   .rw-head-actions,
@@ -2047,7 +1936,7 @@ defineExpose({ reload: loadBoard })
     min-width: 0;
     min-height: 24px;
     padding: 0 8px;
-    font-size: 11px;
+    font-size: var(--cpq-font-size-xs);
   }
   .opp-info-tools .card-chevron,
   .rw-head-actions .card-chevron,
@@ -2155,15 +2044,15 @@ defineExpose({ reload: loadBoard })
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9.5px;
+  font-size: var(--cpq-font-size-xs);
   font-style: normal;
-  font-weight: 700;
+  font-weight: var(--cpq-font-weight-semibold);
   border: 1.6px solid var(--cpq-border-secondary);
   color: var(--cpq-text-muted);
   background: var(--cpq-glass-2-bg, transparent);
 }
 .sb-step span {
-  font-size: 9px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   white-space: nowrap;
 }
@@ -2199,8 +2088,8 @@ defineExpose({ reload: loadBoard })
 }
 .pd-head-row h3 {
   margin: 0;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--cpq-font-size-base);
+  font-weight: var(--cpq-font-weight-semibold);
   color: var(--cpq-text-primary);
 }
 .pd-chip {
@@ -2239,6 +2128,8 @@ defineExpose({ reload: loadBoard })
 }
 
 </style>
+
+<style scoped src="./card-shell.css"></style>
 
 <style>
 /* 详情页手机抽屉外壳：a-drawer portal 到 body，scoped 够不到，走全局（玻璃化对齐全站） */

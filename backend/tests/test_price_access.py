@@ -68,13 +68,13 @@ def test_requirement_prompt_omits_price_fact_with_access():
 
 # ── 引擎层：机型选项/描述价格门控（label=机型名，desc=形态/系列/价格）────────
 
-_CANDIDATE = {"name": "ES220 V3", "form": "2U", "series": "Orion", "total_price": 11536.83}
+_CANDIDATE = {"name": "ES220 V3", "form": "2U", "series": "AMD", "total_price": 11536.83}
 
 
 def test_model_option_desc_without_price():
     desc = model_option_desc(_CANDIDATE, include_price=False)
     assert "¥" not in desc and "11,536" not in desc
-    assert "2U" in desc and "Orion" in desc
+    assert "2U" in desc and "AMD" in desc
 
 
 def test_model_option_desc_with_price():

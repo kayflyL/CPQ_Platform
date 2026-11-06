@@ -62,8 +62,8 @@ export const PIPELINE_ORDER: DimensionKey[] = DIMENSION_DEFS.map(d => d.key)
 
 /** 平台类型（对齐 l6.server_types（设置-服务器管理-产品系列）：[[series-ssot]]）*/
 export const PLATFORM_OPTIONS = [
-  { value: 'Polaris', label: 'Polaris（兆芯）' },
-  { value: 'Orion', label: 'Orion（AMD）' },
+  { value: '兆芯', label: '兆芯（兆芯）' },
+  { value: 'AMD', label: 'AMD（AMD）' },
   { value: 'Intel', label: 'Intel' },
   { value: '工作站', label: '工作站' },
 ]
@@ -111,7 +111,7 @@ export const REGION_KEYWORDS: Record<string, string[]> = {
 // ── ④ 默认系数表（与 seed_pricing_strategies.py 同步；抽屉「恢复默认」/ 演算器空配置兜底用）──
 // ⚠️ 改这里必须同步改 backend/scripts/seed_pricing_strategies.py 的 DEFAULT_DIMS
 export const DEFAULT_DIM_BODIES = {
-  platform_baseline: { Polaris: 15, Orion: 11, Intel: 11, '工作站': 13 },
+  platform_baseline: { 兆芯: 15, AMD: 11, Intel: 11, '工作站': 13 },
   industry_adj: { 'AI算力': 3, 'IDC机房': -2, '政企信息化': 3, '高校科研': 0, '安防存储': 1, '工业边缘': 2 },
   region_adj: {
     // 海外 = ±百分点 + 每台固定费(报关/国际物流/海外质保，只入售价不进毛利)；纯数字形态兼容存量

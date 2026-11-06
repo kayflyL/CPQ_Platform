@@ -44,9 +44,9 @@ _MAX_LEAD_FILES_BYTES = _UPLOAD_MAX_SIZE * _UPLOAD_MAX_COUNT
 # specs 自由文本价格词黑名单：key/value 命中即整行剔除（fail-closed，运营手填内容不可信）
 _PRICE_WORD_RE = re.compile(r"(价格|报价|单价|总价|含税|元\s*/|￥|¥|\bprice\b|\bcost\b|\bbudget\b)", re.I)
 
-# 平台字段对外用芯片品牌（用户口径：AMD 就是 Orion，兆芯就是 Polaris）；
-# 公开表单提交品牌，落库时翻译回内部代号，下游需求草稿词汇不变。运营增系列时同步维护。
-_CHIP_TO_SERIES = {"AMD": "Orion", "兆芯": "Polaris"}
+# 平台字段用芯片品牌（2026-11-06 起系列名直接 = 品牌，原内部代号 AMD/兆芯 已批量改名，
+# 见 migrations/20261106_rename_platform_series_brands.sql）；旧代号键保留，兼容改名前的在途提交。
+_CHIP_TO_SERIES = {"AMD": "AMD", "兆芯": "兆芯", "Orion": "AMD", "Polaris": "兆芯"}  # 旧代号键兼容改名前在途提交
 
 
 def _guard(request: Request, limiter: SlidingWindowLimiter, limit: int, window: int) -> None:

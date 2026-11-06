@@ -40,8 +40,8 @@ function sampleCtx(): RuleContext {
         spec: { interface: 'NVMe' },
       },
     },
-    config: { series: 'Polaris', sata_qty: 8 },
-    opportunity: { platform_type: 'Polaris' },
+    config: { series: '兆芯', sata_qty: 8 },
+    opportunity: { platform_type: '兆芯' },
   }
 }
 
@@ -59,16 +59,16 @@ test('evalOp: 比较操作符按数值比较', () => {
 
 test('evalOp: == / != 宽松相等（"3" == 3）', () => {
   assert.equal(evalOp('3', '==', 3), true)
-  assert.equal(evalOp('Polaris', '==', 'Polaris'), true)
+  assert.equal(evalOp('兆芯', '==', '兆芯'), true)
   assert.equal(evalOp('A', '!=', 'B'), true)
   assert.equal(evalOp('A', '!=', 'A'), false)
 })
 
 test('evalOp: in 判定成员', () => {
-  assert.equal(evalOp('Polaris', 'in', ['Polaris', 'Orion']), true)
-  assert.equal(evalOp('Zen', 'in', ['Polaris', 'Orion']), false)
+  assert.equal(evalOp('兆芯', 'in', ['兆芯', 'AMD']), true)
+  assert.equal(evalOp('Zen', 'in', ['兆芯', 'AMD']), false)
   // expected 非数组时安全失败
-  assert.equal(evalOp('Polaris', 'in', 'Polaris'), false)
+  assert.equal(evalOp('兆芯', 'in', '兆芯'), false)
 })
 
 test('evalOp: contains 支持数组与字符串', () => {
@@ -101,9 +101,9 @@ test('resolveField: kp.<cat>.qty / spec.<key> / 不存在分类', () => {
 
 test('resolveField: config / opportunity 根', () => {
   const ctx = sampleCtx()
-  assert.equal(resolveField(ctx, 'config.series'), 'Polaris')
+  assert.equal(resolveField(ctx, 'config.series'), '兆芯')
   assert.equal(resolveField(ctx, 'config.sata_qty'), 8)
-  assert.equal(resolveField(ctx, 'opportunity.platform_type'), 'Polaris')
+  assert.equal(resolveField(ctx, 'opportunity.platform_type'), '兆芯')
   assert.equal(resolveField(ctx, 'config.missing'), undefined)
 })
 
@@ -135,19 +135,19 @@ test('evalWhen: all 需全部满足', () => {
   const ctx = sampleCtx()
   assert.equal(evalWhen(ctx, { all: [
     { field: 'kp.GPU.qty', op: '>=', value: 1 },
-    { field: 'config.series', op: '==', value: 'Polaris' },
+    { field: 'config.series', op: '==', value: '兆芯' },
   ] }), true)
   assert.equal(evalWhen(ctx, { all: [
     { field: 'kp.GPU.qty', op: '>=', value: 1 },
-    { field: 'config.series', op: '==', value: 'Orion' },   // 不满足
+    { field: 'config.series', op: '==', value: 'AMD' },   // 不满足
   ] }), false)
 })
 
 test('evalWhen: any 任一满足即可', () => {
   const ctx = sampleCtx()
   assert.equal(evalWhen(ctx, { any: [
-    { field: 'config.series', op: '==', value: 'Orion' },
-    { field: 'config.series', op: '==', value: 'Polaris' },
+    { field: 'config.series', op: '==', value: 'AMD' },
+    { field: 'config.series', op: '==', value: '兆芯' },
   ] }), true)
 })
 
@@ -273,19 +273,19 @@ test('evalThen derive: 已有数量足够则不产生动作；basis<=0 跳过', 
 // evalThen —— filter / recommend（总是返回动作）
 // ============================================================
 test('evalThen filter: 返回过滤动作，value 字段路径被解析', () => {
-  const ctx = sampleCtx()  // platform_type=Polaris
+  const ctx = sampleCtx()  // platform_type=兆芯
   const out = evalThen(ctx, rule({ body: { then: { action: 'filter', scope: 'server_model', field: 'series', op: '==', value: 'opportunity.platform_type' } } }))
   assert.equal(out.length, 1)
   assert.equal(out[0].action, 'filter')
-  assert.equal(out[0].filterValue, 'Polaris')  // 字段路径已解析
+  assert.equal(out[0].filterValue, '兆芯')  // 字段路径已解析
 })
 
 test('evalThen recommend: 返回推荐动作，默认 info', () => {
   const ctx = sampleCtx()
-  const out = evalThen(ctx, rule({ body: { then: { action: 'recommend', target: 'Polaris-G6', desc: '主推' } } }))
+  const out = evalThen(ctx, rule({ body: { then: { action: 'recommend', target: '兆芯-G6', desc: '主推' } } }))
   assert.equal(out.length, 1)
   assert.equal(out[0].action, 'recommend')
-  assert.equal(out[0].target, 'Polaris-G6')
+  assert.equal(out[0].target, '兆芯-G6')
   assert.equal(out[0].severity, 'info')
 })
 
@@ -313,14 +313,14 @@ test('evaluateRules: 跳过非 active 规则', () => {
 })
 
 test('evaluateRules: when 不命中的规则跳过，命中的产出动作', () => {
-  const ctx = sampleCtx()  // series=Polaris
+  const ctx = sampleCtx()  // series=兆芯
   const rules = [
-    rule({ id: 1, body: { when: { field: 'config.series', op: '==', value: 'Orion' }, then: { action: 'recommend', target: 'Orion-only' } } }),
-    rule({ id: 2, body: { when: { field: 'config.series', op: '==', value: 'Polaris' }, then: { action: 'recommend', target: 'Polaris-rec' } } }),
+    rule({ id: 1, body: { when: { field: 'config.series', op: '==', value: 'AMD' }, then: { action: 'recommend', target: 'AMD-only' } } }),
+    rule({ id: 2, body: { when: { field: 'config.series', op: '==', value: '兆芯' }, then: { action: 'recommend', target: '兆芯-rec' } } }),
   ]
   const out = evaluateRules(rules as any, ctx)
   assert.equal(out.length, 1)
-  assert.equal(out[0].target, 'Polaris-rec')
+  assert.equal(out[0].target, '兆芯-rec')
 })
 
 test('evaluateRules: 默认 6 条 seed 规则在典型 ctx 下的集成行为', () => {
@@ -328,7 +328,7 @@ test('evaluateRules: 默认 6 条 seed 规则在典型 ctx 下的集成行为', 
   const ctx: RuleContext = {
     kp: { GPU: { qty: 1, items: [{ pn: 'GPU-A', spec: {} }], spec: {} } },
     config: { sata_qty: 8, sas_qty: 0, nvme_qty: 2, drive_kinds: ['SATA', 'NVMe'] },
-    opportunity: { platform_type: 'Polaris' },
+    opportunity: { platform_type: '兆芯' },
   }
   const seedRules = [
     rule({ id: 1, name: '按商机平台过滤候选机型', body: { when: { field: 'opportunity.platform_type', op: 'exists' }, then: { action: 'filter', scope: 'server_model', field: 'series', op: '==', value: 'opportunity.platform_type' } } }),
@@ -397,23 +397,23 @@ test('evalAssignValue: 跳过算术型 derive 与非 active 规则', () => {
 // evaluateWithTrace / extractConds —— 试跑轨迹：逐条件明细 + THEN 实际产出
 // ============================================================
 test('evaluateWithTrace: 逐条件返回 resolved/expected/passed 与整体 hit', () => {
-  const ctx = sampleCtx()  // GPU.qty=1, series=Polaris
+  const ctx = sampleCtx()  // GPU.qty=1, series=兆芯
   const rules = [
     rule({ id: 1, body: { when: { all: [
       { field: 'kp.GPU.qty', op: '>=', value: 1 },
-      { field: 'config.series', op: '==', value: 'Orion' },   // 不满足
+      { field: 'config.series', op: '==', value: 'AMD' },   // 不满足
     ] }, then: { action: 'recommend', target: 'X' } } }),
   ]
   const trace = evaluateWithTrace(rules as any, ctx)
   assert.equal(trace.length, 1)
-  assert.equal(trace[0].hit, false)                   // Orion 不匹配 → 整体不命中
+  assert.equal(trace[0].hit, false)                   // AMD 不匹配 → 整体不命中
   assert.equal(trace[0].isAny, false)
   assert.equal(trace[0].conds.length, 2)
   assert.equal(trace[0].conds[0].field, 'kp.GPU.qty')
   assert.equal(trace[0].conds[0].resolved, 1)
   assert.equal(trace[0].conds[0].passed, true)
-  assert.equal(trace[0].conds[1].resolved, 'Polaris')
-  assert.equal(trace[0].conds[1].expected, 'Orion')
+  assert.equal(trace[0].conds[1].resolved, '兆芯')
+  assert.equal(trace[0].conds[1].expected, 'AMD')
   assert.equal(trace[0].conds[1].passed, false)
   assert.equal(trace[0].firedActions.length, 0)       // 不命中 → 无动作
 })
@@ -436,8 +436,8 @@ test('evaluateWithTrace: any 语义——任一 passed 即 hit，isAny=true', ()
   const ctx = sampleCtx()
   const rules = [
     rule({ id: 1, body: { when: { any: [
-      { field: 'config.series', op: '==', value: 'Orion' },    // false
-      { field: 'config.series', op: '==', value: 'Polaris' },  // true
+      { field: 'config.series', op: '==', value: 'AMD' },    // false
+      { field: 'config.series', op: '==', value: '兆芯' },  // true
     ] }, then: { action: 'recommend', target: 'Y' } } }),
   ]
   const trace = evaluateWithTrace(rules as any, ctx)

@@ -44,7 +44,7 @@ const ACTS = [
   { key: 'workspace', title: '报价工作台', desc: '整单报价与导出', to: '/workspace', perm: 'field.quote.price', icon: 'doc' },
   { key: 'servers', title: '服务器', desc: '查看服务器产品库', to: '/servers', perm: 'page.servers', icon: 'tower' },
   { key: 'parts', title: '配件', desc: '查看配件与兼容性', to: '/parts', perm: 'page.parts', icon: 'bins' },
-  { key: 'selection', title: '选型配置', desc: '机型能力与推导规则', to: '/strategies/selection', perm: 'page.strategies', icon: 'chip' },
+  { key: 'selection', title: '选型配置', desc: '兼容规则与 BOM 案例库', to: '/strategies/selection', perm: 'page.strategies', icon: 'chip' },
   { key: 'pricing', title: '报价策略', desc: '多维度策略计价', to: '/strategies/pricing', perm: 'field.quote.price', icon: 'coin' },
   { key: 'strategy', title: '解决方案', desc: '行业解决方案与案例', to: '/strategies', perm: 'page.strategies', icon: 'layers' },
 ]

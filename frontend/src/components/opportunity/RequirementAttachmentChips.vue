@@ -8,6 +8,7 @@
  */
 import { computed, ref } from 'vue'
 import { message } from 'ant-design-vue'
+import { CloseOutlined, PlusOutlined } from '@ant-design/icons-vue'
 import { feedApi } from '@/api/feed'
 import type { FeedAttachment } from '@/api/feed'
 
@@ -138,11 +139,11 @@ defineExpose({ uploadFiles })
           cancel-text="取消"
           @confirm="removeAtt(a)"
         >
-          <span class="rac-x" @click.stop>✕</span>
+          <span class="rac-x" @click.stop><CloseOutlined /></span>
         </a-popconfirm>
       </span>
 
-      <button v-if="!readonly" type="button" class="rac-chip rac-add" @click="fileInput?.click()">＋ 上传</button>
+      <button v-if="!readonly" type="button" class="rac-chip rac-add" @click="fileInput?.click()"><PlusOutlined /> 上传</button>
       <span v-if="uploading" class="rac-uploading">上传中…</span>
     </div>
 

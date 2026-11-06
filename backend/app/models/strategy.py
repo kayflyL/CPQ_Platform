@@ -5,7 +5,7 @@
 
 domain 五域：requirement(需求分析) / selection(选型配置) / pricing(报价毛利) / market(行业市场) / policy(策略文档)
 type：域内类别，如 pricing.platform_baseline / selection.conflict / policy.document
-scope：JSON 生效条件，起步单维 {platform_type:"Polaris"}（行业等数据积累后再扩）
+scope：JSON 生效条件，起步单维 {platform_type:"兆芯"}（行业等数据积累后再扩）
 body：JSON schema 化规则体（每类 type 各自定义结构）；policy.document 的 body = {category,sort_order,content_markdown}
 status：draft/testing/active/archived 四态（只有 active 被业务引用）
 """

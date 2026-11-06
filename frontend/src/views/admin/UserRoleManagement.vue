@@ -576,7 +576,7 @@ function avatarBg(name: string): string {
 }
 
 // ── 权限目录：三带层（一带 page / 二带 field / 三带 action），域只做层内分组 ──
-const MODULE_ORDER = ['商机线索', '商机线索 · 商机详情', '商机线索 · 报价工作台', 'AI 办公室', '服务器', '配件', '解决方案', '设置']
+const MODULE_ORDER = ['商机线索', '商机线索 · 商机详情', '商机线索 · 报价工作台', 'AI 办公室', '服务器', '配件', '解决方案', '工具', '设置']
 
 function moduleOf(p: PermissionItem): string {
   const prefixes: [string, string][] = [
@@ -594,6 +594,8 @@ function moduleOf(p: PermissionItem): string {
     ['page.servers', '服务器'],
     ['page.parts', '配件'],
     ['page.strategies', '解决方案'],
+    ['page.tools', '工具'],
+    ['action.tools', '工具'],
     ['page.settings', '设置'],
   ]
   for (const [prefix, module] of prefixes) {
@@ -645,7 +647,7 @@ function onToggleGroup(g: { items: PermissionItem[] }, checked: boolean) {
 // 一带数据：域磁贴（page.* 按域聚合，域色圆点沿用应用既有语言）
 const DOMAIN_COLORS: Record<string, string> = {
   '商机线索': '#2f6bff', 'AI 办公室': '#8b93ff', '服务器': '#5bc8d8',
-  '配件': '#f5b942', '解决方案': '#f4756f', '设置': '#6f8bab',
+  '配件': '#f5b942', '解决方案': '#f4756f', '工具': '#f4756f', '设置': '#6f8bab',
 }
 const DOMAIN_SUBS: Record<string, string> = {
   '商机线索': '菜单未开 = 只看自己的商机',
@@ -653,6 +655,7 @@ const DOMAIN_SUBS: Record<string, string> = {
   '配件': '价格键见字段带与操作带',
   'AI 办公室': '管理面两段在操作带',
   '解决方案': '策略中心 / 选型配置 / BOM 案例',
+  '工具': '工具中心入口 / 文案编辑键在操作带',
   '设置': '四个子页面独立开关',
 }
 const domainTiles = computed(() => {
@@ -889,6 +892,8 @@ const SHORT_LABELS: Record<string, string> = {
   'page.settings.excel': '解析规则',
   'page.settings.templates': '导出模板',
   'page.settings.admin': '服务器管理',
+  'page.tools': '工具页面',
+  'action.tools.content.manage': '工具内容编辑',
 }
 function shortOf(p: PermissionItem): string {
   return SHORT_LABELS[p.key] || (p.name.length > 10 ? p.name.slice(0, 10) + '…' : p.name)

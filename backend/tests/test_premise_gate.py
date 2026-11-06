@@ -36,16 +36,16 @@ def test_inferred_premise_is_reported_unconfirmed():
     """AI 推断填上的平台（客户没说过）→ 报未确认前提（含字段 key/标签/当前值）。"""
     from app.services.slot_contract import unconfirmed_premise_fields
     key = sorted(_premise_keys())[0]
-    gaps = unconfirmed_premise_fields({"server_type": "通用计算服务器", key: "Polaris"})
+    gaps = unconfirmed_premise_fields({"server_type": "通用计算服务器", key: "兆芯"})
     assert [g["key"] for g in gaps] == [key]
-    assert gaps[0]["value"] == "Polaris" and gaps[0]["label"]
+    assert gaps[0]["value"] == "兆芯" and gaps[0]["label"]
 
 
 def test_customer_clicked_confirmation_clears_the_gate():
     """客户点选确认卡 → confirmed_slots 有记录 → 不再是缺口。"""
     from app.services.slot_contract import unconfirmed_premise_fields
     key = sorted(_premise_keys())[0]
-    ext = {key: "Polaris", "confirmed_slots": {key: "Polaris"}}
+    ext = {key: "兆芯", "confirmed_slots": {key: "兆芯"}}
     assert unconfirmed_premise_fields(ext) == []
 
 
@@ -53,7 +53,7 @@ def test_value_changed_after_confirmation_invalidates_it():
     """确认之后值被改写 → 原确认失效（旧确认不能给新值背书）。"""
     from app.services.slot_contract import unconfirmed_premise_fields
     key = sorted(_premise_keys())[0]
-    ext = {key: "Orion", "confirmed_slots": {key: "Polaris"}}
+    ext = {key: "AMD", "confirmed_slots": {key: "兆芯"}}
     assert [g["key"] for g in unconfirmed_premise_fields(ext)] == [key]
 
 
@@ -66,23 +66,23 @@ def test_empty_premise_is_not_a_premise_gap():
 def test_field_confirmation_option_binds_a_real_signal():
     """确认卡选项带 slot+value → 点击信号就是「写该字段 = 规范值」（value 不是给客户看的文案）。"""
     from ai_office.skill_plan_runtime import ask_option_signal
-    sig = ask_option_signal("", {"label": "Polaris（兆芯平台）", "value": "Polaris", "slot": "platform_type"})
-    assert sig == {"platform_type": "Polaris"}
+    sig = ask_option_signal("", {"label": "兆芯（兆芯平台）", "value": "兆芯", "slot": "platform_type"})
+    assert sig == {"platform_type": "兆芯"}
 
 
 def test_field_confirmation_option_without_value_does_not_write_a_field():
     """只给 label 没给 value → 不绑字段（绝不让文案落进目录字段），答案留给大脑消化。"""
     from ai_office.skill_plan_runtime import ask_option_signal
-    assert ask_option_signal("", {"label": "Polaris（兆芯平台）"}, "platform_type") == {}
+    assert ask_option_signal("", {"label": "兆芯（兆芯平台）"}, "platform_type") == {}
 
 
 def test_clicking_a_field_confirmation_writes_the_field_and_the_mark():
     """点选确认卡的落值通路：写字段（登记通道）+ 记 confirmed_slots（求证侧留痕）。"""
     from ai_office.skill_signals import _apply_registration_signal
     ext: dict = {"server_type": "通用计算服务器"}
-    assert _apply_registration_signal(ext, {"platform_type": "Polaris"}) is True
-    assert ext["platform_type"] == "Polaris"
-    ext.setdefault("confirmed_slots", {})["platform_type"] = "Polaris"
+    assert _apply_registration_signal(ext, {"platform_type": "兆芯"}) is True
+    assert ext["platform_type"] == "兆芯"
+    ext.setdefault("confirmed_slots", {})["platform_type"] = "兆芯"
     from app.services.slot_contract import unconfirmed_premise_fields
     assert unconfirmed_premise_fields(ext) == []
 
@@ -106,10 +106,10 @@ def test_brain_can_declare_the_customer_said_it():
     key = sorted(_premise_keys())[0]
     ext: dict = {}
     skill_tool_context.TOOL_CTX.set({"task_active": True, "ext": ext, "save": None})
-    res = tool_fill_requirement({"server_type": "通用计算服务器", key: "Polaris",
+    res = tool_fill_requirement({"server_type": "通用计算服务器", key: "兆芯",
                                  "purchase_qty": 1, "customer_stated": [key]})
     assert res.get("ok") is True and res.get("customer_stated") == [key]
-    assert ext.get("confirmed_slots", {}).get(key) == "Polaris"
+    assert ext.get("confirmed_slots", {}).get(key) == "兆芯"
     assert unconfirmed_premise_fields(ext) == []
 
     import asyncio

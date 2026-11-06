@@ -1,5 +1,6 @@
 <template>
   <div class="rank-bar-wrap">
+    <button v-if="expanded" class="rank-collapse" @click="expanded = false">收起 ▲</button>
     <v-chart v-if="rows.length" class="rank-bar" :option="opt" autoresize @click="onPick" />
     <div v-else class="chart-empty">暂无排行数据</div>
   </div>
@@ -13,10 +14,10 @@ import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { BarChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, DataZoomInsideComponent } from 'echarts/components'
 import { useChartTheme } from '@/composables/useChartTheme'
 
-use([CanvasRenderer, BarChart, GridComponent, TooltipComponent])
+use([CanvasRenderer, BarChart, GridComponent, TooltipComponent, DataZoomInsideComponent])
 
 interface RankItem { name: string; count: number; won?: number }
 
@@ -30,6 +31,9 @@ const emit = defineEmits<{ (e: 'pick', name: string): void }>()
 
 const expanded = ref(false)
 const { chartColors } = useChartTheme()
+
+// 展开后超过一屏的行进内部滚动(窗口固定行数,滚轮/触摸平移),条宽不被压扁
+const VISIBLE_ROWS = 10
 
 const rows = computed(() => {
   const rows: (RankItem & { others?: boolean })[] = props.top.map(s => ({ ...s, others: false }))
@@ -45,16 +49,28 @@ const opt = computed(() => {
   if (!rows.value.length) return {}
   const c = chartColors.value
   const top = rows.value[0]?.count || 1
+  // dataZoom 滚动后序号/dataIndex 都是窗口内位置,标签一律按类别名反查行与名次,不依赖序号
+  const rowByName = new Map(rows.value.map(r => [r.name, r]))
+  const rankByName = new Map(rows.value.map((r, i) => [r.name, i]))
   return {
     backgroundColor: 'transparent',
+    dataZoom: rows.value.length > VISIBLE_ROWS ? [{
+      // zoomLock 会把 RoamController 切到 move 模式、整个禁掉滚轮监听,故用 zoomOnMouseWheel:false 只禁缩放
+      type: 'inside', yAxisIndex: 0,
+      startValue: 0, endValue: VISIBLE_ROWS - 1,
+      zoomOnMouseWheel: false, moveOnMouseWheel: true,
+    }] : undefined,
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
       backgroundColor: c.tooltipBg, textStyle: { color: c.tooltipText },
       borderColor: c.tooltipBorder, borderWidth: 1,
       formatter: (params: any) => {
-        const r = rows.value[params[0].dataIndex]
+        const r = rowByName.get(params[0].name) || rows.value[params[0].dataIndex]
+        if (!r) return ''
         const won = r.won != null ? ` · 成单 <b>${r.won}</b>` : ''
-        const hint = r.others ? '<br/><span style="color:#86909c">点击展开</span>' : ''
+        const hint = r.others
+          ? '<br/><span style="color:var(--cpq-text-muted)">点击展开</span>'
+          : (rows.value.length > VISIBLE_ROWS && params[0].dataIndex === 0 ? '<br/><span style="color:var(--cpq-text-muted)">滚轮/滑动查看更多</span>' : '')
         return `${r.name}<br/>商机数 <b>${r.count}</b>${won}${hint}`
       },
     },
@@ -70,7 +86,10 @@ const opt = computed(() => {
       axisLine: { show: false }, axisTick: { show: false },
       axisLabel: {
         margin: 12, color: c.axisLabel, fontSize: 12,
-        formatter: (_v: string, i: number) => `{${i < 3 ? 'rt' : 'rm'}|${i + 1}}  {n|${rows.value[i].name}}`,
+        formatter: (v: string) => {
+          const i = rankByName.get(v) ?? 0
+          return `{${i < 3 ? 'rt' : 'rm'}|${i + 1}}  {n|${v}}`
+        },
         rich: {
           rt: { color: c.accent, fontWeight: 700, fontSize: 11, align: 'right' },
           rm: { color: c.tick, fontWeight: 600, fontSize: 11, align: 'right' },
@@ -82,14 +101,12 @@ const opt = computed(() => {
       type: 'bar', barMaxWidth: 14, itemStyle: { borderRadius: [0, 6, 6, 0] },
       data: rows.value.map(r => ({
         value: r.count,
-        itemStyle: { color: r.others
-          ? c.mutedBar
-          : { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: c.barEnd }, { offset: 1, color: c.barStart }] } },
+        itemStyle: { color: r.others ? c.mutedBar : c.barStart },
       })),
       label: { show: true, position: 'right', color: c.tooltipText, fontSize: 11, fontWeight: 600,
         formatter: (p: any) => {
-          const r = rows.value[p.dataIndex]
-          return r.others ? `${r.count}  ▸` : `${r.count}`
+          const r = rowByName.get(p.name)
+          return r?.others ? `${r.count}  ▸` : `${r?.count ?? ''}`
         } },
       animationDuration: 800,
     }],
@@ -104,7 +121,9 @@ function onPick(params: any) {
 </script>
 
 <style scoped>
-.rank-bar-wrap { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.rank-bar-wrap { flex: 1 1 0; height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.rank-collapse { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; margin-bottom: 4px; align-self: flex-end; border: 1px solid var(--cpq-overlay-a20); border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-a8); color: var(--cpq-accent-primary); font-size: var(--cpq-font-size-xs); cursor: pointer; transition: color var(--cpq-dur-1) var(--cpq-ease-smooth), background-color var(--cpq-dur-1) var(--cpq-ease-smooth), border-color var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.rank-collapse:hover { background: var(--cpq-overlay-a15); border-color: var(--cpq-accent-primary); }
 .rank-bar { flex: 1 1 0; width: 100%; min-width: 0; min-height: 120px; }
 .chart-empty { flex: 1 1 0; display: flex; align-items: center; justify-content: center; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); }
 </style>

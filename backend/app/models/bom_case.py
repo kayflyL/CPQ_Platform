@@ -22,7 +22,7 @@ class BomCase(Base):
     # 对外业务键：时间戳型（BC-YYYYMMDD-HHMMSS-ffffff），可读且唯一；被 golden.expect_case_key 引用
     case_key: Mapped[str] = mapped_column(String(40), primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False, default="")
-    scenario_tags: Mapped[Optional[list]] = mapped_column(JSONB, default=list)   # ["ai","2U","Orion","推理"] 场景标签
+    scenario_tags: Mapped[Optional[list]] = mapped_column(JSONB, default=list)   # ["ai","2U","AMD","推理"] 场景标签
     model_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)     # → l6.server_models
     base_config_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     bom_template_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

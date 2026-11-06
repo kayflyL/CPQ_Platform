@@ -90,6 +90,7 @@ from app.api import gpu_sizing_api  # AI 推理配置器（显存门禁计算）
 from app.api import bom_cases as bom_cases_api
 from app.api import reasoning_flow as reasoning_flow_api
 from app.api import compatibility_rules as compatibility_rules_api
+from app.api import tools_content_api  # 工具中心/工具页文案（可编辑）
 from app.api import auth as auth_api
 from app.api import roles as roles_api
 from app.api import portal as portal_api
@@ -161,6 +162,7 @@ app.include_router(gpu_sizing_api.router)
 app.include_router(bom_cases_api.router)
 app.include_router(reasoning_flow_api.router)
 app.include_router(compatibility_rules_api.router)
+app.include_router(tools_content_api.router)
 app.include_router(auth_api.router)
 app.include_router(roles_api.router)
 app.include_router(portal_api.router)

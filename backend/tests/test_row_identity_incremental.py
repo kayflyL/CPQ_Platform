@@ -115,7 +115,7 @@ def test_ask_user_rejects_drifted_wording_instead_of_guessing():
 
 def test_ask_user_without_row_list_stays_back_compatible():
     """非 kp 节点（没有行清单）里 ask_user 是登记表字段确认卡，不该被行校验拦住。"""
-    res, asks = _ask({"question": "平台确认？", "options": [{"label": "Polaris"}],
+    res, asks = _ask({"question": "平台确认？", "options": [{"label": "兆芯"}],
                       "row": "whatever|行", "slot": "platform_type"})
     assert res.get("ok") is True and asks[0]["row"] == "whatever|行"
 
@@ -173,7 +173,7 @@ def test_phase_kp_reason_row_identity_is_stable_across_turns():
                                   "description": "系统盘 2块480G SSD", "qty": 2}]},
             "node_state": {"kp_reason": {"config": [
                 {"category": "HDD/SSD", "spec": "系统盘 480G SSD ×2", "qty": 2}]}},
-            "baselines": [{"server_type_name": "通用计算服务器", "series": "Polaris"}],
+            "baselines": [{"server_type_name": "通用计算服务器", "series": "兆芯"}],
         }
         _run_phase(ctx)
         return [(str(p.get("origin") or ""), str(p.get("row_id") or ""))
@@ -187,7 +187,7 @@ def test_phase_kp_reason_row_identity_is_stable_across_turns():
     ctx2 = {
         "ext": {},
         "node_state": {"kp_reason": {"config": [{"category": "HBA", "spec": "HBA 卡 8Gb 双口"}]}},
-        "baselines": [{"server_type_name": "通用计算服务器", "series": "Polaris"}],
+        "baselines": [{"server_type_name": "通用计算服务器", "series": "兆芯"}],
     }
     _run_phase(ctx2)
     assert [str(p.get("origin") or "") for p in ctx2["kp_parts"]] == ["cfg:HBA"], (
@@ -202,7 +202,7 @@ def test_phase_kp_reason_applies_drifted_pick_to_registered_row():
         "node_state": {"kp_reason": {"picks": {
             "HDD/SSD|系统盘480G SSD×2": {"name": "480G SATA SSD 企业级 ×2",
                                           "price": 1200.0, "currency": "RMB"}}}},
-        "baselines": [{"server_type_name": "通用计算服务器", "series": "Polaris"}],
+        "baselines": [{"server_type_name": "通用计算服务器", "series": "兆芯"}],
     }
     _run_phase(ctx)
     parts = ctx["kp_parts"]
@@ -219,7 +219,7 @@ def test_legit_multi_row_category_survives_dedupe():
             {"part_category": "NIC", "description": "4个千兆网口", "qty": 1},
             {"part_category": "NIC", "description": "2个万兆网口", "qty": 1}]},
         "node_state": {"kp_reason": {}},
-        "baselines": [{"server_type_name": "通用计算服务器", "series": "Polaris"}],
+        "baselines": [{"server_type_name": "通用计算服务器", "series": "兆芯"}],
     }
     _run_phase(ctx)
     assert len(ctx["kp_parts"]) == 2

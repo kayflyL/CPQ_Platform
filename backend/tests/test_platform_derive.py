@@ -28,18 +28,18 @@ def _zhaoxin_ext(platform: str = "") -> dict:
 
 
 def _platform_rule() -> dict:
-    """兆芯平台归置规则夹具（= DB「平台：CPU 兆芯/KH → Polaris」原样，2026-09-14 导出）。"""
+    """兆芯平台归置规则夹具（= DB「平台：CPU 兆芯/KH → 兆芯」原样，2026-09-14 导出）。"""
     return {
-        "name": "平台：CPU 兆芯/KH → Polaris", "type": "derive", "category": "平台归置",
+        "name": "平台：CPU 兆芯/KH → 兆芯", "type": "derive", "category": "平台归置",
         "domain": "requirement", "status": "active",
         "body": {
             "when": {"any": [
                 {"field": "kp.CPU.spec.text", "op": "contains", "value": "兆芯"},
                 {"field": "kp.CPU.spec.text", "op": "contains", "value": "KH"},
                 {"field": "kp.CPU.spec.text", "op": "contains", "value": "kh"}]},
-            "then": {"action": "derive", "field": "opportunity.platform_type", "value": "Polaris"},
-            "desc": "客户点名兆芯（KH 系列）CPU → 整机平台推导为 Polaris；推导值属推断，须经客户确认",
-            "evidence": "库内实测：兆芯 KH50000 库存只适配 Polaris 平台"},
+            "then": {"action": "derive", "field": "opportunity.platform_type", "value": "兆芯"},
+            "desc": "客户点名兆芯（KH 系列）CPU → 整机平台推导为 兆芯；推导值属推断，须经客户确认",
+            "evidence": "库内实测：兆芯 KH50000 库存只适配 兆芯 平台"},
     }
 
 
@@ -53,10 +53,10 @@ def test_registration_context_exposes_cpu_text_and_qty():
     assert ctx["config"].get("server_type") == "通用计算服务器"
 
 
-def test_zhaoxin_cpu_row_derives_polaris():
-    """兆芯 CPU 行命中规则 → 平台推导 Polaris；无 CPU 信号（AMD）→ 不命中。"""
+def test_zhaoxin_cpu_row_derives_zhaoxin():
+    """兆芯 CPU 行命中规则 → 平台推导 兆芯；无 CPU 信号（AMD）→ 不命中。"""
     ctx = registration_rule_context(_zhaoxin_ext())
-    assert eval_assign_value([_platform_rule()], ctx, "opportunity.platform_type") == "Polaris"
+    assert eval_assign_value([_platform_rule()], ctx, "opportunity.platform_type") == "兆芯"
 
     amd = _zhaoxin_ext()
     amd["kp_rows"][0]["request_spec"] = "EPYC 9654"
@@ -68,9 +68,9 @@ def test_catalog_derivations_only_for_empty_slot():
     """只推导空缺槽：已登记平台以登记表为准；无规则 → 空（降级不阻塞）。"""
     rules = [_platform_rule()]
     assert plan_rule_apply.catalog_derivations_for_registration(_zhaoxin_ext(), rules) \
-        == [("platform_type", "Polaris")]
+        == [("platform_type", "兆芯")]
     assert plan_rule_apply.catalog_derivations_for_registration(
-        _zhaoxin_ext(platform="Polaris"), rules) == []
+        _zhaoxin_ext(platform="兆芯"), rules) == []
     assert plan_rule_apply.catalog_derivations_for_registration(_zhaoxin_ext(), rules=[]) == []
 
 
@@ -81,7 +81,7 @@ def test_knowledge_for_agent_fill_renders_platform_block():
     text = knowledge_for_node("agent_fill", rules=[_platform_rule()],
                               bindings={"agent_fill": [PLATFORM_GROUP]})
     assert text.startswith("【需求理解知识·平台归置】")
-    assert "客户提「兆芯/KH/kh」→ Polaris（依据：库内实测：兆芯 KH50000 库存只适配 Polaris 平台）" in text
+    assert "客户提「兆芯/KH/kh」→ 兆芯（依据：库内实测：兆芯 KH50000 库存只适配 兆芯 平台）" in text
     assert "用法：按语义就近归置" in text
 
 
@@ -124,13 +124,13 @@ def test_knowledge_degrades_when_rules_unreadable(monkeypatch):
 def test_shadow_hard_hit_reports_rule_value():
     """兆芯信号硬命中 → {slot, rule_value}；比对（标推荐/告警）由调用方做。"""
     got = shadow_check_platform(_zhaoxin_ext(), rules=[_platform_rule()])
-    assert got == {"slot": "platform_type", "rule_value": "Polaris"}
+    assert got == {"slot": "platform_type", "rule_value": "兆芯"}
 
 
 def test_shadow_hit_independent_of_ai_value():
-    """probe 语义：AI 已填 platform_type=Orion 不影响硬命中计算（规则说该是什么）。"""
-    got = shadow_check_platform(_zhaoxin_ext(platform="Orion"), rules=[_platform_rule()])
-    assert got == {"slot": "platform_type", "rule_value": "Polaris"}
+    """probe 语义：AI 已填 platform_type=AMD 不影响硬命中计算（规则说该是什么）。"""
+    got = shadow_check_platform(_zhaoxin_ext(platform="AMD"), rules=[_platform_rule()])
+    assert got == {"slot": "platform_type", "rule_value": "兆芯"}
 
 
 def test_shadow_no_hit_returns_none():

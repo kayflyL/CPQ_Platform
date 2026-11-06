@@ -504,6 +504,10 @@
                     style="width: 90px"
                   />
                 </div>
+                <div class="fin-setting-row">
+                  <label>批量调价</label>
+                  <a-button size="small" @click="openBatchModal">机头 / KP 利润率 · 质保年限</a-button>
+                </div>
               </div>
             </div>
 
@@ -669,6 +673,10 @@
                 style="width: 90px"
               />
             </div>
+            <div class="fin-setting-row">
+              <label>批量调价</label>
+              <a-button size="small" @click="openBatchModal">机头 / KP 利润率 · 质保年限</a-button>
+            </div>
           </div>
         </div>
 
@@ -722,6 +730,30 @@
       :quotation-label="`${store.opportunityInfo?.model_name || ''} · ${store.opportunityInfo?.quotation_id || ''}`"
       @submitted="loadOutboundState"
     />
+
+    <!-- 批量调价弹窗：机头/KP 利润率 + 质保年限一键套用到所有配置 -->
+    <a-modal v-model:open="batchModalOpen" title="批量调价（应用到所有配置）" :confirm-loading="batchApplying"
+             ok-text="应用" cancel-text="取消" @ok="applyBatchAdjust">
+      <div class="batch-form">
+        <div class="batch-hint">留空 = 不改。选年限按映射自动重置费率（机头 5 年 0% / KP 3 年 2%）并联动质保描述。</div>
+        <div class="batch-row" v-if="priceVisible">
+          <label>机头利润率</label>
+          <a-input-number v-model:value="batchForm.l6Margin" :min="0" :max="200" :step="1" size="small" placeholder="不改" addon-after="%" style="width: 120px" />
+        </div>
+        <div class="batch-row" v-if="priceVisible">
+          <label>KP 利润率</label>
+          <a-input-number v-model:value="batchForm.kpMargin" :min="0" :max="200" :step="1" size="small" placeholder="不改" addon-after="%" style="width: 120px" />
+        </div>
+        <div class="batch-row">
+          <label>机头维保年限</label>
+          <a-select v-model:value="batchForm.l6Years" :options="BATCH_YEARS_OPTIONS" allowClear placeholder="不改" style="width: 120px" />
+        </div>
+        <div class="batch-row">
+          <label>KP 维保年限</label>
+          <a-select v-model:value="batchForm.kpYears" :options="BATCH_YEARS_OPTIONS" allowClear placeholder="不改" style="width: 120px" />
+        </div>
+      </div>
+    </a-modal>
 
     <!-- 手机端底部 sticky 摘要条：BOM 入口 / 含税总价+毛利 / 保存 -->
     <div v-if="isMobile" class="sumbar">
@@ -1686,11 +1718,11 @@ const getWarrantyDesc = (cfg: ConfigData, type: 'l6' | 'kp'): string => {
   if (desc) return desc
   return warrantyDescDefaults.value[type] || ''
 }
-// 维保年限 → 费率映射（%），L6 与 KP 统一：1 年 0%、3 年 3%、5 年 5%、7 年 7%。
+// 维保年限 → 费率映射（%），L6 与 KP 独立：L6 5 年免费(0%)，KP 3 年 2%，其余同表。
 // 切年限即按映射重置该类型费率。
 const WARRANTY_RATE_BY_YEARS: Record<'l6' | 'kp', Record<number, number>> = {
-  l6: { 1: 0, 3: 3, 5: 5, 7: 7 },
-  kp: { 1: 0, 3: 3, 5: 5, 7: 7 },
+  l6: { 1: 0, 3: 3, 5: 0, 7: 7 },
+  kp: { 1: 0, 3: 2, 5: 5, 7: 7 },
 }
 function onWarrantyYearsChange(cfgName: string, type: 'l6' | 'kp', years: number | null) {
   // allowClear 清空时 years 为 undefined/null：置空年限，不设费率、不动描述
@@ -1709,6 +1741,48 @@ function onWarrantyYearsChange(cfgName: string, type: 'l6' | 'kp', years: number
   const cur = cfg?.warranty_info?.[type]?.description || warrantyDescDefaults.value[type] || ''
   if (/质保[^，,。；;]*年/.test(cur)) {
     store.setWarrantyDescription(cfgName, type, cur.replace(/质保[^，,。；;]*年/, `质保${yrs}年`))
+  }
+}
+// ── 批量调价：机头/KP 利润率 + 质保年限一键套用到所有配置（右栏入口）──
+const batchModalOpen = ref(false)
+const batchApplying = ref(false)
+const batchForm = ref<{ l6Margin: number | null; kpMargin: number | null; l6Years: number | null; kpYears: number | null }>({
+  l6Margin: null, kpMargin: null, l6Years: null, kpYears: null,
+})
+const BATCH_YEARS_OPTIONS = [
+  { value: 1, label: '1 年' },
+  { value: 3, label: '3 年' },
+  { value: 5, label: '5 年' },
+  { value: 7, label: '7 年' },
+]
+function openBatchModal() {
+  batchForm.value = { l6Margin: null, kpMargin: null, l6Years: null, kpYears: null}
+  batchModalOpen.value = true
+}
+async function applyBatchAdjust() {
+  const names = Object.keys(store.configs)
+  if (!names.length) { message.warning('当前报价单没有配置'); return }
+  const { l6Margin, kpMargin, l6Years, kpYears } = batchForm.value
+  if (l6Margin == null && kpMargin == null && l6Years == null && kpYears == null) {
+    message.warning('请至少填写一项调整内容')
+    return
+  }
+  batchApplying.value = true
+  try {
+    for (const name of names) {
+      if (l6Margin != null) store.setL6ProfitMargin(name, l6Margin)
+      if (kpMargin != null) store.setKpProfitMargin(name, kpMargin)
+      if (l6Years != null) onWarrantyYearsChange(name, 'l6', l6Years)
+      if (kpYears != null) onWarrantyYearsChange(name, 'kp', kpYears)
+    }
+    await store.saveProject()
+    message.success(`已批量应用到 ${names.length} 个配置`)
+    batchModalOpen.value = false
+  } catch (e: any) {
+    const detail = e?.response?.data?.detail
+    message.error(typeof detail === 'string' ? detail : '批量应用失败：' + (e?.message || e))
+  } finally {
+    batchApplying.value = false
   }
 }
 const saveLoading = ref(false)
@@ -3672,6 +3746,31 @@ table.kp-table th:nth-child(7) { width: 20%; }
   font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
   white-space: nowrap;
+}
+
+/* 批量调价弹窗 */
+.batch-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.batch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.batch-row label {
+  font-size: var(--cpq-font-size-sm);
+  color: var(--cpq-text-secondary);
+}
+
+.batch-hint {
+  font-size: var(--cpq-font-size-xs);
+  color: var(--cpq-text-muted);
+  line-height: 1.6;
 }
 
 /* ============================================

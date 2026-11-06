@@ -35,7 +35,7 @@ def list_cases(tag: Optional[str] = None, q: Optional[str] = None,
                server_type: Optional[str] = None, series: Optional[str] = None,
                model_id: Optional[int] = None,
                user: dict = Depends(get_current_user)):
-    """分类过滤：系列(server_type: AI/通用…) / 平台(series: Orion/Polaris) / 机型(model_id)。"""
+    """分类过滤：系列(server_type: AI/通用…) / 平台(series: AMD/兆芯) / 机型(model_id)。"""
     repo = BomCaseRepository()
     try:
         cases = repo.list_cases(tag=tag, q=q, enabled=enabled, with_parts=with_parts,

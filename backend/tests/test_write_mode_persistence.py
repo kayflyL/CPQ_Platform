@@ -21,7 +21,7 @@ from app.services.portal_flow_adapter import (
     _can_persist_draft, _write_mode, seed_ext_from_requirement_draft)
 
 OPP = "opp-write-mode-1"
-EXT = {"server_type": "AI服务器", "platform_type": "Polaris", "chassis_form": "4U",
+EXT = {"server_type": "AI服务器", "platform_type": "兆芯", "chassis_form": "4U",
        "purchase_qty": 2, "warranty_years": 3,
        "kp_rows": [{"part_category": "内存", "description": "64G", "qty": 8}]}
 PLAN = {"model": "ZS220 V2",

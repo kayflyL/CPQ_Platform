@@ -62,7 +62,7 @@ def _engine(row_spec="NVIDIA B200 192G 两张", qty=2, category="GPU", registere
     return {"ext": ext,
             "kp_parts": [{"category": category, "request_spec": row_spec, "unmatched": True,
                           "qty": qty, "origin": "reg:" + category, "row_id": ROW_ID, "rev": "r1"}],
-            "_locked_baseline": {"series": "Orion"}}
+            "_locked_baseline": {"series": "AMD"}}
 
 
 def test_stuck_gap_offers_grounded_candidates_plus_keep_original():
@@ -214,7 +214,7 @@ def test_stuck_gap_qty_max_follows_baseline_capability():
     """GPU 行 + 机型登记 4 个 GPU 位 → 卡上限=4（不是拍脑袋 24）；未登记能力才退 24。"""
     from ai_office.skill_node_plugins import plugin_for
     eng = _engine()
-    eng["_locked_baseline"] = {"series": "Orion", "gpu_slots": 4}
+    eng["_locked_baseline"] = {"series": "AMD", "gpu_slots": 4}
     gap = plugin_for("kp_reason").stuck_gap(eng)
     assert (gap["qty"], gap["qty_max"]) == (2, 4)
     assert all(o["qty"] == 2 and o["qty_max"] == 4 for o in gap["options"] if o.get("pick"))
@@ -236,7 +236,7 @@ def test_enrich_ask_gap_tops_up_qty_for_brain_options():
     大脑显式给的推荐数量不覆盖（setdefault）。这是「能选料不能调数量」实测靶心。"""
     from ai_office.skill_node_plugins import _KpNode
     eng = _engine()
-    eng["_locked_baseline"] = {"series": "Orion", "gpu_slots": 3}
+    eng["_locked_baseline"] = {"series": "AMD", "gpu_slots": 3}
     gap = {"slot": "brain_ask", "reason_code": "brain_ask", "options": [
         {"label": "NVIDIA H100 80G", "slot": "kp_row"},
         {"label": "NVIDIA A800 80G ×2", "slot": "kp_row", "qty": 2},

@@ -102,21 +102,21 @@ withDefaults(defineProps<{
   border-radius: var(--cpq-radius-full);
   padding: 2px 8px;
   font-size: var(--cpq-font-size-xs);
-  font-weight: 700;
+  font-weight: var(--cpq-font-weight-semibold);
   white-space: nowrap;
 }
 :deep(.rt-badge)::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 :deep(.rt-badge.rt-badge-current) { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); }
-:deep(.rt-badge.rt-badge-draft) { color: #b45309; border-color: #f59e0b; background: rgba(245,158,11,.10); }
+/* 语义四态迁 token 马卡龙色（原 Tailwind amber/emerald/violet/red 裸值已清）；pending 无生产方已删 */
+:deep(.rt-badge.rt-badge-draft) { color: var(--cpq-color-gold); border-color: var(--cpq-color-gold); background: transparent; }
 :deep(.rt-badge.rt-badge-done),
 :deep(.rt-badge.rt-badge-exported),
-:deep(.rt-badge.rt-badge-released) { color: #166534; border-color: #22c55e; background: rgba(34,197,94,.10); }
-:deep(.rt-badge.rt-badge-pending) { color: #7c3aed; border-color: #8b5cf6; background: rgba(139,92,246,.10); }
-:deep(.rt-badge.rt-badge-approving) { color: #b91c1c; border-color: #ef4444; background: rgba(239,68,68,.10); }
+:deep(.rt-badge.rt-badge-released) { color: var(--cpq-color-success); border-color: var(--cpq-color-success); background: var(--cpq-overlay-success15); }
+:deep(.rt-badge.rt-badge-approving) { color: var(--cpq-accent-danger); border-color: var(--cpq-accent-danger); background: var(--cpq-overlay-danger10); }
 :deep(.rt-actions) { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
 :deep(.rt-link) { color: var(--cpq-accent-primary); cursor: pointer; font-size: var(--cpq-font-size-sm); white-space: nowrap; }
 :deep(.rt-link:hover) { opacity: .8; }
-:deep(.rt-link.danger) { color: #ef4444; }
+:deep(.rt-link.danger) { color: var(--cpq-accent-danger); }
 :deep(.rt-link.muted) { color: var(--cpq-text-muted); }
 :deep(.rt-strong) { font-weight: 400; color: var(--cpq-text-primary); }
 :deep(.rt-sub) { display: block; margin-top: 3px; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); }

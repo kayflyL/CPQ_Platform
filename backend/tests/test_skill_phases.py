@@ -8,7 +8,7 @@ from app.services.skill_phases import model_signals_ready
 
 
 def test_prepare_model_step_platform_suffices_when_type_unaligned():
-    """通用服务器 + Polaris（缺形态）不再被当成场景缺口，直接查候选。"""
+    """通用服务器 + 兆芯（缺形态）不再被当成场景缺口，直接查候选。"""
     from app.services.skill_phases import prepare_model_step
 
     class _Cat:
@@ -16,15 +16,15 @@ def test_prepare_model_step_platform_suffices_when_type_unaligned():
             return [{"id": 1, "name": "通用计算服务器"},
                     {"id": 2, "name": "AI / 加速计算服务器"}]
 
-    cand = {"server_model_id": 1, "id": 1, "name": "Polaris 2U 12盘",
-            "server_type_name": "通用计算服务器", "series": "Polaris",
+    cand = {"server_model_id": 1, "id": 1, "name": "兆芯 2U 12盘",
+            "server_type_name": "通用计算服务器", "series": "兆芯",
             "form": "2U", "total_price": 100.0}
     wl = {"types": ["通用计算服务器", "AI / 加速计算服务器", "存储服务器"],
-          "series": ["Polaris", "Orion"], "forms": ["2U", "4U"]}
+          "series": ["兆芯", "AMD"], "forms": ["2U", "4U"]}
     with patch("app.repository.server_catalog_repo.ServerCatalogRepository", _Cat), \
          patch("app.services.catalog_options.catalog_whitelist", return_value=wl), \
          patch("app.services.model_candidates.select_models", return_value=[cand]):
-        ctx = {"ext": {"server_type": "通用服务器", "platform_type": "Polaris"},
+        ctx = {"ext": {"server_type": "通用服务器", "platform_type": "兆芯"},
                "price_access": True}
         info = prepare_model_step(ctx)
     assert info.get("invalid_scene") is not True
@@ -35,8 +35,8 @@ def test_model_signal_gate_requires_type_or_series_form():
     assert not model_signals_ready({})
     assert not model_signals_ready({"usage": "跑数据库"})  # 原文/语义不是结构化信号
     assert model_signals_ready({"server_type_name": "通用计算服务器"})
-    assert model_signals_ready({"series": "Orion", "form": "2U"})
-    assert not model_signals_ready({"series": "Orion"})
+    assert model_signals_ready({"series": "AMD", "form": "2U"})
+    assert not model_signals_ready({"series": "AMD"})
 
 
 def test_part_query_spec_filters_are_deterministic():
@@ -98,27 +98,27 @@ def test_cpu_without_model_never_invents_representative():
 
 def test_series_ok_canonical_semantics():
     from app.services.part_selector import _series_ok
-    assert _series_ok(None, "Orion")            # 未标注=通用件
-    assert _series_ok({}, "Orion")              # 无 series 键=通用件
-    assert _series_ok({"series": ["Orion"]}, "Orion")
-    assert not _series_ok({"series": ["Orion"]}, "Polaris")
-    assert _series_ok({"series": ["Orion", "Polaris"]}, "Polaris")
-    assert not _series_ok({"series": []}, "Orion")  # 空列表=全部隐藏
-    assert _series_ok({"series": ["Orion"]}, "")    # 未锁系列=不过滤
+    assert _series_ok(None, "AMD")            # 未标注=通用件
+    assert _series_ok({}, "AMD")              # 无 series 键=通用件
+    assert _series_ok({"series": ["AMD"]}, "AMD")
+    assert not _series_ok({"series": ["AMD"]}, "兆芯")
+    assert _series_ok({"series": ["AMD", "兆芯"]}, "兆芯")
+    assert not _series_ok({"series": []}, "AMD")  # 空列表=全部隐藏
+    assert _series_ok({"series": ["AMD"]}, "")    # 未锁系列=不过滤
 
 
 def test_series_scoped_repo_filters_rows():
     from app.services.part_selector import _SeriesScopedRepo
     rows = [{"model": "u", "applicable": None},
-            {"model": "o", "applicable": {"series": ["Orion"]}},
-            {"model": "p", "applicable": {"series": ["Polaris"]}},
+            {"model": "o", "applicable": {"series": ["AMD"]}},
+            {"model": "p", "applicable": {"series": ["兆芯"]}},
             {"model": "h", "applicable": {"series": []}}]
 
     class R:
         def get_by_category_with_specs(self, cat):
             return rows
 
-    repo = _SeriesScopedRepo(R(), "Orion")
+    repo = _SeriesScopedRepo(R(), "AMD")
     got = [r["model"] for r in repo.get_by_category_with_specs("Memory")]
     assert got == ["u", "o"]
 
@@ -194,7 +194,7 @@ def test_phase_kp_reason_surfaces_unmatched_as_gap(monkeypatch):
     monkeypatch.setattr("app.services.part_selector.select_parts", boom_select_parts)
     ctx = {
            "ext": {"kp_rows": [{"part_category": "CPU", "description": "KH50000", "qty": 2}]},
-           "baselines": [{"server_model_id": 1, "id": 1, "series": "Orion", "server_type_name": "通用计算服务器"}]}
+           "baselines": [{"server_model_id": 1, "id": 1, "series": "AMD", "server_type_name": "通用计算服务器"}]}
     asyncio.run(skill_phases.phase_kp_reason(ctx, {}, None))
     row = ctx["kp_parts"][0]
     assert row["category"] == "CPU"
@@ -224,7 +224,7 @@ def test_phase_kp_reason_lands_matched_parts(monkeypatch):
     monkeypatch.setattr("app.services.part_selector.select_parts", boom_select_parts)
     ctx = {
            "ext": {"kp_rows": [{"part_category": "HDD/SSD", "description": "1.92T SSD", "qty": 4}]},
-           "baselines": [{"server_model_id": 1, "id": 1, "series": "Orion", "server_type_name": "通用计算服务器"}]}
+           "baselines": [{"server_model_id": 1, "id": 1, "series": "AMD", "server_type_name": "通用计算服务器"}]}
     asyncio.run(skill_phases.phase_kp_reason(ctx, {}, None))
     row = ctx["kp_parts"][0]
     assert row["category"] == "HDD/SSD"
@@ -305,7 +305,7 @@ def test_lock_baseline_records_own_artifact_not_registration():
     from app.services.skill_phases import _lock_baseline
     ctx = {"ext": {}}
     baseline = {"server_model_id": 1, "id": 1, "name": "ZS220 V2",
-                "server_type_name": "通用计算服务器", "series": "Polaris", "form": "2U"}
+                "server_type_name": "通用计算服务器", "series": "兆芯", "form": "2U"}
     _lock_baseline(ctx, baseline, "目录唯一命中")
     assert ctx.get("_locked_baseline") is baseline
     assert ctx["baselines"][0]["name"] == "ZS220 V2"

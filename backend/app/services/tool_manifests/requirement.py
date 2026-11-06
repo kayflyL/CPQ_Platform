@@ -39,7 +39,7 @@ TOOLS = {
                 "reason": {"type": "string", "description": "锁定时：选定理由（一句话，面向客户）"},
                 "usage": {"type": "string", "description": "浏览时：用途/场景关键词，如 web/数据库/虚拟化"},
                 "server_type_name": {"type": "string", "description": "浏览时：服务器类型全名（从在售类型清单选）"},
-                "series": {"type": "string", "description": "浏览时：产品系列 Orion/Polaris/Intel；不确定可省略"},
+                "series": {"type": "string", "description": "浏览时：产品系列 AMD/兆芯/Intel；不确定可省略"},
                 "form": {"type": "string", "description": "浏览时：机箱形态 1U/2U/4U；不确定可省略"},
                 "limit": {"type": "integer", "description": "浏览时：返回条数上限，默认 8"},
             },

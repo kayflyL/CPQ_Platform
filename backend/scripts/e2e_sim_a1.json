@@ -5,11 +5,11 @@
   "input": "帮我配台服务器，跑虚拟化用的",
   "answers": {
     "server_type": "通用计算服务器",
-    "platform_type": "Orion",
+    "platform_type": "AMD",
     "chassis_form": "2U",
     "purchase_qty": "1台",
     "warranty_years": "3年",
-    "server_model": "@pick:Orion",
+    "server_model": "@pick:AMD",
     "brain_ask": "@recommend",
     "GPU": "@absent"
   },

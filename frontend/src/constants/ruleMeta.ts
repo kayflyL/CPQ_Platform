@@ -23,6 +23,10 @@ export const RULE_TYPE_DEFS: RuleTypeDef[] = [
   { value: 'recommend', label: '推荐',     cssVar: 'var(--cpq-color-success)',  hex: '#52c41a' },
 ]
 export const RULE_TYPE_MAP = Object.fromEntries(RULE_TYPE_DEFS.map(t => [t.value, t])) as Record<RuleType, RuleTypeDef>
+/** 规则卡徽标单字（RuleCard badge，需求规则页同款单字徽标语法） */
+export const RULE_TYPE_BADGE: Record<RuleType, string> = {
+  require: '必', exclude: '斥', derive: '派', filter: '滤', recommend: '推',
+}
 /** a-select 选项形式（编辑器类型下拉用） */
 export const RULE_TYPE_OPTIONS = RULE_TYPE_DEFS.map(t => ({ value: t.value, label: t.label }))
 

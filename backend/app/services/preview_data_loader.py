@@ -669,7 +669,7 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
             # 机箱规格
             "chassis_form": form,                      # 机箱形态
             "chassis_bays": f"{bays} 盘位" if bays else "",  # 盘位
-            "chassis_series": series,                   # 系列（Orion/Polaris）
+            "chassis_series": series,                   # 系列（AMD/兆芯）
             "backplane_type": bp_display,              # 背板类型（Tri-Mode/Pass-Thru）
             "power_supply": f"{psu_wattage}W x {psu_qty}" if psu_wattage else f"x {psu_qty}",  # 电源
         })

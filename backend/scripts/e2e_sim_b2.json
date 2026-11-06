@@ -5,11 +5,11 @@
   "input": "存储服务器，24 块 16T SATA HDD，1 块 480G SSD 做系统盘，RAID 卡要 4G 缓存的",
   "answers": {
     "server_type": "存储服务器",
-    "platform_type": "Orion",
+    "platform_type": "AMD",
     "chassis_form": "2U",
     "purchase_qty": "1台",
     "warranty_years": "3年",
-    "server_model": "@pick:Orion",
+    "server_model": "@pick:AMD",
     "brain_ask": "@recommend"
   },
   "max_turns": 12

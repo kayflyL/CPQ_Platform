@@ -44,7 +44,7 @@ def _find_backplane_part(bt: str) -> Optional[dict]:
 
 def _sync_plan_backplane(plan: dict, base_parts: list) -> None:
     """方案 BOM 背板件与派生 bp_type 对齐（2026-08-03 第一轮训练发现）：
-    bp_type=tri 但基线 BOM 行是直连背板（如 ES220 V3 基线为 Orion 2U12 直连版）时，
+    bp_type=tri 但基线 BOM 行是直连背板（如 ES220 V3 基线为 AMD 2U12 直连版）时，
     把 bom_excel_rows 背板行换成料号库同 bt 的件并补价差（l6_cost/total_cost）。
     无目标件/解析失败 → 保留原行不阻塞（方案照常出）。"""
     bp_type = (plan.get("chassis_signals") or {}).get("bp_type")

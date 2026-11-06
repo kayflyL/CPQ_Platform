@@ -5,11 +5,11 @@
   "input": "配台通用服务器：2 颗 AMD 32 核，内存 12 条 32G DDR5",
   "answers": {
     "server_type": "通用计算服务器",
-    "platform_type": "Orion，对了内存再加 4 条 32G",
+    "platform_type": "AMD，对了内存再加 4 条 32G",
     "chassis_form": "2U",
     "purchase_qty": "1台",
     "warranty_years": "3年",
-    "server_model": "@pick:Orion",
+    "server_model": "@pick:AMD",
     "brain_ask": "@recommend",
     "GPU": "@absent"
   },

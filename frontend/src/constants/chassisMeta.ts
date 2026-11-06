@@ -14,8 +14,8 @@ export { DRIVE_KIND_KEYS as CORE_DRIVE_KINDS } from '@/stores/selectionEngine'
 
 /**
  * 后面板槽位按底座分模板（基于 15 份真实配置归纳）。
- *   - 2U AMD(Orion)：IO1~IO4 + OCP（单 GPU 走 IO1/2 双宽 FHFL）
- *   - 2U Polaris（兆芯）：IO1~IO4，无 OCP（OCP 是 AMD/Orion 平台特性；4U GPU 机仍带 OCP）
+ *   - 2U AMD(AMD)：IO1~IO4 + OCP（单 GPU 走 IO1/2 双宽 FHFL）
+ *   - 2U 兆芯（兆芯）：IO1~IO4，无 OCP（OCP 是 AMD/AMD 平台特性；4U GPU 机仍带 OCP）
  *   - 4U GPU 机：仅 OCP（业内 GPU 槽与 IO 槽物理分区，IO1-4 是 2U 通用机 Riser 命名，4U 不用；
  *     8 GPU 走 gpu_slots，拓扑 direct/switch 走 gpu_arch；OCP3.0 是标准网卡位）
  * 2U 槽名沿用 IO1-4+OCP、cap 保持 3 不动，与存量配置一致（避免 step 容量行为回退）。
@@ -24,8 +24,8 @@ export { DRIVE_KIND_KEYS as CORE_DRIVE_KINDS } from '@/stores/selectionEngine'
 export const REAR_SLOTS_2U_AMD: RearSlot[] = [
   { name: 'IO1', cap: 3 }, { name: 'IO2', cap: 3 }, { name: 'IO3', cap: 3 }, { name: 'IO4', cap: 3 }, { name: 'OCP', cap: 1 },
 ]
-// 2U Polaris（兆芯）：同 AMD 布局但无 OCP（真实配置 2U 兆芯无 OCP 行；4U GPU 机仍带 OCP）
-export const REAR_SLOTS_2U_POLARIS: RearSlot[] = [
+// 2U 兆芯（兆芯）：同 AMD 布局但无 OCP（真实配置 2U 兆芯无 OCP 行；4U GPU 机仍带 OCP）
+export const REAR_SLOTS_2U_ZHAOXIN: RearSlot[] = [
   { name: 'IO1', cap: 3 }, { name: 'IO2', cap: 3 }, { name: 'IO3', cap: 3 }, { name: 'IO4', cap: 3 },
 ]
 // 4U GPU 机：后面板仅 OCP(网卡)，无 IO1-IO4 Riser。业内定式（Dell XE9680 / HPE DL380 GPU cage /
@@ -38,10 +38,10 @@ export const REAR_SLOTS_4U: RearSlot[] = [{ name: 'OCP', cap: 1 }]
 export const DEFAULT_REAR_SLOTS: RearSlot[] = REAR_SLOTS_2U_AMD
 
 /** 按 form+series 取该底座的标准后面板布局（「恢复标准布局」按钮 / 新建默认用）。返回克隆副本。
- *  2U AMD/Orion=IO1-4+OCP；2U Polaris（兆芯）=IO1-4 无 OCP；4U=仅 OCP（GPU 走 gpu_slots+gpu_arch，业内 GPU 机无 IO1-4）。 */
+ *  2U AMD/AMD=IO1-4+OCP；2U 兆芯（兆芯）=IO1-4 无 OCP；4U=仅 OCP（GPU 走 gpu_slots+gpu_arch，业内 GPU 机无 IO1-4）。 */
 export function rearSlotsFor(form?: string, series?: string): RearSlot[] {
   if (form === '4U') return REAR_SLOTS_4U.map(s => ({ ...s }))                       // 4U GPU 机：仅 OCP，无 IO1-4
-  if (form === '2U' && series === 'Polaris') return REAR_SLOTS_2U_POLARIS.map(s => ({ ...s }))
+  if (form === '2U' && series === '兆芯') return REAR_SLOTS_2U_ZHAOXIN.map(s => ({ ...s }))
   return REAR_SLOTS_2U_AMD.map(s => ({ ...s }))
 }
 
@@ -118,9 +118,9 @@ export function formDefaults(form?: string): { psu_bays: number; gpu_slots: numb
  * 或改造为按产品系列(l6.server_types)动态分发（数据驱动）。
  */
 export const SERIES_REAR_IO_BUCKET: Record<string, string> = {
-  Polaris: 'Polaris',
+  兆芯: '兆芯',
 }
-export const DEFAULT_REAR_IO_BUCKET = 'Orion'
+export const DEFAULT_REAR_IO_BUCKET = 'AMD'
 /** 取某系列对应的 rear-IO 选项桶（未配置走默认桶）*/
 export function rearIOBucket(series?: string): string {
   return (series && SERIES_REAR_IO_BUCKET[series]) || DEFAULT_REAR_IO_BUCKET

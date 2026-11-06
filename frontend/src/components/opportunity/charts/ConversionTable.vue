@@ -59,8 +59,8 @@ function rateColor(rate: number) {
 </script>
 
 <style scoped>
-.conversion-table-wrap { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
-.conv-expand-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; margin-bottom: 4px; align-self: flex-end; border: 1px solid var(--cpq-overlay-a20); border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-a8); color: var(--cpq-accent-primary); font-size: var(--cpq-font-size-xs); cursor: pointer; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.conversion-table-wrap { flex: 1 1 0; height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.conv-expand-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; margin-bottom: 4px; align-self: flex-end; border: 1px solid var(--cpq-overlay-a20); border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-a8); color: var(--cpq-accent-primary); font-size: var(--cpq-font-size-xs); cursor: pointer; transition: color var(--cpq-dur-1) var(--cpq-ease-smooth), background-color var(--cpq-dur-1) var(--cpq-ease-smooth), border-color var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .conv-expand-toggle:hover { background: var(--cpq-overlay-a15); border-color: var(--cpq-accent-primary); }
 .conv-list { flex: 1 1 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 .conv-list::-webkit-scrollbar { width: 6px; }

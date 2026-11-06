@@ -137,7 +137,7 @@ function onSaved() {
 onMounted(() => store.ensurePricingRules())
 
 // ── 演算器 ──
-const calc = ref<PricingContext>({ platform: 'Polaris', industry: '政企信息化', region: '国内', customerType: '集采项目', form: '2U', cost: 120000, qty: 1 })
+const calc = ref<PricingContext>({ platform: '兆芯', industry: '政企信息化', region: '国内', customerType: '集采项目', form: '2U', cost: 120000, qty: 1 })
 const calcResult = computed(() => store.computeTargetMargin(calc.value))
 const calcPrice = computed(() => suggestPrice(calc.value.cost ?? null, calcResult.value.target, calcResult.value.fixedFee))
 const calcParts = computed(() => store.computePartMargins(calcResult.value.target))

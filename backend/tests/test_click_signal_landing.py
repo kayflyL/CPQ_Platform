@@ -17,19 +17,19 @@ VAL = "保持原需求：NVIDIA B200 192G ×2"
 
 
 def _seed():
-    ext = {"server_type": "通用计算服务器", "platform_type": "Orion", "chassis_form": "2U",
-           "purchase_qty": 1, "warranty_years": 3, "confirmed_slots": {"platform_type": "Orion"},
+    ext = {"server_type": "通用计算服务器", "platform_type": "AMD", "chassis_form": "2U",
+           "purchase_qty": 1, "warranty_years": 3, "confirmed_slots": {"platform_type": "AMD"},
            "kp_rows": [{"part_category": "CPU", "description": "双路CPU（AMD平台）", "qty": 2},
                        {"part_category": "GPU", "description": "NVIDIA B200 192G 显卡 2 张", "qty": 2}]}
     return {
         "ext": ext,
         "steps_done": ["agent_fill", "model_reason"],
-        "locked_baseline": {"name": "ES220 V3", "series": "Orion", "form": "2U", "server_model_id": 6},
-        "model_selection": {"name": "ES220 V3", "series": "Orion", "form": "2U"},
+        "locked_baseline": {"name": "ES220 V3", "series": "AMD", "form": "2U", "server_model_id": 6},
+        "model_selection": {"name": "ES220 V3", "series": "AMD", "form": "2U"},
         "node_state": {"kp_reason": {"row_answers": {}}},
         "last_card": {"options": [{"slot": "brain_ask", "value": VAL, "signal": {"kp_waived": [ROW]}}],
                       "pick_meta": {"row": ROW, "category": "GPU", "request_spec": "NVIDIA B200 192G 显卡 2 张",
-                                    "series": "Orion", "pool": [], "pool_source": "brain_ask"}},
+                                    "series": "AMD", "pool": [], "pool_source": "brain_ask"}},
     }
 
 

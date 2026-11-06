@@ -9,7 +9,7 @@ from ai_office import skill_tool_context
 
 
 def _ext_with_catalog(confirmed=None):
-    return {"platform_type": "Orion", "server_type": "通用计算服务器",
+    return {"platform_type": "AMD", "server_type": "通用计算服务器",
             "confirmed_slots": dict(confirmed or {})}
 
 
@@ -26,7 +26,7 @@ def test_fill_tool_delegation_declaration_persists():
     ext = {}
     skill_tool_context.TOOL_CTX.set({"task_active": True, "ext": ext, "save": None})
     out = tool_fill_requirement({"server_type": "通用计算服务器",
-                                 "platform_type": "Orion", "delegation": "full"})
+                                 "platform_type": "AMD", "delegation": "full"})
     assert out.get("ok"), out
     assert ext.get("delegation") == "full"
     assert out.get("delegation") == "full"
@@ -49,7 +49,7 @@ def test_bulk_click_confirms_catalog_fields_except_models():
     ext["server_model"] = "ES220 V3"
     got = confirm_registration_on_bulk_click(ext)
     conf = ext["confirmed_slots"]
-    assert conf.get("platform_type") == "Orion"
+    assert conf.get("platform_type") == "AMD"
     assert conf.get("server_type") == "通用计算服务器"
     assert "server_model" not in conf
     assert {"platform_type", "server_type"} <= set(got)

@@ -47,7 +47,7 @@ description: 服务器3D部件库建模的强制工作流（蓝图→分pass→�
 
 0. **交付前必须亲眼看到渲染结果（2026-11-04 机箱事故主根因）**：窗口最小化时截图是冻结旧帧——靠 bbox 数字/读坐标"验收"过的画面不算验收。交付任何可视化前：用 renderOnce 步进 + canvas→2D→img 覆盖层法亲眼截到新帧；截不到（窗口隐藏/超时）就明说"未复核，请本地打开确认"，禁止当成已验收交付。**像素检查必须隔离目标物做显隐对比**（目标隐藏→渲染→像素差>0 才算目标物真实在画面上），全局亮度/颜色桶会量到盒体灯光等别的东西——贴图工具照片缩放 bug（几何 1×aspect 配 mm/px 缩放=0.03mm 小点，两轮像素检查都没发现）就是这么漏网的。CSS 手搓 3D 禁止再用于任何部件示意（精度=卡通级、变换链易错，机箱事故第二根因），示意台一律 three.js。
 1. **父级有偏移时子件必须用局部坐标**：机箱事故——bezel/ rear 已有 position，子件再写世界坐标 = 双重偏移飞出箱外（bezel 悬空 320mm、螺丝条 z=-648）。写子件坐标前先问"父级在哪"；交付前用 `Box3.setFromObject(root)` 量包围盒，超出设计尺寸 = 有子件飞了。
-2. **金属件顶视炸白**：metalness≈1 的件（镀镍 IHS）在顶视时把正上方直射光（key+fillTop）mirror 进镜头再过 bloom = 全屏白。粗糙度/env/specularIntensity 单独调都压不住峰值（GGX 峰值 ∝ 1/α²），有效组合 = roughness 0.55 + envMapIntensity 0.4 + **暗色 bloomThr 0.85**（themes.ts，勿回退 0.72）。验收标准：顶视中心像素亮度 <200（renderOnce + drawImage + getImageData 量）。
+2. **金属件顶视炸白（2026-11-05 已根治,勿再走参数妥协老路）**：metalness≈1 的件（镀镍 IHS）镜面反射环境光,GGX 高光瓣一过 bloom 阈值,全屏 bloom 直接把三分之一区域放大成纯白。老方案（roughness/envMapIntensity/阈值三参数悬停妥协,验收只量"中心单像素<200"）修不干净——单像素恰好落在大高光瓣的暗缝里就算"过验"。**根治=stage.ts 选择性 bloom 双 composer**：辉光件（整机霓虹=所有 MeshBasicMaterial 面+舞台光环/尘埃）打 BLOOM_LAYER,其余件在 bloom-only 通道涂黑,金属再亮也进不了 bloom;阈值不再悬停妥协。cpu 品牌刻字带 `noBloom` 豁免（白色 Basic 平面不是霓虹）。新件为霓虹时只要用 MeshBasicMaterial 就自动上 bloom 层,非霓虹 Basic 平面记得标 noBloom。**验收标准=区域统计**（renderOnce + drawImage + getImageData）：模型区均值 <150 且白像素（L>240）占比=0,禁用单像素/全局亮度指标。
 3. **金属没有 env 会渲染近黑**：stage 必须有 `scene.environment`（PMREM+RoomEnvironment），强度走 STAGE_THEMES.env。
 4. **暗色三层拉开**：背景 #0a1526 / 地台 / 机体 亮度必须递增可辨，否则糊成一团（11-01 大亮板教训）。
 5. **后台预览面板 rAF 节流**：Browser pane 在后台时动画帧≈0.5fps 且 dt 被钳 0.05，补间看起来冻住——**代码没坏**。验证动画要么用户本地开，要么用 `stage.renderOnce(dt)` 手动步进后把 canvas drawImage 到 2D canvas 转成 `<img>` 覆盖层再截图（WebGL canvas 本体在后台合成不更新，DOM img 会更新）。
@@ -61,6 +61,6 @@ description: 服务器3D部件库建模的强制工作流（蓝图→分pass→�
 
 - [ ] 管理页部件库分组出现，整机页回归无损坏
 - [ ] 部件页：装配态/爆炸态/四视角/悬停标注文案正确
-- [ ] 顶视中心亮度 <200；浅色主题切一遍不糊白
+- [ ] 顶视中心区域均值 <150 且白像素占比=0（区域统计,禁单像素）；浅色主题切一遍模型可辨（模型与背景亮度差≥40,浅色照度=暗色同源,靠背景/地台/色板区分身份）
 - [ ] userData 语义键全部有 PART_INFO 中文文案（培训知识卡的地基）
 - [ ] build 通过；新迁移幂等重跑无副作用

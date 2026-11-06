@@ -29,7 +29,7 @@
         @drop.prevent="onDrop(col.category, $event)"
       >
         <div class="col-head">
-          <span class="col-icon">{{ col.icon }}</span>
+          <span class="col-icon"><component :is="col.icon" /></span>
           <span class="col-title">{{ col.title }}</span>
           <span class="col-count">{{ items(col.category).length }}</span>
           <button class="col-upload" @click="triggerUpload(col.category)" title="上传到此分类">
@@ -51,7 +51,7 @@
                 <template #overlay>
                   <a-menu @click="(e: any) => changeCategory(a, String(e.key))">
                     <a-menu-item v-for="col in columns" :key="col.category" :disabled="col.category === a.category">
-                      {{ col.icon }} {{ col.title }}
+                      <component :is="col.icon" /> {{ col.title }}
                     </a-menu-item>
                   </a-menu>
                 </template>
@@ -95,7 +95,7 @@
                 <template #overlay>
                   <a-menu @click="(e: any) => changeCategory(record, String(e.key))">
                     <a-menu-item v-for="col in columns" :key="col.category" :disabled="col.category === record.category">
-                      {{ col.icon }} {{ col.title }}
+                      <component :is="col.icon" /> {{ col.title }}
                     </a-menu-item>
                   </a-menu>
                 </template>
@@ -117,6 +117,7 @@ import {
   PlusOutlined, DownloadOutlined, DeleteOutlined, SwapOutlined,
   FileExcelOutlined, FilePdfOutlined, FileImageOutlined, FileOutlined,
   SearchOutlined, AppstoreOutlined, UnorderedListOutlined,
+  CalculatorOutlined, ToolOutlined, FileDoneOutlined, PaperClipOutlined,
 } from '@ant-design/icons-vue'
 import { feedApi } from '@/api/feed'
 import type { FeedAttachment } from '@/api/feed'
@@ -132,10 +133,10 @@ const emit = defineEmits<{
 const auth = useAuthStore()
 
 const ALL_COLUMNS = [
-  { category: 'requirement', title: '成本附件', icon: '📋' },
-  { category: 'technical', title: '方案附件', icon: '📦' },
-  { category: 'sent_quote', title: '报价附件', icon: '📤' },
-  { category: 'lead_requirement', title: '我的附件', icon: '📎' },
+  { category: 'requirement', title: '成本附件', icon: CalculatorOutlined },
+  { category: 'technical', title: '方案附件', icon: ToolOutlined },
+  { category: 'sent_quote', title: '报价附件', icon: FileDoneOutlined },
+  { category: 'lead_requirement', title: '我的附件', icon: PaperClipOutlined },
 ] as const
 
 // 受限列需对应权限（与后端 _CATEGORY_VIEW_PERM 同步）
@@ -368,12 +369,11 @@ function formatTime(iso: string) {
   flex-direction: column;
   min-width: 0;
   min-height: 240px;
-  transition: all var(--cpq-transition-fast);
+  transition: border-color var(--cpq-transition-fast), background var(--cpq-transition-fast);
 }
 .archive-col.dragging {
   border-color: var(--cpq-accent-primary);
   background: var(--cpq-overlay-a5);
-  box-shadow: inset 0 0 20px var(--cpq-overlay-a8);
 }
 .col-head {
   display: flex;
@@ -383,7 +383,7 @@ function formatTime(iso: string) {
   padding-bottom: 8px;
   border-bottom: 1px solid var(--cpq-overlay-w6);
 }
-.col-icon { font-size: var(--cpq-font-size-base); }
+.col-icon { font-size: var(--cpq-font-size-base); color: var(--cpq-text-secondary); }
 .col-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); flex: 1; }
 .col-count {
   font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted);
@@ -408,7 +408,7 @@ function formatTime(iso: string) {
   display: flex; align-items: center; gap: 8px;
   padding: 7px 8px; background: var(--cpq-overlay-w3);
   border: 1px solid var(--cpq-overlay-w6); border-radius: var(--cpq-radius-sm);
-  transition: all var(--cpq-transition-fast);
+  transition: border-color var(--cpq-transition-fast), background var(--cpq-transition-fast);
 }
 .archive-file:hover { border-color: var(--cpq-accent-primary); background: var(--cpq-overlay-a4); }
 .file-ic { font-size: 18px; flex-shrink: 0; }
@@ -422,12 +422,12 @@ function formatTime(iso: string) {
   word-break: break-word;
   line-height: 1.35;
 }
-.file-meta { font-size: 10px; color: var(--cpq-text-muted); margin-top: 1px; }
+.file-meta { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); margin-top: 1px; }
 .file-act {
   width: 22px; height: 22px; border-radius: var(--cpq-radius-xs); border: none;
   background: transparent; color: var(--cpq-text-muted); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; font-size: var(--cpq-font-size-sm);
-  opacity: 0; transition: all var(--cpq-transition-fast);
+  opacity: 0; transition: opacity var(--cpq-transition-fast), background var(--cpq-transition-fast), color var(--cpq-transition-fast);
 }
 .archive-file:hover .file-act { opacity: 1; }
 .file-act:hover { background: var(--cpq-overlay-w6); color: var(--cpq-text-primary); }
@@ -462,7 +462,7 @@ function formatTime(iso: string) {
   color: var(--cpq-text-muted);
   cursor: pointer;
   font-size: var(--cpq-font-size-base);
-  transition: all var(--cpq-transition-fast);
+  transition: background var(--cpq-transition-fast), color var(--cpq-transition-fast);
 }
 .view-toggle button.on { background: var(--cpq-accent-primary); color: #fff; }
 .archive-list { padding: 4px 0; }

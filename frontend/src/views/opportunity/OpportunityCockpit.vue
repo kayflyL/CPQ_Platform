@@ -1,41 +1,12 @@
 <template>
-  <div class="cockpit-page">
-    <!-- 天幕场景层：星空/星云/极光/云海（fixed 全屏在内容层之下，pointer-events 全穿透；
-         配色常量在 tokens.css --ck-* 块，动效遵循 prefers-reduced-motion） -->
-    <div class="ck-sky" aria-hidden="true">
-      <div class="ck-neb ck-neb-1" />
-      <div class="ck-neb ck-neb-2" />
-      <div class="ck-neb ck-aur-1" />
-      <div class="ck-neb ck-aur-2" />
-      <CockpitStars />
-      <div class="ck-clouds">
-        <svg viewBox="0 0 1440 300" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="ckCloudG" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="#c8d8f4" stop-opacity="0" />
-              <stop offset=".45" stop-color="#c8d8f4" stop-opacity=".30" />
-              <stop offset="1" stop-color="#9db4dd" stop-opacity=".55" />
-            </linearGradient>
-            <filter id="ckCloudF" x="-20%" y="-60%" width="140%" height="220%">
-              <feTurbulence type="fractalNoise" baseFrequency="0.008 0.028" numOctaves="4" seed="11" />
-              <feDisplacementMap in="SourceGraphic" scale="110" />
-              <feGaussianBlur stdDeviation="5" />
-            </filter>
-          </defs>
-          <rect x="-80" y="110" width="1600" height="230" fill="url(#ckCloudG)" filter="url(#ckCloudF)" />
-        </svg>
-      </div>
-      <div class="ck-horizon" />
-    </div>
-    <!-- 吸顶单条：标题 + 周期/自定义区间 + 维度筛选（滑动常驻）+ 下钻片 -->
-    <div class="ck-top">
+  <div class="cockpit-page" :class="{ 'is-mobile': isMobile }">
+    <!-- 桌面吸顶单条：标题 + 周期/自定义区间 + 维度筛选（滑动常驻）+ 下钻片 -->
+    <div v-if="!isMobile" class="ck-top">
       <div class="glass-strong ck-bar">
         <h1 class="ck-title">商机驾驶舱</h1>
         <span class="ck-sub">{{ rangeLabel }}<template v-if="data?.generated_at"> · 生成于 {{ data.generated_at }}</template></span>
         <div class="period-toggle">
-          <span v-for="p in PERIODS" :key="p.value" class="period-option" :class="{ active: isPeriodActive(p.value) }" @click="setPeriod(p.value)">
-            <span class="period-dot" />{{ p.label }}
-          </span>
+          <span v-for="p in PERIODS" :key="p.value" class="period-option" :class="{ active: isPeriodActive(p.value) }" @click="setPeriod(p.value)">{{ p.label }}</span>
         </div>
         <a-popover v-model:open="rangeOpen" trigger="click" placement="bottomRight" overlay-class-name="cockpit-range-pop">
           <template #content>
@@ -76,8 +47,27 @@
       </div>
     </div>
 
+    <!-- 手机：吸顶压缩头部（标题+区间 | 周期切换）+ 下钻片，其余筛选收进抽屉 -->
+    <div v-else class="ck-top m-top">
+      <div class="glass-strong m-bar">
+        <div class="m-bar-row">
+          <h1 class="ck-title">商机驾驶舱</h1>
+          <span class="ck-sub">{{ rangeLabel }}</span>
+        </div>
+        <div class="period-toggle m-period">
+          <span v-for="p in PERIODS" :key="p.value" class="period-option" :class="{ active: isPeriodActive(p.value) }" @click="setPeriod(p.value)">{{ p.label }}</span>
+        </div>
+      </div>
+      <div class="ck-chips">
+        <span v-if="!chipList.length" class="ck-hint">点击图表元素可下钻，与筛选叠加生效</span>
+        <span v-for="c in chipList" :key="c.dim + c.val" class="f-chip" @click="removeChip(c)">
+          <i class="dim">{{ DIM_LABEL[c.dim] || c.dim }}</i>{{ c.val }}<b>✕</b>
+        </span>
+      </div>
+    </div>
+
     <!-- 常态区：环形 Hero + 两侧卡（切 Tab 不动，仅随筛选刷新） -->
-    <div class="hero-grid">
+    <div v-if="!isMobile" class="hero-grid">
       <div class="kpi-col">
         <div v-for="k in heroKpisLeft" :key="k.label" class="kpi glass-light">
           <div class="kpi-l">{{ k.label }}</div>
@@ -100,28 +90,9 @@
         </div>
         <div class="hero-ring">
           <svg viewBox="0 0 200 200">
-            <defs>
-              <linearGradient id="ckRingGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" stop-color="#A855F7" /><stop offset="1" stop-color="#36CFCF" />
-              </linearGradient>
-              <radialGradient id="ckRingHalo">
-                <stop offset="0" stop-color="rgba(168,85,247,.28)" />
-                <stop offset=".7" stop-color="rgba(54,207,207,.10)" />
-                <stop offset="1" stop-color="rgba(54,207,207,0)" />
-              </radialGradient>
-            </defs>
-            <circle cx="100" cy="100" r="84" fill="url(#ckRingHalo)" stroke="none" />
-            <circle cx="100" cy="100" r="84" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="13" />
-            <g class="ck-ring-ticks">
-              <circle cx="100" cy="100" r="94" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="3" stroke-dasharray="1.5 7" stroke-linecap="round" />
-            </g>
-            <circle cx="100" cy="100" r="84" fill="none" stroke="url(#ckRingGrad)" stroke-width="13" stroke-linecap="round"
+            <circle cx="100" cy="100" r="84" fill="none" class="ring-track" stroke-width="13" />
+            <circle cx="100" cy="100" r="84" fill="none" class="ring-arc" stroke-width="13" stroke-linecap="round"
               :stroke-dasharray="RING_C" :stroke-dashoffset="ringOffset" transform="rotate(-90 100 100)" />
-            <g class="ck-ring-spark">
-              <path d="M100 6 l1.6 6.4 6.4 1.6 -6.4 1.6 -1.6 6.4 -1.6 -6.4 -6.4 -1.6 6.4 -1.6 Z" fill="#DDEBFF" />
-              <path d="M22 152 l1.2 5 5 1.2 -5 1.2 -1.2 5 -1.2 -5 -5 -1.2 5 -1.2 Z" fill="#9FE8FF" />
-              <path d="M176 138 l1.2 5 5 1.2 -5 1.2 -1.2 5 -1.2 -5 -5 -1.2 5 -1.2 Z" fill="#E4D2FF" />
-            </g>
           </svg>
           <div class="ring-center">
             <div class="rc-lab">商机总量</div>
@@ -151,16 +122,53 @@
       </div>
     </div>
 
+    <!-- 手机 Hero：读数卡（总量+成单+成单率进度条）+ 2×2 磁贴 + 构成两列 -->
+    <div v-else class="m-hero">
+      <div class="glass m-read">
+        <div class="mr-main">
+          <span class="mr-lab">商机总量</span>
+          <span class="mr-big">{{ kpi.total_opportunities }}</span>
+        </div>
+        <div class="mr-side">
+          <div class="mr-item">
+            <span class="mr-l">成单</span>
+            <span class="mr-v">{{ kpi.won }}</span>
+          </div>
+          <div class="mr-item">
+            <span class="mr-l">成单率 {{ kpi.win_rate }}%</span>
+            <span class="mr-track"><i class="mr-fill" :style="{ transform: 'scaleX(' + winRatePct / 100 + ')' }" /></span>
+          </div>
+        </div>
+      </div>
+      <div class="m-tiles">
+        <div v-for="k in mobileHeroKpis" :key="k.label" class="glass-light kpi m-kpi">
+          <div class="kpi-l">{{ k.label }}</div>
+          <div class="kpi-v">{{ k.v }}<small>{{ k.unit }}</small></div>
+          <div class="kpi-stats">
+            <div v-for="st in k.stats" :key="st.label" class="kpi-stat">
+              <span class="ks-l">{{ st.label }}</span>
+              <span class="ks-v">{{ st.value }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="m-chipgrid">
+        <div v-for="c in mobileConstituteChips" :key="c.label" class="hchip m-hchip">
+          <span class="hicon" :style="{ background: c.tint, color: c.color }">{{ c.glyph }}</span>
+          <span class="ht"><span class="hl">{{ c.label }}</span><span class="hv">{{ c.value }}</span></span>
+          <span class="hp">{{ c.pct }}</span>
+        </div>
+      </div>
+    </div>
+
     <!-- 内容区板块切换 -->
     <nav class="tabs glass-strong">
-      <button v-for="t in TABS" :key="t.key" class="tab" :class="{ active: activeTab === t.key }" @click="switchTab(t.key)">
-        <span class="tdot" />{{ t.label }}
-      </button>
+      <button v-for="t in TABS" :key="t.key" class="tab" :class="{ active: activeTab === t.key }" @click="switchTab(t.key)">{{ t.label }}</button>
     </nav>
 
     <!-- 加载失败：明示错误与重试，绝不静默渲染全 0（多为后端未重启/网络问题） -->
     <div v-if="loadError && !data" class="load-error glass-strong">
-      <div class="le-text">⚠️ {{ loadError }}</div>
+      <div class="le-text">{{ loadError }}</div>
       <button class="f-reset" @click="load">重试</button>
     </div>
     <a-spin v-else :spinning="loading">
@@ -187,7 +195,7 @@
           </div>
         </div>
         <div class="conclusion" v-html="conProduct" />
-        <div class="grid4" style="margin-bottom: var(--cpq-space-4)">
+        <div class="grid4">
           <div class="glass card-block"><div class="card-head">平台结构<span class="note">点击下钻</span></div>
             <div class="chart-mini"><DonutChart :items="structure.platforms" :colors="PLAT_COLOR" center-total @pick="(n: string) => setFilter('platform', n)" /></div></div>
           <div class="glass card-block"><div class="card-head">机箱形态<span class="note">点击下钻</span></div>
@@ -233,11 +241,11 @@
           </div>
         </div>
         <div class="conclusion" v-html="conWin" />
-        <div class="glass card-block" style="margin-bottom: var(--cpq-space-4)">
+        <div class="glass card-block">
           <div class="card-head">新增 vs 成单<span class="note">近12月 · 柱=新增商机 · 线=当月成单 · 点柱=切到该月</span></div>
           <div class="chart-wide"><TrendBarLine :labels="monthLabels" :total="monthTotals" :lines="wonLine" @pick-label="onMonthLabelPick" /></div>
         </div>
-        <div class="grid2" style="margin-bottom: var(--cpq-space-4)">
+        <div class="grid2">
           <div class="glass card-block">
             <div class="card-head">制胜因子<span class="note">成单归因 · 横条=单数 · 字典与状态变更弹窗共用</span></div>
             <v-chart v-if="winReasonOpt.series" class="chart" :option="winReasonOpt" autoresize />
@@ -248,7 +256,7 @@
             <v-chart class="chart" :option="markupWinOpt" autoresize />
           </div>
         </div>
-        <div class="grid3" style="margin-bottom: var(--cpq-space-4)">
+        <div class="grid3">
           <div class="glass card-block"><div class="card-head">成单机型<span class="note">柱=成单数 · 线=成单平均加点%</span></div>
             <v-chart class="chart" :option="wonModelOpt" autoresize /></div>
           <div class="glass card-block"><div class="card-head">成单时效<span class="note">建档→成单天数 · 中位/P90 见提示</span></div>
@@ -273,7 +281,7 @@
           </div>
         </div>
         <div class="conclusion" v-html="conRegion" />
-        <div class="glass card-block" style="margin-bottom: var(--cpq-space-4)">
+        <div class="glass card-block">
           <div class="card-head">地区分布
             <span style="flex: 1" />
             <span class="map-toggle">
@@ -295,13 +303,61 @@
         </div>
       </section>
     </a-spin>
+
+    <!-- 手机：底部摘要条（拇指区常驻：区间+总量+成单率 | 筛选入口带计数） -->
+    <div v-if="isMobile" class="m-sumbar glass-strong">
+      <span class="ms-info">{{ rangeLabel }} · 总量 <b>{{ kpi.total_opportunities ?? 0 }}</b> · 成单率 <b>{{ kpi.win_rate ?? 0 }}%</b></span>
+      <button class="ms-filter" @click="filterOpen = true">
+        筛选<b v-if="activeFilterCount" class="ms-badge">{{ activeFilterCount }}</b>
+      </button>
+    </div>
+
+    <!-- 手机：筛选抽屉（桌面吸顶条的控件全部收进这里，两侧 v-if 互斥保单实例） -->
+    <a-drawer v-if="isMobile" v-model:open="filterOpen" title="筛选" placement="right" :width="320" root-class-name="cockpit-filter-drawer">
+      <div class="m-filter">
+        <div class="range-sec">状态</div>
+        <a-select v-model:value="filters.result" style="width: 100%" size="small" @change="load">
+          <a-select-option value="">全部状态</a-select-option>
+          <a-select-option value="pending">进行中</a-select-option>
+          <a-select-option value="won">已中标</a-select-option>
+          <a-select-option value="lost">已丢标</a-select-option>
+          <a-select-option value="expired">已过期</a-select-option>
+        </a-select>
+        <div class="range-sec">平台</div>
+        <a-select v-model:value="filters.platform" mode="multiple" placeholder="全部平台" style="width: 100%" size="small" :options="platformOptions" @change="load" />
+        <div class="range-sec">形态</div>
+        <a-select v-model:value="filters.chassis" mode="multiple" placeholder="全部形态" style="width: 100%" size="small" :options="chassisOptions" @change="load" />
+        <template v-if="canViewAll">
+          <div class="range-sec">业务</div>
+          <a-select v-model:value="filters.sales" mode="multiple" placeholder="全部业务" style="width: 100%" size="small" :options="salesOptions" @change="load" />
+        </template>
+        <div class="range-sec">客户</div>
+        <a-input v-model:value="filters.customer" placeholder="搜索客户" size="small" allow-clear @input="debounceLoad" />
+        <div class="range-sec">快捷区间</div>
+        <div class="preset-grid">
+          <button v-for="ps in PRESETS" :key="ps.key" class="preset-btn" :class="{ active: custom?.key === ps.key }" @click="applyPreset(ps)">{{ ps.label }}</button>
+        </div>
+        <div class="range-sec">指定月份</div>
+        <a-date-picker v-model:value="monthValue" picker="month" size="small" placeholder="选择月份" value-format="YYYY-MM" style="width: 100%" @change="onMonthChange" />
+        <div class="range-sec">自定义区间</div>
+        <div class="range-inputs">
+          <a-range-picker v-model:value="rangeValue" size="small" value-format="YYYY-MM-DD" style="width: 100%" @change="onRangeChange" />
+        </div>
+      </div>
+      <template #footer>
+        <div class="m-filter-foot">
+          <button class="f-reset" @click="resetAll">重置</button>
+          <button class="ms-filter m-filter-done" @click="filterOpen = false">完成</button>
+        </div>
+      </template>
+    </a-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
 // 商机驾驶舱正式页 —— 原型 docs/prototypes/商机驾驶舱-原型.html 的实装。
 // 数据源 /api/dashboard/cockpit（同 opp_stats 口径）；常态区 Hero 切 Tab 不动；全维度点击下钻走服务端筛选。
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import * as echarts from 'echarts/core'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -312,8 +368,6 @@ import dayjs from 'dayjs'
 import axios from 'axios'
 import { useChartTheme } from '@/composables/useChartTheme'
 import { useAuthStore } from '@/store/auth'
-import { useThemeStore } from '@/store/theme'
-import CockpitStars from '@/components/opportunity/CockpitStars.vue'
 import { PLAT_COLOR } from '@/constants/platform'
 import TrendBarLine from '@/components/opportunity/charts/TrendBarLine.vue'
 import ModelTreemap from '@/components/opportunity/charts/ModelTreemap.vue'
@@ -330,16 +384,22 @@ defineOptions({ name: 'OpportunityCockpit' })
 const auth = useAuthStore()
 const canViewAll = computed(() => auth.can('page.opportunities_all'))
 const { chartColors } = useChartTheme()
-/* 页面固定暗色：进入切暗、离开还原（store 单点切换，CSS/antd/图表三套主题保持同步不错位） */
-const themeStore = useThemeStore()
-let prevTheme: 'dark' | 'light' | null = null
+/* 页面跟随全局主题（2026-11-05 定调：去星空特殊背景，与其他页一致，深浅双模式） */
+
+/* ── 手机适配（全站范式：isMobile 分支 + 抽屉 + 底部摘要条；切视口需 reload 才触发场景重算） ── */
+const isMobile = ref(false)
+let mobileMq: MediaQueryList | null = null
+let mobileMqHandler: ((e: MediaQueryListEvent) => void) | null = null
 onMounted(() => {
-  prevTheme = themeStore.mode
-  if (themeStore.mode !== 'dark') themeStore.setMode('dark')
+  mobileMq = window.matchMedia('(max-width: 768px)')
+  isMobile.value = mobileMq.matches
+  mobileMqHandler = (e) => { isMobile.value = e.matches }
+  mobileMq.addEventListener('change', mobileMqHandler)
 })
-onUnmounted(() => {
-  if (prevTheme && prevTheme !== 'dark') themeStore.setMode(prevTheme)
+onBeforeUnmount(() => {
+  if (mobileMq && mobileMqHandler) mobileMq.removeEventListener('change', mobileMqHandler)
 })
+const filterOpen = ref(false)
 
 const RING_C = 527.8
 const PERIODS = [
@@ -624,6 +684,13 @@ const heroKpisRight = computed(() => {
   ]
 })
 
+/* ── 手机 Hero 派生 ── */
+const mobileHeroKpis = computed(() => [...heroKpisLeft.value, ...heroKpisRight.value])
+const mobileConstituteChips = computed(() => [...resultChips.value, ...assetChips.value])
+const winRatePct = computed(() => Math.min(100, Math.max(0, kpi.value.win_rate || 0)))
+/* 摘要条徽标计数：周期已单独展示在摘要条文案里，不计入 */
+const activeFilterCount = computed(() => chipList.value.filter(c => c.dim !== 'period').length)
+
 /* ── 图表公共 ── */
 function tipAxis() {
   const c = chartColors.value
@@ -648,9 +715,7 @@ function hbarOption(items: { name: string; count: number }[], opt?: { green?: bo
         value: d.count,
         itemStyle: {
           borderRadius: [0, 6, 6, 0],
-          color: opt?.green
-            ? { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: 'rgba(82,201,160,.15)' }, { offset: 1, color: '#52C9A0' }] }
-            : { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: 'rgba(22,119,255,.15)' }, { offset: 1, color: '#1677FF' }] },
+          color: opt?.green ? '#52C9A0' : '#1677FF',
         },
       })),
       label: { show: true, position: 'right', color: c.tooltipText, fontSize: 11, fontWeight: 600 },
@@ -774,7 +839,7 @@ const markupWinOpt = computed(() => {
       { type: 'value', name: '成单率%', max: 50, splitLine: { show: false }, axisLabel: { color: c.axisLabel, fontSize: 10, formatter: '{value}%' }, nameTextStyle: { color: c.axisLabel, fontSize: 10 } },
     ],
     series: [
-      { name: '报价次数', type: 'bar', barWidth: '40%', data: bins.map((d: any) => d.count), itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#36CFCF' }, { offset: 1, color: 'rgba(54,207,207,.15)' }] }, borderRadius: [4, 4, 0, 0] } },
+      { name: '报价次数', type: 'bar', barWidth: '40%', data: bins.map((d: any) => d.count), itemStyle: { color: '#36CFCF', borderRadius: [4, 4, 0, 0] } },
       { name: '成单率', type: 'line', yAxisIndex: 1, smooth: true, data: bins.map((d: any) => d.rate), lineStyle: { width: 2.5, color: '#FF3B5C' }, itemStyle: { color: '#FF3B5C' }, symbolSize: 6,
         label: { show: true, position: 'top', color: '#e5484d', fontSize: 10, formatter: '{c}%' } },
     ],
@@ -795,7 +860,7 @@ const wonModelOpt = computed(() => {
       { type: 'value', name: '平均加点%', splitLine: { show: false }, axisLabel: { color: c.axisLabel, fontSize: 10, formatter: '{value}%' }, nameTextStyle: { color: c.axisLabel, fontSize: 10 } },
     ],
     series: [
-      { name: '成单数', type: 'bar', barWidth: '40%', data: items.map((d: any) => d.count), itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#52C9A0' }, { offset: 1, color: 'rgba(82,201,160,.15)' }] }, borderRadius: [4, 4, 0, 0] } },
+      { name: '成单数', type: 'bar', barWidth: '40%', data: items.map((d: any) => d.count), itemStyle: { color: '#52C9A0', borderRadius: [4, 4, 0, 0] } },
       { name: '平均加点', type: 'line', yAxisIndex: 1, smooth: true, data: items.map((d: any) => d.avg_markup), lineStyle: { width: 2, color: '#FA8C16' }, itemStyle: { color: '#FA8C16' }, symbolSize: 5 },
     ],
   }
@@ -811,7 +876,7 @@ const cycleOpt = computed(() => {
     grid: { left: 40, right: 16, bottom: 28, top: 20 },
     xAxis: { type: 'category', data: cyc.bins.map((b: any) => b.label), axisLine: { lineStyle: { color: c.grid } }, axisLabel: { color: c.axisLabel, fontSize: 10 }, axisTick: { show: false } },
     yAxis: { type: 'value', splitLine: SPLIT.value, axisLabel: { color: c.axisLabel, fontSize: 10 } },
-    series: [{ type: 'bar', barWidth: '46%', data: cyc.bins.map((b: any) => b.count), itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#722ED1' }, { offset: 1, color: 'rgba(114,46,209,.15)' }] }, borderRadius: [4, 4, 0, 0] } }],
+    series: [{ type: 'bar', barWidth: '46%', data: cyc.bins.map((b: any) => b.count), itemStyle: { color: '#722ED1', borderRadius: [4, 4, 0, 0] } }],
   }
 })
 const conWin = computed(() => {
@@ -872,7 +937,7 @@ const mapOpt = computed(() => {
   return {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'item', backgroundColor: c.tooltipBg, textStyle: { color: c.tooltipText }, borderColor: c.tooltipBorder, borderWidth: 1,
-      formatter: (p: any) => `${p.name}<br/>商机 <b>${p.value || 0}</b>${mode === 'china' && items.length ? '<br/><span style="color:#86909c">点击下钻</span>' : ''}` },
+      formatter: (p: any) => `${p.name}<br/>商机 <b>${p.value || 0}</b>${mode === 'china' && items.length ? '<br/><span style="color:var(--cpq-text-muted)">点击下钻</span>' : ''}` },
     visualMap: { min: 0, max: maxV, left: 8, bottom: 4, calculable: true, text: ['高', '低'],
       textStyle: { color: c.axisLabel, fontSize: 10 }, inRange: { color: [c.mapLow, '#1677FF'] } },
     series: [{
@@ -892,7 +957,7 @@ const custOpt = computed(() => {
   return {
     backgroundColor: 'transparent',
     tooltip: { axisPointer: { type: 'shadow' }, ...tipAxis(),
-      formatter: (p: any) => { const d = items[p[0].dataIndex]; return `${d.name}<br/>商机 <b>${d.count}</b> · 成单 <b>${d.won}</b><br/><span style="color:#86909c">点击下钻</span>` } },
+      formatter: (p: any) => { const d = items[p[0].dataIndex]; return `${d.name}<br/>商机 <b>${d.count}</b> · 成单 <b>${d.won}</b><br/><span style="color:var(--cpq-text-muted)">点击下钻</span>` } },
     grid: { left: 4, right: 44, top: 8, bottom: 4, containLabel: true },
     xAxis: { type: 'value', splitLine: SPLIT.value, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: c.axisLabel, fontSize: 10 } },
     yAxis: { type: 'category', inverse: true, data: items.map((d: any) => d.name), axisLine: { show: false }, axisTick: { show: false },
@@ -901,10 +966,7 @@ const custOpt = computed(() => {
       type: 'bar', barMaxWidth: 14,
       data: items.map((d: any) => ({
         value: d.count,
-        itemStyle: { borderRadius: [0, 6, 6, 0],
-          color: d.hasWon
-            ? { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: 'rgba(82,201,160,.15)' }, { offset: 1, color: '#52C9A0' }] }
-            : { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: 'rgba(22,119,255,.15)' }, { offset: 1, color: '#1677FF' }] } },
+        itemStyle: { borderRadius: [0, 6, 6, 0], color: d.hasWon ? '#52C9A0' : '#1677FF' },
       })),
       label: { show: true, position: 'right', color: c.tooltipText, fontSize: 11, fontWeight: 600 },
     }],
@@ -923,53 +985,23 @@ const conRegion = computed(() => {
 
 <style scoped>
 /* 布局间距只用 --cpq-space-*；字号只用字阶 token；颜色/阴影/圆角走 tokens（style-gate 门禁） */
-.cockpit-page { position: relative; z-index: 1; max-width: 1440px; margin: 0 auto; padding: var(--cpq-space-2) var(--cpq-space-5) var(--cpq-space-6); }
+.cockpit-page { max-width: 1440px; margin: 0 auto; padding: var(--cpq-space-2) var(--cpq-space-5) var(--cpq-space-6); }
 
-/* —— 天幕场景（配色见 tokens.css --ck-* 块；星点 canvas 在 CockpitStars.vue）—— */
-.ck-sky { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none;
-  background:
-    radial-gradient(1200px 700px at 78% 8%, var(--ck-nebula-blue), transparent 62%),
-    radial-gradient(1000px 640px at 12% 30%, var(--ck-nebula-purple), transparent 60%),
-    linear-gradient(180deg, var(--ck-sky-1) 0%, var(--ck-sky-2) 55%, var(--ck-sky-3) 100%);
-}
-.ck-neb { position: absolute; border-radius: 50%; filter: blur(70px); }
-.ck-neb-1 { left: -8%; top: 18%; width: 46vw; height: 30vw; background: var(--ck-nebula-purple); opacity: .8; }
-.ck-neb-2 { right: -6%; top: -10%; width: 40vw; height: 26vw; background: var(--ck-nebula-blue); opacity: .7; }
-.ck-aur-1, .ck-aur-2 { border-radius: 50%; position: absolute; filter: blur(46px); }
-.ck-aur-1 { left: 16%; top: 24%; width: 62vw; height: 11vw; --aur-rot: -14deg;
-  background: linear-gradient(90deg, transparent, var(--ck-aurora-teal) 30%, var(--ck-aurora-green) 55%, transparent);
-  animation: ckAur 26s ease-in-out infinite alternate; }
-.ck-aur-2 { left: 36%; top: 46%; width: 52vw; height: 8vw; --aur-rot: -9deg;
-  background: linear-gradient(90deg, transparent, var(--ck-aurora-green) 40%, var(--ck-aurora-teal) 70%, transparent);
-  animation: ckAur 34s ease-in-out infinite alternate-reverse; }
-@keyframes ckAur {
-  from { transform: rotate(var(--aur-rot)) translateX(-3vw); opacity: .55; }
-  to { transform: rotate(var(--aur-rot)) translateX(3vw); opacity: .9; }
-}
-.ck-clouds { position: absolute; left: 0; right: 0; bottom: 0; height: 32vh; }
-.ck-clouds svg { width: 100%; height: 100%; display: block; }
-.ck-horizon { position: absolute; left: 10%; right: 10%; bottom: -7vh; height: 18vh; filter: blur(14px);
-  background: radial-gradient(52% 100% at 50% 100%, var(--ck-horizon-glow), transparent 72%); }
-
-@media (prefers-reduced-motion: reduce) {
-  .ck-aur-1, .ck-aur-2 { animation: none; }
-}
 .bar-divider { width: 1px; align-self: stretch; margin: var(--cpq-space-1) 0; background: var(--cpq-border-primary); }
 .ck-top { position: sticky; top: var(--cpq-space-2); z-index: 30; display: flex; flex-direction: column; gap: var(--cpq-space-2); margin-bottom: var(--cpq-space-4); }
 .ck-bar { display: flex; align-items: center; gap: var(--cpq-space-2) var(--cpq-space-3); flex-wrap: wrap; padding: var(--cpq-space-2) var(--cpq-space-4); border-radius: var(--cpq-radius-xl); }
 .ck-title {
-  margin: 0; font-size: var(--cpq-font-size-xl); font-weight: 700; line-height: 1.25; white-space: nowrap;
-  background: var(--cpq-accent-gradient); -webkit-background-clip: text; background-clip: text; color: transparent;
+  margin: 0; font-size: var(--cpq-font-size-xl); font-weight: 600; line-height: 1.25; white-space: nowrap;
+  color: var(--cpq-text-primary);
 }
 .ck-sub { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); white-space: nowrap; }
 .ck-hint { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 
 /* 周期快捷 */
 .period-toggle { display: flex; gap: 2px; background: var(--cpq-overlay-w5); border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-full); padding: 3px; }
-.period-option { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); padding: 2px 14px; border-radius: var(--cpq-radius-full); cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: var(--cpq-space-2); transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.period-option { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); padding: 2px 14px; border-radius: var(--cpq-radius-full); cursor: pointer; user-select: none; display: inline-flex; align-items: center; transition: color var(--cpq-dur-1) var(--cpq-ease-smooth), background-color var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .period-option.active { background: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); font-weight: 600; }
-.period-dot { width: 5px; height: 5px; border-radius: var(--cpq-radius-full); background: currentColor; opacity: .55; }
-.range-btn { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); background: var(--cpq-overlay-w5); border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-md); padding: 3px 12px; cursor: pointer; font-family: inherit; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.range-btn { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); background: var(--cpq-overlay-w5); border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-md); padding: 4px 12px; cursor: pointer; font-family: inherit; transition: color var(--cpq-dur-1) var(--cpq-ease-smooth), border-color var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .range-btn:hover, .range-btn.on { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
 .range-pop { min-width: 300px; }
 .range-sec { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); margin: var(--cpq-space-2) 0 var(--cpq-space-1); }
@@ -980,12 +1012,12 @@ const conRegion = computed(() => {
 
 /* 筛选行 */
 .cust-search { width: 160px; }
-.f-reset { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-secondary); background: var(--cpq-overlay-w5); border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-md); padding: 4px 12px; cursor: pointer; font-family: inherit; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.f-reset { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-secondary); background: var(--cpq-overlay-w5); border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-md); padding: 4px 12px; cursor: pointer; font-family: inherit; transition: color var(--cpq-dur-1) var(--cpq-ease-smooth), border-color var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .f-reset:hover { color: var(--cpq-accent-danger); border-color: var(--cpq-accent-danger); }
 
 /* 下钻片 */
 .ck-chips { display: flex; align-items: center; gap: var(--cpq-space-2); flex-wrap: wrap; padding: 0 var(--cpq-space-2); }
-.f-chip { display: inline-flex; align-items: center; gap: 5px; font-size: var(--cpq-font-size-xs); font-weight: 600; color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); border: 1px solid var(--cpq-overlay-a30); border-radius: var(--cpq-radius-full); padding: 2px 10px; cursor: pointer; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.f-chip { display: inline-flex; align-items: center; gap: var(--cpq-space-1); font-size: var(--cpq-font-size-xs); font-weight: 600; color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); border: 1px solid var(--cpq-overlay-a30); border-radius: var(--cpq-radius-full); padding: 2px 10px; cursor: pointer; transition: background-color var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .f-chip:hover { background: var(--cpq-overlay-a15); }
 .f-chip .dim { font-style: normal; opacity: .65; font-weight: 400; }
 .f-chip b { font-weight: 400; opacity: .7; }
@@ -1004,9 +1036,9 @@ const conRegion = computed(() => {
 
 .hero { display: flex; align-items: center; justify-content: center; gap: var(--cpq-space-4); padding: var(--cpq-space-4); }
 .hchips { display: flex; flex-direction: column; gap: var(--cpq-space-2); flex: 1; min-width: 0; }
-.hchip { display: flex; align-items: center; gap: 10px; background: var(--cpq-overlay-w6); border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-lg); padding: var(--cpq-space-2) var(--cpq-space-3); transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.hchip { display: flex; align-items: center; gap: var(--cpq-space-2); background: var(--cpq-overlay-w6); border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-lg); padding: var(--cpq-space-2) var(--cpq-space-3); transition: border-color var(--cpq-dur-1) var(--cpq-ease-smooth), background-color var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .hchip:hover { border-color: var(--cpq-accent-primary); background: var(--cpq-overlay-w10); }
-.hicon { width: 34px; height: 34px; border-radius: var(--cpq-radius-lg); flex: none; display: flex; align-items: center; justify-content: center; font-size: var(--cpq-font-size-base); font-weight: 700; }
+.hicon { width: 36px; height: 36px; border-radius: var(--cpq-radius-lg); flex: none; display: flex; align-items: center; justify-content: center; font-size: var(--cpq-font-size-base); font-weight: 600; }
 .ht { display: flex; flex-direction: column; min-width: 0; }
 .hl { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); white-space: nowrap; }
 .hv { font-size: var(--cpq-font-size-lg); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; color: var(--cpq-text-primary); }
@@ -1014,15 +1046,8 @@ const conRegion = computed(() => {
 .hero-ring { position: relative; width: 220px; height: 220px; flex: none; }
 .hero-ring svg { width: 100%; height: 100%; overflow: visible; }
 .hero-ring circle { transition: stroke-dashoffset .9s var(--cpq-ease-out-expo); }
-.ck-ring-ticks { transform-box: view-box; transform-origin: 50% 50%; animation: ckSpin 80s linear infinite; }
-.ck-ring-spark path { animation: ckSpark 4.5s ease-in-out infinite alternate; }
-.ck-ring-spark path:nth-child(2) { animation-delay: 1.5s; }
-.ck-ring-spark path:nth-child(3) { animation-delay: 3s; }
-@keyframes ckSpin { to { transform: rotate(360deg); } }
-@keyframes ckSpark { from { opacity: .35; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) {
-  .ck-ring-ticks, .ck-ring-spark path { animation: none; }
-}
+.ring-track { stroke: var(--cpq-overlay-a10); }
+.ring-arc { stroke: var(--cpq-accent-primary); }
 .ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .rc-lab { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 .rc-big { font-size: var(--cpq-font-size-3xl); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; color: var(--cpq-text-primary); }
@@ -1031,20 +1056,18 @@ const conRegion = computed(() => {
 
 /* Tab 板块 */
 .tabs { display: flex; gap: var(--cpq-space-1); padding: var(--cpq-space-1); margin-bottom: var(--cpq-space-4); overflow-x: auto; border-radius: var(--cpq-radius-xl); }
-.tab { flex: 1; min-width: 120px; display: inline-flex; align-items: center; justify-content: center; gap: var(--cpq-space-2); font-size: var(--cpq-font-size-base); font-weight: 600; color: var(--cpq-text-secondary); border: none; background: transparent; border-radius: var(--cpq-radius-lg); padding: 8px 16px; cursor: pointer; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); font-family: inherit; white-space: nowrap; }
-.tab .tdot { width: 7px; height: 7px; border-radius: var(--cpq-radius-sm); background: var(--cpq-text-disabled); transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.tab { flex: 1; min-width: 120px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--cpq-font-size-base); font-weight: 600; color: var(--cpq-text-secondary); border: none; background: transparent; border-radius: var(--cpq-radius-lg); padding: 8px 16px; cursor: pointer; transition: color var(--cpq-dur-1) var(--cpq-ease-smooth), background-color var(--cpq-dur-1) var(--cpq-ease-smooth); font-family: inherit; white-space: nowrap; }
 .tab:hover { color: var(--cpq-accent-primary); background: var(--cpq-overlay-a8); }
-.tab.active { color: var(--cpq-accent-on-primary); background: var(--cpq-accent-gradient); box-shadow: var(--cpq-shadow-sm); }
-.tab.active .tdot { background: var(--cpq-accent-on-primary); }
+.tab.active { color: var(--cpq-accent-on-primary); background: var(--cpq-accent-primary); }
 
 /* 面板 */
 .panel { animation: ckFadeUp var(--cpq-dur-2) var(--cpq-ease-out-expo); }
 @keyframes ckFadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .card-block { padding: var(--cpq-space-4); margin-bottom: var(--cpq-space-4); min-width: 0; }
 .card-block:last-child { margin-bottom: 0; }
-.card-head { display: flex; align-items: center; gap: 10px; font-size: var(--cpq-font-size-base); font-weight: 600; letter-spacing: .5px; color: var(--cpq-text-primary); margin-bottom: var(--cpq-space-3); }
+.card-head { display: flex; align-items: center; gap: var(--cpq-space-2); font-size: var(--cpq-font-size-base); font-weight: 600; color: var(--cpq-text-primary); margin-bottom: var(--cpq-space-3); }
 .card-head::after { content: ''; flex: 1; height: 1px; background: var(--cpq-overlay-a15); }
-.card-head .note { font-weight: 400; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); letter-spacing: 0; white-space: nowrap; }
+.card-head .note { font-weight: 400; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); white-space: nowrap; }
 .card-head-sub { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 .map-toggle { display: inline-flex; gap: 2px; background: var(--cpq-overlay-w5); border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-full); padding: 2px; }
 .map-toggle button { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-secondary); border: none; background: transparent; padding: 2px 12px; border-radius: var(--cpq-radius-full); cursor: pointer; font-family: inherit; }
@@ -1063,7 +1086,7 @@ const conRegion = computed(() => {
 /* KPI 指标条 */
 .stats { display: grid; gap: var(--cpq-space-4); grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); margin-bottom: var(--cpq-space-3); }
 .stat { display: flex; align-items: center; gap: var(--cpq-space-3); padding: var(--cpq-space-3) var(--cpq-space-4); border-radius: var(--cpq-radius-xl); min-width: 0; }
-.sicon { width: 38px; height: 38px; border-radius: var(--cpq-radius-lg); flex: none; display: flex; align-items: center; justify-content: center; font-size: var(--cpq-font-size-base); font-weight: 700; }
+.sicon { width: 36px; height: 36px; border-radius: var(--cpq-radius-lg); flex: none; display: flex; align-items: center; justify-content: center; font-size: var(--cpq-font-size-base); font-weight: 600; }
 .st { display: flex; flex-direction: column; min-width: 0; }
 .sl { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); white-space: nowrap; }
 .sv { font-size: var(--cpq-font-size-2xl); font-weight: 700; line-height: 1.25; font-variant-numeric: tabular-nums; color: var(--cpq-text-primary); }
@@ -1082,10 +1105,52 @@ const conRegion = computed(() => {
 .grid2 { display: grid; gap: var(--cpq-space-4); grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); }
 .grid3 { display: grid; gap: var(--cpq-space-4); grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
 .grid4 { display: grid; gap: var(--cpq-space-4); grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); }
-.grid4 .card-block { margin-bottom: 0; }
+.grid2, .grid3, .grid4 { margin-bottom: var(--cpq-space-4); }
+.grid2 > .card-block, .grid3 > .card-block, .grid4 > .card-block { margin-bottom: 0; }
+.panel > .grid2:last-child, .panel > .grid3:last-child, .panel > .grid4:last-child { margin-bottom: 0; }
 
 .load-error { display: flex; align-items: center; justify-content: space-between; gap: var(--cpq-space-4); padding: var(--cpq-space-4) var(--cpq-space-5); margin-bottom: var(--cpq-space-4); border-radius: var(--cpq-radius-xl); }
 .le-text { font-size: var(--cpq-font-size-base); color: var(--cpq-accent-danger); }
+
+/* —— 手机端（isMobile JS 分支 ≤768；样式与断点解耦，平板区间仍走桌面布局+媒体查询）—— */
+.cockpit-page.is-mobile { padding-bottom: calc(var(--cpq-tabbar-inset) + 48px + var(--cpq-space-4)); }
+.m-bar { display: flex; flex-direction: column; gap: var(--cpq-space-2); padding: var(--cpq-space-2) var(--cpq-space-3); border-radius: var(--cpq-radius-xl); }
+.m-bar-row { display: flex; align-items: baseline; gap: var(--cpq-space-2); min-width: 0; }
+.m-bar-row .ck-title { font-size: var(--cpq-font-size-lg); }
+.m-bar-row .ck-sub { margin-left: auto; }
+.m-period { display: flex; }
+.m-period .period-option { flex: 1; justify-content: center; padding: var(--cpq-space-1) 0; }
+
+.m-hero { display: flex; flex-direction: column; gap: var(--cpq-space-3); margin-bottom: var(--cpq-space-4); }
+.m-read { display: flex; align-items: stretch; gap: var(--cpq-space-4); padding: var(--cpq-space-3) var(--cpq-space-4); border-radius: var(--cpq-radius-xl); }
+.mr-main { display: flex; flex-direction: column; justify-content: center; flex: none; }
+.mr-lab { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+.mr-big { font-size: var(--cpq-font-size-3xl); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; color: var(--cpq-text-primary); }
+.mr-side { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: var(--cpq-space-3); }
+.mr-item { display: flex; flex-direction: column; gap: var(--cpq-space-1); }
+.mr-l { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+.mr-v { font-size: var(--cpq-font-size-lg); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--cpq-text-primary); }
+.mr-track { display: block; height: 4px; border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-a10); overflow: hidden; }
+.mr-fill { display: block; width: 100%; height: 100%; border-radius: var(--cpq-radius-full); background: var(--cpq-accent-primary); transform-origin: left center; transition: transform .9s var(--cpq-ease-out-expo); }
+
+.m-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cpq-space-3); }
+.m-kpi { padding: var(--cpq-space-3); border-radius: var(--cpq-radius-xl); }
+.m-kpi .kpi-v { font-size: var(--cpq-font-size-xl); }
+.m-kpi .kpi-stats { margin-top: var(--cpq-space-2); grid-template-columns: 1fr 1fr; gap: var(--cpq-space-1) var(--cpq-space-3); }
+.m-chipgrid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cpq-space-2); }
+.m-hchip { padding: var(--cpq-space-2); }
+.m-hchip .hicon { width: 28px; height: 28px; border-radius: var(--cpq-radius-md); font-size: var(--cpq-font-size-sm); }
+
+.m-sumbar { position: fixed; left: var(--cpq-space-3); right: var(--cpq-space-3); bottom: var(--cpq-tabbar-inset); z-index: 30; display: flex; align-items: center; gap: var(--cpq-space-3); padding: var(--cpq-space-2) var(--cpq-space-2) var(--cpq-space-2) var(--cpq-space-3); border-radius: var(--cpq-radius-xl); }
+.ms-info { flex: 1; min-width: 0; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.ms-info b { color: var(--cpq-text-primary); font-weight: 600; }
+.ms-filter { flex: none; display: inline-flex; align-items: center; font-size: var(--cpq-font-size-sm); font-weight: 600; color: var(--cpq-accent-on-primary); background: var(--cpq-accent-primary); border: none; border-radius: var(--cpq-radius-md); padding: var(--cpq-space-1) var(--cpq-space-3); cursor: pointer; font-family: inherit; }
+.ms-badge { margin-left: var(--cpq-space-1); background: var(--cpq-accent-on-primary); color: var(--cpq-accent-primary); font-weight: 600; font-size: var(--cpq-font-size-xs); border-radius: var(--cpq-radius-full); padding: 0 var(--cpq-space-1); font-variant-numeric: tabular-nums; }
+.m-filter { display: flex; flex-direction: column; gap: var(--cpq-space-2); }
+.m-filter .range-sec { margin: var(--cpq-space-2) 0 0; }
+.m-filter-foot { display: flex; gap: var(--cpq-space-3); }
+.m-filter-foot .f-reset { flex: 1; padding: var(--cpq-space-2) 0; font-size: var(--cpq-font-size-sm); }
+.m-filter-foot .ms-filter { flex: 2; justify-content: center; padding: var(--cpq-space-2) var(--cpq-space-3); }
 
 @media (max-width: 900px) {
   .hero-grid { grid-template-columns: 1fr; }
@@ -1096,9 +1161,16 @@ const conRegion = computed(() => {
 @media (max-width: 768px) {
   .cockpit-page { padding: var(--cpq-space-2) var(--cpq-space-3) var(--cpq-space-5); }
   .ck-bar { padding: var(--cpq-space-2) var(--cpq-space-3); }
-  .ck-sub { display: none; }
+  .ck-bar .ck-sub { display: none; }
   .tab { min-width: 96px; font-size: var(--cpq-font-size-sm); padding: 8px 10px; }
   .chart { height: 220px; }
   .chart-big { height: 300px; }
 }
+</style>
+
+<style>
+/* 筛选抽屉 portal 挂 body，scoped 够不到（全站抽屉三件套约定） */
+.cockpit-filter-drawer .ant-drawer-header { padding: var(--cpq-space-3) var(--cpq-space-4); }
+.cockpit-filter-drawer .ant-drawer-body { padding: var(--cpq-space-4); }
+.cockpit-filter-drawer .ant-drawer-footer { padding: var(--cpq-space-3) var(--cpq-space-4); }
 </style>

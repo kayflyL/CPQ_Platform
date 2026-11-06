@@ -292,7 +292,7 @@ def test_exam7_step_pointer_progression():
                     event_sink=sink, price_ok=True, opportunity_id="o_exam7")
         return asyncio.run(scenario())
 
-    base_ext = {"server_type": "通用计算服务器", "platform_type": "Polaris", "chassis_form": "2U",
+    base_ext = {"server_type": "通用计算服务器", "platform_type": "兆芯", "chassis_form": "2U",
                 "purchase_qty": 1, "warranty_years": 3}
     # 档 1：前步已过、但选型没锁定 → kp_reason 不标（空转不得收工）
     mem2 = {"ext": dict(base_ext), "steps_done": ["agent_fill", "model_reason"]}
@@ -305,7 +305,7 @@ def test_exam7_step_pointer_progression():
             "node_state": {"kp_reason": {"picks": {"CPU|2颗兆芯50000": {
                 "name": "兆芯 KH50000 96C", "part_id": "1",
                 "price": 100.0, "currency": "RMB"}}}},
-            "locked_baseline": {"name": "ZS220 V2", "series": "Polaris", "form": "2U",
+            "locked_baseline": {"name": "ZS220 V2", "series": "兆芯", "form": "2U",
                                 "server_model_id": 1}}
     eng3 = _run(mem3, ext3)
     assert "kp_reason" in (eng3.get("steps_done") or set()), "锁定齐必须标 kp_reason"

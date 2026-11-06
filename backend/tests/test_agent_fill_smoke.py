@@ -201,8 +201,8 @@ def test_agent_fill_ai_picks_catalog_value_and_ask_user_beats_system_card():
         # AI 自己判断：类型用户已明说直接登记；平台为推断值、未明说 → 先调 ask_user 确认，不先填猜测值
         ext["server_type"] = "通用计算服务器"
         ctx.setdefault("brain_asks", []).append({
-            "question": "平台建议选 Polaris，是否确认？",
-            "options": [{"label": "Polaris"}, {"label": "Orion"}],
+            "question": "平台建议选 兆芯，是否确认？",
+            "options": [{"label": "兆芯"}, {"label": "AMD"}],
             "slot": "platform_type"})
         return {"ok": True, "answer": "", "tool_calls_log": []}
 
@@ -222,7 +222,7 @@ def test_agent_fill_ai_picks_catalog_value_and_ask_user_beats_system_card():
     gaps = engine.get("engine_gaps") or []
     assert gaps, "应产出一个待确认卡"
     assert gaps[0].get("reason_code") == "brain_ask", "AI 的 ask_user 要优先于系统目录卡"
-    assert any(o.get("label") == "Polaris" for o in gaps[0].get("options") or [])
+    assert any(o.get("label") == "兆芯" for o in gaps[0].get("options") or [])
     ext = engine.get("ext") or {}
     assert ext.get("server_type") == "通用计算服务器", "客户明说的类型直接登记"
     assert not ext.get("platform_type"), "客户没明说的目录字段先 ask_user 确认，不先填猜测值"
@@ -241,28 +241,28 @@ def test_ask_user_slot_binds_catalog_confirmation_then_applies():
 
     skill_tool_context.TOOL_CTX.set({"task_active": True, "ext": {}, "brain_asks": []})
     res = skill_tools_misc.tool_ask_user({
-        "question": "平台建议选 Polaris？",
-        "options": [{"label": "Polaris"}, {"label": "Orion"}],
+        "question": "平台建议选 兆芯？",
+        "options": [{"label": "兆芯"}, {"label": "AMD"}],
         "slot": "platform_type",
     })
     asks = skill_tool_context.TOOL_CTX.get().get("brain_asks") or []
     assert res.get("ok") is True and asks and asks[0].get("slot") == "platform_type"
 
     ext = {"server_type": "通用计算服务器", "purchase_qty": 1}
-    _apply_extracted_slots(ext, {"platform_type": "Polaris"}, allow_overwrite=True)
-    assert ext.get("platform_type") == "Polaris"
+    _apply_extracted_slots(ext, {"platform_type": "兆芯"}, allow_overwrite=True)
+    assert ext.get("platform_type") == "兆芯"
 
     async def scenario(fill):
         ctx = {"ext": dict(fill, chassis_form="2U", purchase_qty=1), "flow_configs": {}}
         return await validate_step_end(ctx, "agent_fill")
 
     # 只有值、没有客户确认记录 → 前提闸门拦住：带着推断值进配件选配会让下游每行都无料可锁。
-    v = asyncio.run(scenario({"server_type": "通用计算服务器", "platform_type": "Polaris"}))
+    v = asyncio.run(scenario({"server_type": "通用计算服务器", "platform_type": "兆芯"}))
     assert v.get("ok") is False, "推断的平台没经客户拍板就放行"
     assert "平台" in str(v.get("hint") or ""), "拦截要指名是哪个前提字段"
 
     # 客户点选确认卡 → 落 confirmed_slots（点击通路与打字精确命中同源）→ 放行。
-    ext.setdefault("confirmed_slots", {})["platform_type"] = "Polaris"
-    v = asyncio.run(scenario({"server_type": "通用计算服务器", "platform_type": "Polaris",
-                              "confirmed_slots": {"platform_type": "Polaris"}}))
+    ext.setdefault("confirmed_slots", {})["platform_type"] = "兆芯"
+    v = asyncio.run(scenario({"server_type": "通用计算服务器", "platform_type": "兆芯",
+                              "confirmed_slots": {"platform_type": "兆芯"}}))
     assert v.get("ok") is True

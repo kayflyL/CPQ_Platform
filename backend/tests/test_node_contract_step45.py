@@ -86,13 +86,13 @@ def test_rejected_tool_call_does_not_skip_step_validation():
         return {"answer": "已全部锁定", "tool_calls_log": [
             {"name": "select_parts", "result": {"ok": False, "error": "not_searched",
                                                 "message": "该料号不在接地索引内"}}]}
-    ext = {"server_type": "通用计算服务器", "platform_type": "Polaris", "chassis_form": "2U",
+    ext = {"server_type": "通用计算服务器", "platform_type": "兆芯", "chassis_form": "2U",
            "purchase_qty": 1, "warranty_years": 3,
            "kp_rows": [{"part_category": "CPU", "description": "2颗兆芯50000", "qty": 2}]}
     mem = {"ext": ext, "steps_done": ["agent_fill", "model_reason"],
            "node_state": {"kp_reason": {"picks": {"CPU|2颗兆芯50000": {
                "name": "兆芯 KH50000 96C", "part_id": "1", "price": 100.0, "currency": "RMB"}}}},
-           "locked_baseline": {"name": "ZS220 V2", "series": "Polaris", "form": "2U",
+           "locked_baseline": {"name": "ZS220 V2", "series": "兆芯", "form": "2U",
                                "server_model_id": 1}}
     async def sink(payload):
         pass
@@ -138,12 +138,12 @@ def test_kp_turn_prompt_is_drawer_driven_and_rows_carry_answers():
         seen.setdefault("ctxs", []).append(str(kwargs.get("context_block") or ""))
         seen["sys"] = str(kwargs.get("system_prompt") or "")
         return {"answer": "正在逐项选型", "tool_calls_log": []}
-    ext = {"server_type": "通用计算服务器", "platform_type": "Polaris", "chassis_form": "2U",
+    ext = {"server_type": "通用计算服务器", "platform_type": "兆芯", "chassis_form": "2U",
            "purchase_qty": 1, "warranty_years": 3,
            "kp_rows": [{"part_category": "CPU", "description": "2颗兆芯50000", "qty": 2}]}
     mem = {"ext": ext, "steps_done": ["agent_fill", "model_reason"],
            "node_state": {"kp_reason": {"row_answers": {"CPU|2颗兆芯50000": ["2.2GHz 96C"]}}},
-           "locked_baseline": {"name": "ZS220 V2", "series": "Polaris", "form": "2U",
+           "locked_baseline": {"name": "ZS220 V2", "series": "兆芯", "form": "2U",
                                "server_model_id": 1}}
     async def sink(payload):
         pass
@@ -208,11 +208,11 @@ def test_downstream_node_turn_gets_readonly_registration_doc():
         return {"answer": "好的", "tool_calls_log": []}
     async def sink(payload):
         pass
-    ext = {"server_type": "通用计算服务器", "platform_type": "Polaris", "chassis_form": "2U",
+    ext = {"server_type": "通用计算服务器", "platform_type": "兆芯", "chassis_form": "2U",
            "purchase_qty": 1, "warranty_years": 3,
            "kp_rows": [{"part_category": "CPU", "description": "2颗兆芯50000", "qty": 2}]}
     mem = {"steps_done": ["agent_fill"],
-           "locked_baseline": {"name": "ZS220 V2", "series": "Polaris", "form": "2U"}}
+           "locked_baseline": {"name": "ZS220 V2", "series": "兆芯", "form": "2U"}}
     async def scenario():
         with patch.object(skill_turn_engine, "run_stream_chat_loop", fake_loop):
             return await skill_turn_engine.run_skill_agent_turn(

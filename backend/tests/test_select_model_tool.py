@@ -18,8 +18,8 @@ from ai_office import skill_turn_engine
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 _POOL = [
-    {"server_model_id": 11, "id": 111, "name": "ES220 V3", "series": "Polaris", "form": "2U"},
-    {"server_model_id": 22, "id": 222, "name": "ESA240 V3", "series": "Polaris", "form": "2U"},
+    {"server_model_id": 11, "id": 111, "name": "ES220 V3", "series": "兆芯", "form": "2U"},
+    {"server_model_id": 22, "id": 222, "name": "ESA240 V3", "series": "兆芯", "form": "2U"},
 ]
 
 # wiring 生效配置（与 DB reasoning_node_default.model_reason.wiring 同形状）：
@@ -132,7 +132,7 @@ def test_model_wire_result_locks_own_artifact_not_registration():
     engine = _wire_engine()
     _wire({"tool_calls_log": [{"name": "choose_model", "result": res}]}, engine)
     assert engine["_locked_baseline"]["name"] == "ESA240 V3"
-    assert engine["model_selection"]["series"] == "Polaris"
+    assert engine["model_selection"]["series"] == "兆芯"
     assert engine["model_pick_reason"] == "双路更适合虚拟化"
     assert "server_model" not in engine["ext"], "选定结果写进自节点产物，不回填登记表"
 

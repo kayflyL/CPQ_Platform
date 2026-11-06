@@ -17,7 +17,7 @@ import { DEFAULT_DIM_BODIES } from '../constants/pricingMeta.ts'
 // region 海外用纯数字、guardrail 无 tiers——夹具兼作「存量 body 形态」的向后兼容覆盖。
 function fullDims(): PricingDims {
   return {
-    platform_baseline: { Polaris: 15, Orion: 11, Intel: 11, '工作站': 13 },
+    platform_baseline: { 兆芯: 15, AMD: 11, Intel: 11, '工作站': 13 },
     industry_adj: { 'AI算力': 3, 'IDC机房': -2, '政企信息化': 3, '高校科研': 0, '安防存储': 1, '工业边缘': 2 },
     region_adj: { factors: { 国内: 0, 海外: 2, 偏远: 1 }, keywords: { 海外: ['海外', '东南亚', '欧美'], 偏远: ['西藏', '新疆'] } },
     form_adj: { '2U': 0, '4U': -1, '5U': -1, '塔式': 1 },
@@ -32,22 +32,22 @@ function fullDims(): PricingDims {
 // 完整流水线：全维度命中
 // ============================================================
 test('computeTargetMargin: 全维度命中按公式线性叠加', () => {
-  const ctx: PricingContext = { platform: 'Polaris', industry: '政企信息化', region: '东南亚', customerType: '集采项目', form: '2U', cost: 120000, qty: 1 }
+  const ctx: PricingContext = { platform: '兆芯', industry: '政企信息化', region: '东南亚', customerType: '集采项目', form: '2U', cost: 120000, qty: 1 }
   // 15 +3(政企) +2(海外) +0(2U) =20 → ×0.75(集采)=15 → ×1.0(12w 中档)=15 → ×1.0(1台)=15 → clamp 7~30 =15
   const r = computeTargetMargin(ctx, fullDims())
   assert.equal(r.target, 15)
   assert.equal(r.clamped, false)
   assert.equal(r.breakdown.length, 8)
-  assert.equal(r.breakdown[0].matched, 'Polaris')
+  assert.equal(r.breakdown[0].matched, '兆芯')
   assert.equal(r.breakdown[2].matched, '海外')        // region 分桶后命中海外
   assert.equal(r.breakdown[3].matched, '2U')          // 形态 2U +0
   assert.equal(r.breakdown[6].matched, '≥1台')        // 台数折扣命中 1 台档
 })
 
 test('computeTargetMargin: 平台大小写无关匹配', () => {
-  const r = computeTargetMargin({ platform: 'POLARIS', cost: 120000 }, fullDims())
-  assert.equal(r.breakdown[0].matched, 'Polaris')
-  assert.equal(r.breakdown[0].value, 15)
+  const r = computeTargetMargin({ platform: 'intel', cost: 120000 }, fullDims())
+  assert.equal(r.breakdown[0].matched, 'Intel')
+  assert.equal(r.breakdown[0].value, 11)
 })
 
 // ============================================================
@@ -61,7 +61,7 @@ test('computeTargetMargin: baseline 缺失 → 回退保底 floor', () => {
 })
 
 test('computeTargetMargin: 行业/订单未配 → 跳过不调整', () => {
-  const r = computeTargetMargin({ platform: 'Polaris', industry: '未知行业', customerType: '未知类型', cost: 120000 }, fullDims())
+  const r = computeTargetMargin({ platform: '兆芯', industry: '未知行业', customerType: '未知类型', cost: 120000 }, fullDims())
   const ind = r.breakdown.find(s => s.dimKey === 'industry_adj')!
   const ord = r.breakdown.find(s => s.dimKey === 'order_mult')!
   assert.equal(ind.skipped, true)
@@ -71,7 +71,7 @@ test('computeTargetMargin: 行业/订单未配 → 跳过不调整', () => {
 })
 
 test('computeTargetMargin: dims 完全为空 → target=floor(0)，全部降级', () => {
-  const r = computeTargetMargin({ platform: 'Polaris', cost: 120000 }, {})
+  const r = computeTargetMargin({ platform: '兆芯', cost: 120000 }, {})
   assert.equal(r.target, 0)
   assert.equal(r.clamped, false)
   assert.equal(r.breakdown[0].skipped, true)          // baseline 无配置回退 floor=0
@@ -93,7 +93,7 @@ test('resolveRegion: 关键词分桶 偏远>海外>国内，已是桶名直认',
 
 test('computeTargetMargin: 区域分桶后命中对应系数', () => {
   // 偏远 +1：15 +1 =16 → ×1 ×1.0 =16
-  const r = computeTargetMargin({ platform: 'Polaris', region: '新疆', cost: 120000 }, fullDims())
+  const r = computeTargetMargin({ platform: '兆芯', region: '新疆', cost: 120000 }, fullDims())
   const reg = r.breakdown.find(s => s.dimKey === 'region_adj')!
   assert.equal(reg.matched, '偏远')
   assert.equal(reg.value, 1)
@@ -105,14 +105,14 @@ test('computeTargetMargin: 区域分桶后命中对应系数', () => {
 // ============================================================
 test('computeTargetMargin: 形态 4U -1 压点 / 塔式 +1 / 未配或未知跳过', () => {
   const dims = fullDims()
-  assert.equal(computeTargetMargin({ platform: 'Polaris', form: '4U', cost: 120000 }, dims).target, 14)   // 15-1
-  assert.equal(computeTargetMargin({ platform: 'Polaris', form: '塔式', cost: 120000 }, dims).target, 16) // 15+1
+  assert.equal(computeTargetMargin({ platform: '兆芯', form: '4U', cost: 120000 }, dims).target, 14)   // 15-1
+  assert.equal(computeTargetMargin({ platform: '兆芯', form: '塔式', cost: 120000 }, dims).target, 16) // 15+1
   // 无形态 → 跳过 ±0
-  const noForm = computeTargetMargin({ platform: 'Polaris', cost: 120000 }, dims)
+  const noForm = computeTargetMargin({ platform: '兆芯', cost: 120000 }, dims)
   assert.equal(noForm.breakdown.find(s => s.dimKey === 'form_adj')!.skipped, true)
   assert.equal(noForm.target, 15)
   // 未知形态 → 未命中提示
-  const unknown = computeTargetMargin({ platform: 'Polaris', form: '8S', cost: 120000 }, dims)
+  const unknown = computeTargetMargin({ platform: '兆芯', form: '8S', cost: 120000 }, dims)
   assert.match(unknown.breakdown.find(s => s.dimKey === 'form_adj')!.note!, /未配浮动/)
 })
 
@@ -122,14 +122,14 @@ test('computeTargetMargin: 形态 4U -1 压点 / 塔式 +1 / 未配或未知跳�
 test('computeTargetMargin: 海外对象系数 pct 进毛利、fixed_fee 单列只入售价', () => {
   const dims = fullDims()
   dims.region_adj = { factors: { 国内: 0, 海外: { pct: 3, fixed_fee: 800 }, 偏远: 1 }, keywords: { 海外: ['海外'] } }
-  const r = computeTargetMargin({ platform: 'Polaris', region: '海外', cost: 100000 }, dims)
+  const r = computeTargetMargin({ platform: '兆芯', region: '海外', cost: 100000 }, dims)
   assert.equal(r.breakdown.find(s => s.dimKey === 'region_adj')!.value, 3)
   assert.equal(r.target, 18)          // 15 + 3
   assert.equal(r.fixedFee, 800)
   // 纯数字(存量 body)仍兼容：毛利生效、fixedFee=0
   const dims2 = fullDims()
   dims2.region_adj = { factors: { 国内: 0, 海外: 2, 偏远: 1 }, keywords: { 海外: ['海外'] } }
-  const r2 = computeTargetMargin({ platform: 'Polaris', region: '海外', cost: 100000 }, dims2)
+  const r2 = computeTargetMargin({ platform: '兆芯', region: '海外', cost: 100000 }, dims2)
   assert.equal(r2.target, 17)
   assert.equal(r2.fixedFee, 0)
 })
@@ -174,8 +174,8 @@ test('resolveQtyBand: 量大让利，按 min 降序取首个 min≤qty 的档', 
 })
 
 test('computeTargetMargin: 台数折扣乘进毛利（25台 落 ≥21档 ×0.84）', () => {
-  // Polaris(15) +0+0 ×1 ×1.0(12w 中档) ×0.84(≥21台) = 12.6
-  const r = computeTargetMargin({ platform: 'Polaris', cost: 120000, qty: 25 }, fullDims())
+  // 兆芯(15) +0+0 ×1 ×1.0(12w 中档) ×0.84(≥21台) = 12.6
+  const r = computeTargetMargin({ platform: '兆芯', cost: 120000, qty: 25 }, fullDims())
   const qStep = r.breakdown.find(s => s.dimKey === 'qty_mult')!
   assert.equal(qStep.matched, '≥21台')
   assert.equal(qStep.value, 0.84)
@@ -183,7 +183,7 @@ test('computeTargetMargin: 台数折扣乘进毛利（25台 落 ≥21档 ×0.84�
 })
 
 test('computeTargetMargin: 台数缺失 → 该步跳过不影响毛利', () => {
-  const r = computeTargetMargin({ platform: 'Polaris', cost: 120000 }, fullDims())  // 无 qty
+  const r = computeTargetMargin({ platform: '兆芯', cost: 120000 }, fullDims())  // 无 qty
   const qStep = r.breakdown.find(s => s.dimKey === 'qty_mult')!
   assert.equal(qStep.skipped, true)
   assert.equal(r.target, 15)
@@ -193,8 +193,8 @@ test('computeTargetMargin: 台数缺失 → 该步跳过不影响毛利', () => 
 // 保底封顶 clamp
 // ============================================================
 test('computeTargetMargin: 低于保底 → 上调至 floor，clamped=true', () => {
-  // Orion(11) ×渠道0.7 ×末档0.9 = 6.93 → clamp 7
-  const r = computeTargetMargin({ platform: 'Orion', customerType: '渠道分销', cost: 400000 }, fullDims())
+  // AMD(11) ×渠道0.7 ×末档0.9 = 6.93 → clamp 7
+  const r = computeTargetMargin({ platform: 'AMD', customerType: '渠道分销', cost: 400000 }, fullDims())
   assert.equal(r.target, 7)
   assert.equal(r.clamped, true)
   assert.equal(r.breakdown.at(-1)!.note, '低于保底 7%，上调')
@@ -203,8 +203,8 @@ test('computeTargetMargin: 低于保底 → 上调至 floor，clamped=true', () 
 test('computeTargetMargin: 高于封顶 → 下调至 cap，clamped=true', () => {
   const dims = fullDims()
   dims.guardrail = { floor: 7, cap: 10 }
-  // Polaris(15) > cap 10 → clamp 10
-  const r = computeTargetMargin({ platform: 'Polaris', cost: 120000 }, dims)
+  // 兆芯(15) > cap 10 → clamp 10
+  const r = computeTargetMargin({ platform: '兆芯', cost: 120000 }, dims)
   assert.equal(r.target, 10)
   assert.equal(r.clamped, true)
   assert.equal(r.breakdown.at(-1)!.note, '高于封顶 10%，下调')
@@ -242,7 +242,7 @@ test('resolveGuardrail: tiers 按 customerType 首命中，无命中/无 tiers/�
 test('computeTargetMargin: 分档红线参与 clamp（渠道 6.93 在分档 [5,25] 内放行，默认档会夹 7）', () => {
   const dims = fullDims()
   dims.guardrail = { floor: 7, cap: 30, tiers: [{ customer_type: '渠道分销', floor: 5, cap: 25 }] }
-  const r = computeTargetMargin({ platform: 'Orion', customerType: '渠道分销', cost: 400000 }, dims)
+  const r = computeTargetMargin({ platform: 'AMD', customerType: '渠道分销', cost: 400000 }, dims)
   assert.equal(r.target, 6.9)            // 11 ×0.7 ×0.9 = 6.93，分档内不夹
   assert.equal(r.floor, 5)
   assert.equal(r.clamped, false)
@@ -274,9 +274,9 @@ test('computePartMargins: 目标 + 品类修正，每个夹 [floor, cap]', () =>
 // ============================================================
 // 默认系数契约：DEFAULT_DIM_BODIES 在典型 deal 下产出预期毛利
 // ============================================================
-test('契约: DEFAULT_DIM_BODIES 集成（Polaris/政企/海外/集采/2U/12w → 15%，集采走分档 5~20；零散走默认 7~30）', () => {
+test('契约: DEFAULT_DIM_BODIES 集成（兆芯/政企/海外/集采/2U/12w → 15%，集采走分档 5~20；零散走默认 7~30）', () => {
   const r = computeTargetMargin(
-    { platform: 'Polaris', industry: '政企信息化', region: '东南亚', customerType: '集采项目', form: '2U', cost: 120000 },
+    { platform: '兆芯', industry: '政企信息化', region: '东南亚', customerType: '集采项目', form: '2U', cost: 120000 },
     DEFAULT_DIM_BODIES as unknown as PricingDims,
   )
   assert.equal(r.target, 15)             // (15+3+2+0) ×0.75 = 15
@@ -284,7 +284,7 @@ test('契约: DEFAULT_DIM_BODIES 集成（Polaris/政企/海外/集采/2U/12w �
   assert.equal(r.cap, 20)
   assert.equal(r.fixedFee, 800)          // 默认海外每台固定费
   const r2 = computeTargetMargin(
-    { platform: 'Polaris', industry: '政企信息化', region: '东南亚', customerType: '零散项目', form: '2U', cost: 120000 },
+    { platform: '兆芯', industry: '政企信息化', region: '东南亚', customerType: '零散项目', form: '2U', cost: 120000 },
     DEFAULT_DIM_BODIES as unknown as PricingDims,
   )
   assert.equal(r2.target, 20)            // (15+3+2+0) ×1.0 = 20

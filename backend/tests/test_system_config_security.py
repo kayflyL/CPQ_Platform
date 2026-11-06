@@ -51,8 +51,8 @@ def test_mask_row_touches_only_llm_config():
     row = {"key": "llm_config", "value": '{"api_key": "sk-real-9999"}'}
     out = _mask_row("llm_config", row)
     assert out["value"]["api_key"] == "****9999"
-    other = {"key": "server_series", "value": ["Orion"]}
-    assert _mask_row("server_series", other)["value"] == ["Orion"]
+    other = {"key": "server_series", "value": ["AMD"]}
+    assert _mask_row("server_series", other)["value"] == ["AMD"]
 
 
 # ── 多供应商形状：掩码 / write-only / 归一化 ─────────────────────────────────

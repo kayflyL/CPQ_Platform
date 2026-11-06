@@ -133,10 +133,10 @@ def test_semantic_index_failure_degrades_gracefully(monkeypatch):
 def test_series_scope_excludes_semantic_hit(monkeypatch):
     """语义命中但行不适配当前系列 → 不出结果（_series_ok 在池侧过滤 + 行侧兜底）。"""
     _mock_sem(monkeypatch, part_vecs={1: [1.0, 0.0]})
-    rows = [_row(1, "1G Intel I350 4port", specs={"Link Speed": "1G"}, series=["Orion"])]
-    res = hybrid_search("NIC", text="多口网络接口卡", series="Polaris",
+    rows = [_row(1, "1G Intel I350 4port", specs={"Link Speed": "1G"}, series=["AMD"])]
+    res = hybrid_search("NIC", text="多口网络接口卡", series="兆芯",
                         limit=5, _repo=_StubRepo(rows, ALIASES))
-    # 池里 applicable.series=[Orion] ≠ Polaris → 语义不给；词法也无命中 → 零结果+真话note
+    # 池里 applicable.series=[AMD] ≠ 兆芯 → 语义不给；词法也无命中 → 零结果+真话note
     assert res["rows"] == []
     assert res.get("out_of_scope") or res.get("scope_note") or res.get("note")
 

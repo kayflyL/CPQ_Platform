@@ -380,7 +380,7 @@ class _FillNode(DefaultNodePlugin):
 
         登记值缺失时用词典卡信号词扫客户需求原文兜底（唯一命中才标推荐）——
         大脑犹豫没登记时确认卡不退化成裸目录序（2026-11-04 晚实测：大脑把
-        「国产服务器」判成整机级歧义没登记，卡上 Polaris 无推荐标注）。
+        「国产服务器」判成整机级歧义没登记，卡上 兆芯 无推荐标注）。
         """
         ext = engine.get("ext") if isinstance(engine.get("ext"), dict) else {}
         key = str(field.get("key") or "").strip()
@@ -396,7 +396,7 @@ class _FillNode(DefaultNodePlugin):
         if not key:
             return None
         cands = self._catalog_dimension_candidates(engine, key)
-        # 推荐值置顶（2026-11-04 实测：目录序 [Orion, Polaris] 时推荐标在原位=第二位，
+        # 推荐值置顶（2026-11-04 实测：目录序 [AMD, 兆芯] 时推荐标在原位=第二位，
         # 确认卡序号 1 就成了错项）。候选顺序保持稳定，仅把推荐值前提。
         if value:
             cands = sorted(cands, key=lambda c: (str(c).strip() != value,))
@@ -721,7 +721,7 @@ class _KpNode(DefaultNodePlugin):
         if series:
             # 行描述与锁定机型的平台冲突是可判定事实（平台归置词典文本硬命中）。
             # 冲突时不按原文召回——原文的阵营词会把不适配的料顶上卡（2026-11-05 实测：
-            # Polaris 机 +「Intel 8558」行 → Intel 候选摆上兜底卡，AI 没过目）。
+            # 兆芯 机 +「Intel 8558」行 → Intel 候选摆上兜底卡，AI 没过目）。
             # 改按「类目+平台」召回适配件，冲突事实随 gap 带回、卡上如实标注。
             try:
                 dict_platform_of_text = hp.fn_port("requirement_knowledge.dict_platform_of_text")

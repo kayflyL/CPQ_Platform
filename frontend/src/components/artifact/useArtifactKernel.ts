@@ -165,13 +165,13 @@ const esc = (s: unknown) =>
 
 /** 已知章节键的示例正文（与趋势契约对齐；其他键回落通用示例） */
 const PROSE_SAMPLE: Record<string, string> = {
-  weekly: '本周新增商机 18 条，环比上升 28.6%，为近八周最高单周水平。其中 Orion 平台贡献 9 条，Polaris 7 条。新增配置 27 份，集中在 4U 与 2U 两种形态。',
+  weekly: '本周新增商机 18 条，环比上升 28.6%，为近八周最高单周水平。其中 AMD 平台贡献 9 条，兆芯 7 条。新增配置 27 份，集中在 4U 与 2U 两种形态。',
   monthly: '本月累计新增商机 61 条，环比增长 14.2%。周度节奏上，第 2 周为低谷（9 条），月末两周连续回升。',
-  half_year: '拉长到半年窗口，商机总量呈稳步爬升态势：从 4 月的 79 条增至 9 月的 96 条，累计增幅 21.5%。Orion 平台占比稳定在 45%~52% 区间。',
-  platform: '平台格局上，Orion 以 45% 的半年占比居首，Polaris 38% 次之且差距持续收窄；Intel 平台占 12%，主要服务存量客户替换。',
+  half_year: '拉长到半年窗口，商机总量呈稳步爬升态势：从 4 月的 79 条增至 9 月的 96 条，累计增幅 21.5%。AMD 平台占比稳定在 45%~52% 区间。',
+  platform: '平台格局上，AMD 以 45% 的半年占比居首，兆芯 38% 次之且差距持续收窄；Intel 平台占 12%，主要服务存量客户替换。',
   chassis: '机箱形态方面，4U 机型以 47% 的占比保持第一，2U 占 39% 且在密度敏感场景中增长最快；5U 与工作站形态合计 14%。',
   top_sales: '半年维度看，王晓明以 38 条新增商机居首，李芸（31 条）、张伟（27 条）分列二三位，前三名合计贡献 46% 的新增商机。',
-  insights: '需求侧三个信号值得注意：推理一体机需求连续三月上升；Polaris 平台增速显著；头部销售集中度提高，可推动标准化方案包下沉。',
+  insights: '需求侧三个信号值得注意：推理一体机需求连续三月上升；兆芯 平台增速显著；头部销售集中度提高，可推动标准化方案包下沉。',
 }
 const genericProse = (title: string) =>
   `本节「${title}」为数据槽：渲染时由 AI 答复的对应章节填入，此处仅为版式示例。图表与文字同源取数，口径由报告数据范围统一约束。`
@@ -273,7 +273,7 @@ export function renderBlockHtml(blk: ArtifactBlock, assets: ChartAssetMeta[]): s
     ]
     .map((r, i) => `<tr class="${i === 4 ? 'sum' : ''}">${r.map((c) => `<td>${c}</td>`).join('')}</tr>`)
     .join('')
-    return `<div style="position:relative">${slotChip(`{table:${esc(blk.asset)}} · ${daysText(blk)}`)}<table class="aec-table"><thead><tr><th>月份</th><th>Orion</th><th>Polaris</th><th>Intel</th><th>合计</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    return `<div style="position:relative">${slotChip(`{table:${esc(blk.asset)}} · ${daysText(blk)}`)}<table class="aec-table"><thead><tr><th>月份</th><th>AMD</th><th>兆芯</th><th>Intel</th><th>合计</th></tr></thead><tbody>${rows}</tbody></table></div>`
   }
   if (t === 'fields') {
     return `<div style="position:relative">${slotChip(`fields.${esc(blk.key || '')}`)}<div class="aec-unbound">结构化字段表 · 渲染时按 payload.${esc(blk.key || '')} 的字典形状展开两列表</div></div>`

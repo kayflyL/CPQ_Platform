@@ -5,9 +5,9 @@
   "input": "通用计算服务器，AMD平台，2U机架式，双路CPU，GPU 用 NVIDIA B200 192G 两张，双电源，3年 7x24 专业支持。",
   "answers": {
     "server_type": "通用计算服务器",
-    "platform_type": "Orion",
+    "platform_type": "AMD",
     "chassis_form": "2U",
-    "server_model": "@pick:Orion",
+    "server_model": "@pick:AMD",
     "GPU": "@waived",
     "CPU": "@recommend",
     "brain_ask": "库里没有 B200 的话，就按原需求留白，我要的就是 B200。"

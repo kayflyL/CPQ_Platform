@@ -17,7 +17,7 @@ SCENES = [
     {"key": "sim", "label": "工业仿真"},
 ]
 
-# 真实机型锚点（l6.server_models.id）：Orion 双子 = ES220 V3(2U通用)/ESA240 V3(4U AI)，Polaris 信创双子 = ZS220 V2(2U)/ZSA240 V2(4U AI)
+# 真实机型锚点（l6.server_models.id）：AMD 双子 = ES220 V3(2U通用)/ESA240 V3(4U AI)，兆芯 信创双子 = ZS220 V2(2U)/ZSA240 V2(4U AI)
 _P_ES220 = {"name": "ES220 V3", "spec": "2U 双路 · AMD 9004/9005 · 24× DDR5 6400 · 最高 29 盘位", "model_id": 6, "link": "/servers/models/6"}
 _P_ZS220 = {"name": "ZS220 V2", "spec": "2U 双路 · 兆芯 KH-50000 信创 · 24× DDR5 5200 · 最高 28 盘位", "model_id": 8, "link": "/servers/models/8"}
 _P_ESA240 = {"name": "ESA240 V3", "spec": "4U 双路 · AMD 9004/9005 · 最高 8× 双宽 GPU 直连（10× 交换）", "model_id": 16, "link": "/servers/models/16"}

@@ -27,8 +27,8 @@ CASES = [
     ("语义长尾·训练加速卡", "GPU", "机器学习训练用的加速卡", None, "", None, None),
     ("语义长尾·多口网络接口部件", "NIC", "多口网络接口部件", None, "", None, None),
     ("无料真话·HBM3e 141G", "GPU", "HBM3e 141G 显存", None, "", None, None),
-    ("系列作用域·Polaris 找兆芯", "CPU", "兆芯 50000 96C", None, "Polaris", ["KH50000"], None),
-    ("系列挡门·Orion 找兆芯", "CPU", "兆芯 50000 96C", None, "Orion", None, None),
+    ("系列作用域·兆芯 找兆芯", "CPU", "兆芯 50000 96C", None, "兆芯", ["KH50000"], None),
+    ("系列挡门·AMD 找兆芯", "CPU", "兆芯 50000 96C", None, "AMD", None, None),
     ("容量口语·2T 固态硬盘", "HDD/SSD", "2T 固态硬盘", None, "", None, None),
 ]
 

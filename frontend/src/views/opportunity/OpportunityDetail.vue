@@ -176,11 +176,10 @@
 
       <div v-else class="quotation-list glass">
         <div
-          v-for="(quo, index) in deletedQuotations"
+          v-for="quo in deletedQuotations"
           :key="quo.quotation_id"
           class="quotation-row deleted-row"
           :class="{ 'selecting': deletedSelectMode }"
-          :style="{ animationDelay: `${index * 50}ms` }"
           @click="deletedSelectMode ? toggleDeletedSelect(quo.quotation_id) : null"
         >
           <div v-if="deletedSelectMode" class="row-checkbox" @click.stop>
@@ -189,7 +188,6 @@
               @change="toggleDeletedSelect(quo.quotation_id)"
             />
           </div>
-          <div class="quo-status-bar margin-neutral"></div>
           <div class="quo-content">
             <div class="quo-top">
               <span class="quo-name">{{ quo.quotation_name || '未命名报价单' }}</span>
@@ -213,7 +211,7 @@
               </button>
             </a-popconfirm>
             <a-popconfirm
-              title="确定要永久删除这个报价单吗？此操作不可恢复！"
+              title="确定要永久删除这个报价单吗？此操作不可恢复"
               @confirm="permanentDeleteQuotation(quo.quotation_id)"
             >
               <button class="text-btn danger">
@@ -848,7 +846,7 @@ const onParseConfirm = async (payload?: { parseOverrides?: Record<string, any> }
         payload?.parseOverrides
       )
       if (result.scheme?.id) {
-        message.success('方案表已创建！')
+        message.success('方案表已创建')
         parsePreviewOpen.value = false
         parsePreviewFile.value = null
         await loadProject()
@@ -863,7 +861,7 @@ const onParseConfirm = async (payload?: { parseOverrides?: Record<string, any> }
         payload?.parseOverrides
       )
       if (result.sheet?.id) {
-        message.success('成本表已创建！')
+        message.success('成本表已创建')
         parsePreviewOpen.value = false
         parsePreviewFile.value = null
         await loadProject()
@@ -954,7 +952,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   font-size: var(--cpq-font-size-base);
-  transition: all var(--cpq-transition-fast);
+  transition: background var(--cpq-transition-fast), border-color var(--cpq-transition-fast), color var(--cpq-transition-fast);
 }
 
 .back-btn:hover {
@@ -965,7 +963,7 @@ onBeforeUnmount(() => {
 
 .page-header h1 {
   margin: 0;
-  font-size: 22px;
+  font-size: var(--cpq-font-size-2xl);
   font-weight: 600;
   color: var(--cpq-text-primary);
   flex: 1 1 auto;
@@ -987,7 +985,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   color: var(--cpq-text-secondary);
-  font-size: 13px;
+  font-size: var(--cpq-font-size-sm);
   white-space: nowrap;
 }
 
@@ -999,22 +997,18 @@ onBeforeUnmount(() => {
 
 .status-dot.status-pending {
   background: var(--cpq-accent-primary);
-  box-shadow: 0 0 6px var(--cpq-overlay-a40);
 }
 
 .status-dot.status-won {
   background: var(--cpq-accent-success);
-  box-shadow: 0 0 6px var(--cpq-accent-success);
 }
 
 .status-dot.status-lost {
   background: var(--cpq-accent-danger);
-  box-shadow: 0 0 6px var(--cpq-accent-danger);
 }
 
 .status-dot.status-expired {
   background: var(--cpq-accent-warning);
-  box-shadow: 0 0 6px var(--cpq-accent-warning);
 }
 
 .header-result-select {
@@ -1022,7 +1016,7 @@ onBeforeUnmount(() => {
 }
 
 .status-text {
-  font-size: 13px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 
@@ -1046,7 +1040,6 @@ onBeforeUnmount(() => {
   background: var(--cpq-overlay-danger10);
   border: 1px solid var(--cpq-overlay-danger15);
   border-radius: var(--cpq-radius-md);
-  animation: fadeInUp 0.3s var(--cpq-ease-out-expo) backwards;
 }
 
 .batch-left {
@@ -1056,7 +1049,7 @@ onBeforeUnmount(() => {
 }
 
 .batch-count {
-  font-size: 13px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 
@@ -1089,8 +1082,7 @@ onBeforeUnmount(() => {
   padding: 14px 20px;
   border-bottom: 1px solid var(--cpq-overlay-w4);
   cursor: pointer;
-  transition: all var(--cpq-transition-fast);
-  animation: fadeInUp 0.4s var(--cpq-ease-out-expo) both;
+  transition: background var(--cpq-transition-fast);
 }
 
 .quotation-row:last-child {
@@ -1099,16 +1091,6 @@ onBeforeUnmount(() => {
 
 .quotation-row:hover {
   background: var(--cpq-overlay-a4);
-  transform: translateY(-2px);
-}
-
-.quotation-row:active {
-  transform: scale(0.996);
-}
-
-/* 选择模式下点击不缩放 */
-.quotation-row.selecting:active {
-  transform: none;
 }
 
 /* 复选框列 */
@@ -1116,38 +1098,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   padding-right: 12px;
-}
-
-/* ── Quotation Status Bar ── */
-.quo-status-bar {
-  width: 3px;
-  align-self: stretch;
-  border-radius: var(--cpq-radius-xs);
-  margin-right: 16px;
-  flex-shrink: 0;
-  background: transparent;
-  transition: all var(--cpq-transition-fast);
-}
-
-.quo-status-bar.margin-high {
-  background: var(--cpq-accent-primary);
-  box-shadow: 0 0 8px var(--cpq-overlay-a30);
-}
-
-.quo-status-bar.margin-mid {
-  background: var(--cpq-color-gold);
-}
-
-.quo-status-bar.margin-low {
-  background: var(--cpq-accent-danger);
-}
-
-.quo-status-bar.margin-neutral {
-  background: var(--cpq-overlay-w10);
-}
-
-.quotation-row:hover .quo-status-bar.margin-neutral {
-  background: var(--cpq-accent-primary);
 }
 
 /* ── Quotation Content ── */
@@ -1187,7 +1137,7 @@ onBeforeUnmount(() => {
 }
 
 .multi-cfg-tag {
-  font-size: 10px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted, #6E7582);
   padding: 1px 5px;
   border: 1px solid var(--cpq-divider, rgba(0,0,0,0.08));
@@ -1215,32 +1165,8 @@ onBeforeUnmount(() => {
 
 .quo-margin-badge.badge-mid {
   color: var(--cpq-color-gold);
-  background: rgba(212, 168, 83, 0.08);
-  border-color: rgba(212, 168, 83, 0.2);
-}
-
-.quo-margin-badge.badge-low {
-  color: var(--cpq-accent-danger);
-  background: var(--cpq-overlay-danger10);
-  border-color: var(--cpq-overlay-danger15);
-}
-
-.quo-margin-badge.badge-neutral {
-  color: var(--cpq-text-muted);
-  background: var(--cpq-overlay-w4);
-  border-color: var(--cpq-overlay-w8);
-}
-
-.quo-margin-badge.badge-high {
-  color: var(--cpq-accent-primary);
-  background: var(--cpq-overlay-a8);
-  border-color: var(--cpq-overlay-a20);
-}
-
-.quo-margin-badge.badge-mid {
-  color: var(--cpq-color-gold);
-  background: rgba(212, 168, 83, 0.08);
-  border-color: rgba(212, 168, 83, 0.2);
+  background: transparent;
+  border-color: var(--cpq-color-gold);
 }
 
 .quo-margin-badge.badge-low {
@@ -1256,7 +1182,7 @@ onBeforeUnmount(() => {
 }
 
 .quo-bottom {
-  font-size: 13px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 
@@ -1268,6 +1194,24 @@ onBeforeUnmount(() => {
   opacity: 0;
   transition: opacity var(--cpq-transition-fast);
   flex-shrink: 0;
+}
+
+.quotation-row:hover .quo-actions {
+  opacity: 1;
+}
+
+.text-btn {
+  padding: 4px 8px;
+  border-radius: var(--cpq-radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--cpq-text-muted);
+  font-size: var(--cpq-font-size-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background var(--cpq-transition-fast), color var(--cpq-transition-fast);
 }
 
 .quotation-row:hover .quo-actions {
@@ -1302,25 +1246,13 @@ onBeforeUnmount(() => {
 .quo-arrow {
   color: var(--cpq-text-muted);
   font-size: var(--cpq-font-size-sm);
-  transition: all var(--cpq-transition-fast);
+  transition: color var(--cpq-transition-fast);
   flex-shrink: 0;
 }
 
 .quotation-row:hover .quo-arrow {
   color: var(--cpq-accent-primary);
   transform: translateX(4px);
-}
-
-/* ── Animations ── */
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .deleted-row {
@@ -1351,14 +1283,14 @@ onBeforeUnmount(() => {
 .sk-board {
   display: grid;
   grid-template-columns: minmax(190px, 230px) minmax(0, 1fr) clamp(280px, 22vw, 360px);
-  gap: 14px;
+  gap: var(--cpq-space-3);
   align-items: stretch;
   height: 100%;
   min-height: 0;
   padding: 0 20px 12px;
   min-width: 0;
 }
-.sk-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.sk-main { display: flex; flex-direction: column; gap: var(--cpq-space-3); min-width: 0; }
 .sk-card { min-width: 0; padding: 16px; border-radius: var(--cpq-radius-md); }
 @media (max-width: 1080px) {
   .sk-board { grid-template-columns: 1fr; }
@@ -1382,7 +1314,7 @@ onBeforeUnmount(() => {
   /* ⋯ 固定右上角：header-left 换行后 header-right 仍保持在第一行右侧 */
   .header-right { position: absolute; right: 0; top: -2px; }
   /* 紧凑页头：标题降级到一行内，状态/日期换行排第二行 */
-  .page-header h1 { font-size: 17px; }
+  .page-header h1 { font-size: var(--cpq-font-size-lg); }
   .header-result-select { width: 96px; }
   .header-created-date { font-size: var(--cpq-font-size-sm); }
   .header-created-date :deep(.ant-picker) { width: 104px !important; }

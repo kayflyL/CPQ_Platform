@@ -1,0 +1,111 @@
+/*
+ * 商机看板卡头配方唯一来源（此前在 OpportunityProcessBoard / QuoteWorkbench 各复制一份，逐字重复）。
+ * 由两个组件以 <style scoped src="./card-shell.css"> 引入——各按自身 scope 编译，互不泄漏、
+ * 聊天产物卡内嵌 QuoteWorkbench 时同样自包含。改卡头视觉只改这一处。
+ * 面板图标 = 无底色线性图标（原紫渐变方块+光晕为 AI 味元素，已删）。
+ */
+.card-head-toggle {
+  cursor: pointer;
+}
+.rich-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--cpq-text-secondary);
+  font-size: 18px;
+}
+.card-shell-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cpq-space-3);
+  padding: var(--cpq-space-3) 14px;
+  border-bottom: 1px solid var(--cpq-glass-border);
+  background: var(--cpq-overlay-w4);
+}
+.card-shell-title {
+  display: flex;
+  align-items: center;
+  gap: var(--cpq-space-3);
+  min-width: 0;
+}
+.card-shell-title > div {
+  min-width: 0;
+}
+.card-shell-eyebrow {
+  display: block;
+  font-size: var(--cpq-font-size-xs);
+  color: var(--cpq-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card-shell-title h3 {
+  margin: 3px 0 0;
+  font-size: var(--cpq-font-size-base);
+  font-weight: var(--cpq-font-weight-semibold);
+  color: var(--cpq-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card-chevron {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: var(--cpq-radius-sm);
+  background: var(--cpq-overlay-w4);
+  color: var(--cpq-text-secondary);
+  font-size: var(--cpq-font-size-sm);
+  cursor: pointer;
+  transition: transform var(--cpq-transition-fast), background 0.15s ease, color 0.15s ease;
+}
+.card-chevron:hover {
+  background: var(--cpq-overlay-w8);
+  color: var(--cpq-text-primary);
+}
+.card-chevron.collapsed {
+  transform: rotate(180deg);
+}
+.card-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.22s ease;
+}
+.card-collapse.collapsed {
+  grid-template-rows: 0fr;
+}
+/* 折叠态必须彻底为 0 高：内层 padding 会撑起网格最小行高，露出内容残影 */
+.card-collapse.collapsed > .card-collapse-inner {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.card-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .card-shell-head {
+    flex-wrap: wrap;
+    gap: 6px 8px;
+  }
+  .card-shell-title {
+    order: 1;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  /* 无按钮渲染的卡头（如上游成本摘要）不强制标题独占一行（:has 兜底，标题与折叠钮同行） */
+  .card-shell-head:not(:has(.ant-btn)) .card-shell-title {
+    flex: 1 1 auto;
+  }
+  .card-chevron {
+    width: 26px;
+    height: 26px;
+  }
+}

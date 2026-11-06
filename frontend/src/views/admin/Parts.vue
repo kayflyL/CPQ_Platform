@@ -715,8 +715,8 @@
         <div class="form-row">
           <label>适用系列（不选=全系列通用）</label>
           <a-select v-model:value="partForm.applicable_series" mode="multiple" placeholder="不选=全通用" allowClear>
-            <a-select-option value="Orion">Orion</a-select-option>
-            <a-select-option value="Polaris">Polaris</a-select-option>
+            <a-select-option value="AMD">AMD</a-select-option>
+            <a-select-option value="兆芯">兆芯</a-select-option>
           </a-select>
         </div>
         <div class="form-row">

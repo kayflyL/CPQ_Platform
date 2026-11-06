@@ -19,11 +19,11 @@ from ..models.opportunity import Opportunity
 
 # 镜像 frontend/src/constants/platform.ts PLAT_COLOR（图表 canvas 色不走 CSS 变量的同一条铁律）
 PLAT_COLOR = {
-    "Orion": "#0EA5E9",
-    "Polaris": "#FF3B5C",
+    "AMD": "#0EA5E9",
+    "兆芯": "#FF3B5C",
     "Intel": "#1D4ED8",
     "工作站": "#A855F7",
-    "INTEL&Orion": "#8A94A8",
+    "INTEL&AMD": "#8A94A8",
 }
 FALLBACK_COLOR = "#6B7280"
 
@@ -130,7 +130,7 @@ def _fetch_dist(days: int = 56) -> dict:
 def _fetch_platform_monthly(days: int = 183) -> dict:
     """逐月×平台新增商机数矩阵（口径同 dist 的 slot map 平台计数）。
 
-    月份升序；平台列按累计量降序（Orion 领先时排第一列）；末列=当月合计。
+    月份升序；平台列按累计量降序（AMD 领先时排第一列）；末列=当月合计。
     rows 为 dict 列表 + columns/keys 显式声明列序，渲染器按 keys 取值。
     """
     from ..repository.opp_caliber_repo import current_slot_map
@@ -666,7 +666,7 @@ _ASSET_DEFS: dict = {
         "name": "新增商机趋势",
         "kind": "chart",
         "source_page": "商机线索页",
-        "desc": "近 8 周按天新增柱状 + 分平台折线（Orion/Polaris/Intel…）",
+        "desc": "近 8 周按天新增柱状 + 分平台折线（AMD/兆芯/Intel…）",
         "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 56, "min": 7, "max": 366, "step": 1, "unit": "天"}],
         "fetch": _fetch_trend,
         "option": _build_trend_option,
@@ -686,7 +686,7 @@ _ASSET_DEFS: dict = {
         "name": "月度×平台明细表",
         "kind": "table",
         "source_page": "商机线索页",
-        "desc": "逐月各平台新增商机数矩阵（月份 / Orion / Polaris / … / 合计），半年趋势章节用",
+        "desc": "逐月各平台新增商机数矩阵（月份 / AMD / 兆芯 / … / 合计），半年趋势章节用",
         "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 183, "min": 30, "max": 730, "step": 1, "unit": "天"}],
         "fetch": _fetch_platform_monthly,
     },

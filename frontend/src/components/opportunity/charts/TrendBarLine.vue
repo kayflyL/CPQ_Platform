@@ -41,7 +41,7 @@ const opt = computed(() => {
     xAxis: { type: 'category', boundaryGap: false, data: props.labels, axisLine: { lineStyle: { color: c.grid } }, axisLabel: { color: c.axisLabel, fontSize: 10, rotate: (props.labels[0] || '').length === 7 ? 0 : 30 }, axisTick: { show: false } },
     yAxis: { type: 'value', splitLine: { lineStyle: { color: c.splitLine } }, axisLabel: { color: c.axisLabel, fontSize: 10 } },
     series: [
-      { name: '商机总量', type: 'bar', barWidth: '46%', itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: c.barStart }, { offset: 1, color: c.barEnd }] }, borderRadius: [4, 4, 0, 0] }, data: props.total, animationDuration: 1000 },
+      { name: '商机总量', type: 'bar', barWidth: '46%', itemStyle: { color: c.barStart, borderRadius: [4, 4, 0, 0] }, data: props.total, animationDuration: 1000 },
       ...lineSeries,
     ],
   }

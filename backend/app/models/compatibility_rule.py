@@ -7,7 +7,7 @@ type（大分类，驱动编辑器分 tab + 执行器路由）：
 - require ：必配/依赖（选 GPU → 配 GPU 线缆）
 - exclude ：互斥（同型号不混搭）
 - derive  ：派生项+数量（每 8 个 SATA 盘 → 1 根线缆）
-- filter  ：过滤候选（商机 Polaris → 只出 Polaris 机型）
+- filter  ：过滤候选（商机 兆芯 → 只出 兆芯 机型）
 - recommend：推荐标注
 
 body = {when:{all/any:[{field,op,value}]}, then:{action,...}, desc}

@@ -88,7 +88,7 @@ def _existing():
          "content": "报价默认按进口平台配", "source": "auto", "pinned": False,
          "user_id": "u1"},
         {"id": 2, "role_key": "support_engineer", "type": "business_fact",
-         "content": "主力推 Orion 系列", "source": "manual", "pinned": True},
+         "content": "主力推 AMD 系列", "source": "manual", "pinned": True},
     ]
 
 

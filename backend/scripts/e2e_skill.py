@@ -13,8 +13,8 @@
   "entry_point": "skill_studio_preview",
   "input": "CPU：2颗兆芯50000 ...",
   "answers": {                       # 缺口卡出现时按 slot 自动应答
-    "platform_type": "Polaris",      # 普通文本 → 作为用户回复发送
-    "server_model": "@pick:Polaris", # @pick:系列 → 从候选里点选第一个该系列机型（card_selections）
+    "platform_type": "兆芯",      # 普通文本 → 作为用户回复发送
+    "server_model": "@pick:兆芯", # @pick:系列 → 从候选里点选第一个该系列机型（card_selections）
     "kp_required": "不需要GPU"       # 自由文本回复
   },
   "max_turns": 10

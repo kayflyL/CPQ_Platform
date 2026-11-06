@@ -761,99 +761,14 @@ function returnQuoteToCost(quotationId: string, label: string) {
   box-shadow: var(--cpq-glass-card-shadow);
   overflow: hidden;
 }
-/* 整条卡头横条可点击展开/收起；头部操作区 @click.stop 隔离按钮 */
-.card-head-toggle {
-  cursor: pointer;
-}
-.card-shell-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--cpq-glass-border);
-  background: var(--cpq-overlay-w4);
-}
-.card-shell-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-.card-shell-title > div {
-  min-width: 0;
-}
-.card-shell-eyebrow {
-  display: block;
-  font-size: var(--cpq-font-size-xs);
-  letter-spacing: 0.08em;
-  color: var(--cpq-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.card-shell-title h3 {
-  margin: 3px 0 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* 卡头公共配方（card-head-toggle / card-shell-* / card-chevron / card-collapse / rich-icon-badge）
+   由文件底部的 <style scoped src="./card-shell.css"> 提供，此处只留报价工作台私有样式 */
 .qw-shell-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--cpq-space-2);
   flex-wrap: wrap;
   justify-content: flex-end;
-}
-.rich-icon-badge {
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--cpq-radius-md);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.92), rgba(139, 92, 246, 0.88));
-  color: #fff;
-  font-size: 18px;
-  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.28);
-}
-.card-chevron {
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-sm);
-  background: var(--cpq-overlay-w4);
-  color: var(--cpq-text-secondary);
-  font-size: var(--cpq-font-size-sm);
-  cursor: pointer;
-  transition: transform 0.2s ease, background 0.15s ease, color 0.15s ease;
-}
-.card-chevron:hover {
-  background: var(--cpq-overlay-w8);
-  color: var(--cpq-text-primary);
-}
-.card-chevron.collapsed {
-  transform: rotate(180deg);
-}
-.card-collapse {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition: grid-template-rows 0.22s ease;
-}
-.card-collapse.collapsed {
-  grid-template-rows: 0fr;
-}
-.card-collapse-inner {
-  min-height: 0;
-  overflow: hidden;
 }
 .panel-empty { padding: 22px 13px; text-align: center; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); }
 .qw-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
@@ -875,7 +790,7 @@ function returnQuoteToCost(quotationId: string, label: string) {
 .qw-approval-icon { color: var(--cpq-notif-amber); font-size: 15px; }
 .qw-approval-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); }
 .qw-approval-count {
-  font-size: 11.5px;
+  font-size: var(--cpq-font-size-xs);
   padding: 1px 8px;
   border-radius: var(--cpq-radius-full);
   background: var(--cpq-notif-amber-bg);
@@ -901,7 +816,7 @@ function returnQuoteToCost(quotationId: string, label: string) {
   flex-shrink: 0;
 }
 .qw-approval-quotation {
-  font-size: 12.5px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   color: var(--cpq-text-primary);
   max-width: 200px;
@@ -919,9 +834,8 @@ function returnQuoteToCost(quotationId: string, label: string) {
   line-height: 1.6;
   color: var(--cpq-text-muted);
 }
-.qw-send { color: #2563eb; font-weight: 600; }
 .qw-send-modal { display: flex; flex-direction: column; gap: 14px; }
-.qw-send-tip { margin: 0; color: var(--cpq-text-muted); font-size: 13px; line-height: 1.6; }
+.qw-send-tip { margin: 0; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); line-height: 1.6; }
 .qw-send-field { display: flex; flex-direction: column; gap: 7px; }
 .qw-send-field label { color: var(--cpq-text-primary); font-size: var(--cpq-font-size-sm); font-weight: 600; }
 .qw-send-actions { display: flex; justify-content: flex-end; gap: 8px; }
@@ -930,35 +844,9 @@ function returnQuoteToCost(quotationId: string, label: string) {
 .rt-q-title, .rt-q-id { display: block; word-break: break-word; white-space: normal; min-width: 0; }
 
 @media (max-width: 768px) {
-  /* ── 卡头统一紧凑双行（方案A）──
-     行1 = 小logo + 标题（可收缩省略，防逐字竖排）；行2 = 操作小按钮一行均分 + 折叠钮。
-     标题 flex-basis 100% 独占首行，其余项必然换行——任何屏宽行为一致。
-     上传报价是 AttachmentUploadButton 壳（span.attachment-upload-btn），
-     order/分宽落直接子项，壳转 flex 内层按钮撑满。
-     无按钮渲染的卡头（如上游成本摘要）不强制标题独占一行（:has 兜底，标题与折叠钮同行） */
-  .card-shell-head {
-    flex-wrap: wrap;
-    gap: 6px 8px;
-  }
-  .card-shell-title {
-    order: 1;
-    flex: 1 1 100%;
-    min-width: 0;
-  }
-  .card-shell-head:not(:has(.ant-btn)) .card-shell-title {
-    flex: 1 1 auto;
-  }
-  .rich-icon-badge {
-    width: 26px;
-    height: 26px;
-    font-size: 13px;
-    border-radius: 8px;
-    box-shadow: none;
-  }
-  .card-chevron {
-    width: 26px;
-    height: 26px;
-  }
+  /* ── 卡头紧凑双行：card-shell-* 公共部分在 card-shell.css 同断点里；
+     这里只放报价工作台私有部分。上传报价是 AttachmentUploadButton 壳
+     （span.attachment-upload-btn），order/分宽落直接子项，壳转 flex 内层按钮撑满 ── */
   .qw-shell-actions,
   .qw-actions {
     display: contents;
@@ -1001,3 +889,5 @@ function returnQuoteToCost(quotationId: string, label: string) {
   .qw-body { grid-template-columns: 1fr; }
 }
 </style>
+
+<style scoped src="./card-shell.css"></style>

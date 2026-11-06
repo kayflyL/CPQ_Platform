@@ -220,7 +220,7 @@ const chassisModalOpen = ref(false)
 
 async function init() {
   try {
-    // 加载基准配置 → 拿 series（用户定调：芯片类型即显示 Orion/Polaris）+ name
+    // 加载基准配置 → 拿 series（用户定调：芯片类型即显示 AMD/兆芯）+ name
     if (props.model.base_config_id) {
       try {
         const bc = await baseConfigApi.get(props.model.base_config_id)

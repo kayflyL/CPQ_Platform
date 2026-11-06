@@ -5,8 +5,8 @@
   "input": "2U机架式通用计算服务器，2颗CPU，内存256G，需要万兆网卡，双电源。",
   "answers": {
     "server_type": "通用计算服务器",
-    "platform_type": "Polaris",
-    "server_model": "@pick:Polaris",
+    "platform_type": "兆芯",
+    "server_model": "@pick:兆芯",
     "brain_ask": "@recommend",
     "GPU": "@absent"
   },

@@ -5,11 +5,11 @@
   "input": "存储服务器：2 颗兆芯 50000，内存 64G，6 块 6T 硬盘",
   "answers": {
     "server_type": "存储服务器",
-    "platform_type": "Polaris，硬盘改成 4 块 8T 的",
+    "platform_type": "兆芯，硬盘改成 4 块 8T 的",
     "chassis_form": "2U",
     "purchase_qty": "1台",
     "warranty_years": "3年",
-    "server_model": "@pick:Polaris",
+    "server_model": "@pick:兆芯",
     "brain_ask": "@recommend"
   },
   "max_turns": 12

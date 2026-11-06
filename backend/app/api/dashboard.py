@@ -26,7 +26,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 CHAS_COLORS = {"2U": "#26E2D1", "4U": "#FA8C16", "5U": "#A855F7", "4.5U": "#1890FF", "工作站": "#A855F7", "2U/4U": "#8A94A8", "8U": "#8A94A8"}
 
-# PN 提取：config_server_models 里混存干净 PN（ZSA240 V2）和整机名（Orion 2U25 标准基准机箱），
+# PN 提取：config_server_models 里混存干净 PN（ZSA240 V2）和整机名（AMD 2U25 标准基准机箱），
 # 用正则把 PN-like 段抠出来归一；提不出来的退化成"其他机型"，不污染机型维度。
 _PN_RE = re.compile(r'([A-Z]{2,4}[\dA-Z]{1,6}(?:[- ][A-Z\d]+)?)')
 

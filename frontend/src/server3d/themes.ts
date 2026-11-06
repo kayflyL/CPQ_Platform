@@ -37,17 +37,18 @@ export const STAGE_THEMES: Record<'dark' | 'light', StageTheme> = {
     glass: '#9fd4ff', glassBase: 0.1,
     amb: 0.65, key: 2.0, fill: 14, rimC: 7, rimV: 5,
     env: 0.45,
-    // bloomThr 0.85:金属镜面顶视反光不再炸白,霓虹(过曝色)照常辉光(2026-11-03 CPU 部件页教训)
-    bloom: 0.85, bloomThr: 0.85, exp: 1.15,
+    // 选择性bloom(2026-11-05):只有辉光层进bloom通道,threshold=0.25 挑出霓虹排除暗哑边条;
+    // 金属镜面高光与bloom已解耦,镀镍再亮也不炸白,无需再靠高阈值硬压
+    bloom: 1.1, bloomThr: 0.25, exp: 1.15,
   },
   light: {
     bg: '#e6edf7', floor: '#d7e1ee', grid1: 0xa8bcd8, grid2: 0xc3d2e6,
     body: '#97abc6', dark: '#6a80a0', fin: '#93a7c1',
     board: '#24a45c', boardDk: '#178a48',
     glass: '#4a7fb5', glassBase: 0.07,
-    amb: 0.95, key: 1.7, fill: 18, rimC: 2.5, rimV: 2,
-    env: 0.85,
-    bloom: 0.32, bloomThr: 0.9, exp: 1.0,
+    amb: 0.65, key: 2.0, fill: 14, rimC: 2.5, rimV: 2,
+    env: 0.45,
+    bloom: 0.5, bloomThr: 0.25, exp: 1.0,
   },
 }
 

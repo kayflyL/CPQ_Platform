@@ -3,7 +3,7 @@
     <div class="rail-expanded">
       <div class="rail-progress">
         <div class="rail-progress-head">
-          <span>Overall Progress</span>
+          <span>整体进度</span>
           <strong>{{ progressPercent }}%</strong>
         </div>
         <div class="rail-progress-track">
@@ -41,7 +41,6 @@
               <span class="rail-stage-track">
                 <i :style="{ width: `${stagePercentOf(node.key)}%` }"></i>
               </span>
-              <span class="rail-stage-pct">{{ stagePercentOf(node.key) }}%</span>
             </div>
             <div class="rail-substeps">
               <button
@@ -196,8 +195,8 @@ function stagePercentOf(key: string) {
   color: var(--cpq-text-secondary);
 }
 .rail-progress-head strong {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--cpq-font-size-sm);
+  font-weight: var(--cpq-font-weight-semibold);
   color: var(--cpq-accent-primary);
   font-variant-numeric: tabular-nums;
 }
@@ -211,7 +210,7 @@ function stagePercentOf(key: string) {
 .rail-progress-fill {
   height: 100%;
   border-radius: var(--cpq-radius-full);
-  background: linear-gradient(90deg, var(--cpq-accent-primary), #8b5cf6);
+  background: var(--cpq-accent-primary);
   transition: width 0.35s ease;
 }
 .rail-progress-label {
@@ -276,8 +275,8 @@ function stagePercentOf(key: string) {
 }
 .rail-step-copy b {
   display: block;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--cpq-font-size-sm);
+  font-weight: var(--cpq-font-weight-semibold);
   color: inherit;
   white-space: nowrap;
   overflow: hidden;
@@ -320,8 +319,8 @@ function stagePercentOf(key: string) {
 .rail-stage-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 10px;
+  gap: var(--cpq-space-2);
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -339,10 +338,6 @@ function stagePercentOf(key: string) {
   border-radius: var(--cpq-radius-full);
   background: var(--cpq-accent-primary);
   transition: width 0.35s ease;
-}
-.rail-stage-pct {
-  font-weight: 700;
-  color: var(--cpq-text-secondary);
 }
 .rail-substeps {
   padding: 6px 0 0;
@@ -409,7 +404,7 @@ function stagePercentOf(key: string) {
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px dashed var(--cpq-glass-border);
-  font-size: 10px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   font-variant-numeric: tabular-nums;
 }

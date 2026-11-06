@@ -4,7 +4,7 @@
   "entry_point": "skill_studio_preview",
   "input": "帮我配台服务器，跑虚拟化用的，配置你全权决定不用问我，完全按你的推荐来",
   "answers": {
-    "server_model": "@pick:Orion",
+    "server_model": "@pick:AMD",
     "brain_ask": "@recommend",
     "GPU": "@absent"
   },

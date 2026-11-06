@@ -35,7 +35,7 @@ TOOLS = {
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "用于检索的需求/场景文本"},
-                "tags": {"type": "array", "items": {"type": "string"}, "description": "场景标签过滤（可选），如 ['AI','8卡GPU','Polaris','4U']"},
+                "tags": {"type": "array", "items": {"type": "string"}, "description": "场景标签过滤（可选），如 ['AI','8卡GPU','兆芯','4U']"},
             },
         },
         # handler 由 build_tool_registry 按 case 配置（case_source/top_k/match）注入

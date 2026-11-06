@@ -160,9 +160,9 @@ def download_import_template():
             "类别": "背板",
             "单价": 850.00,
             "规格文本": "PCBA_3.5''_Triple-mode",
-            "说明": "适用于 Orion/Polaris 3.5寸背板",
+            "说明": "适用于 AMD/兆芯 3.5寸背板",
             "io_slot": "IO1,IO2",  # 扩展属性示例
-            "chassis": "Orion,Polaris",
+            "chassis": "AMD,兆芯",
         }
     ]
     df = pd.DataFrame(example)

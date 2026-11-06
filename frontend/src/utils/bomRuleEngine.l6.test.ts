@@ -28,7 +28,7 @@ const TPL2_ROWS: any[] = [
 
 // ===== deriveVars 输出（usePlanBom，ESA240 V3 配置1：8×RTX5090 + 2 NVMe + 2 SATA + 9560 RAID）=====
 const VARS = {
-  bays: 12, form: '4U', series: 'Orion',
+  bays: 12, form: '4U', series: 'AMD',
   gpu_qty: 8, drive_count: 4, psu_qty: 4, psu_wattage: '2700',
   standard_riser: { IO1: '1*X8 FHFL', IO2: '1*X8 FHFL' }, riser_x16: '1*X16+1*X8 FHFL',
   bp_type: 'tri', bp_type_desc: 'NVMe/SATA/SAS',
@@ -42,7 +42,7 @@ function ctx(over: Partial<Record<string, any>> = {}): BomEvalContext {
   return {
     vars: { ...VARS, ...over },
     parts: [
-      { category: '机箱主体', name: '4U-Orion', pn: 'pn-4U-Orion', quantity: 1, specs: { form: ['4U'], chassis: ['Orion'] } },
+      { category: '机箱主体', name: '4U-AMD', pn: 'pn-4U-AMD', quantity: 1, specs: { form: ['4U'], chassis: ['AMD'] } },
       { category: 'CPU散热器', name: '2U heatsink', pn: 'S.E.M.0000502', quantity: 2, specs: {} },
       { category: '滑轨', name: 'Rail', pn: 'S.E.M.0000503', quantity: 1, specs: {} },
     ],
@@ -200,7 +200,7 @@ test('fan 行 name 子串兜底：库里没有任何风扇类件时仍能按名�
 // 用户定调：fan 兜底数量跟形态走（2U=6 / 4U=12）——规则不再存模板，由 form 变量驱动
 test('fan 形态兜底：无风扇料件时 desc=系统风扇，qty 跟 form 走（4U=12 / 2U=6）', () => {
   const noFanParts = [
-    { category: '机箱主体', name: '4U-Orion', pn: 'pn-4U-Orion', quantity: 1, specs: {} },
+    { category: '机箱主体', name: '4U-AMD', pn: 'pn-4U-AMD', quantity: 1, specs: {} },
   ]
   const four = evalBomContext([FAN_ROW], { ...ctx({ form: '4U' }), parts: noFanParts, categoryAliases: FAN_ALIASES })
   assert.equal(four['fan'].desc, '系统风扇')

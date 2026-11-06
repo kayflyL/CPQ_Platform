@@ -26,7 +26,7 @@ interface ConfigItem {
   // 机箱规格
   chassis_form?: string      // 机箱形态
   chassis_bays?: string      // 盘位
-  chassis_series?: string    // 系列（Orion/Polaris）
+  chassis_series?: string    // 系列（AMD/兆芯）
   backplane_type?: string    // 背板类型（Tri-Mode/Pass-Thru）
   power_supply?: string      // 电源
   // 维保条款描述（来自 /api/system-config/warranty_desc_*）

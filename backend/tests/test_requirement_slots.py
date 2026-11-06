@@ -6,7 +6,7 @@ def test_requirement_slots_from_ext_only_kp_rows():
     """登记表唯一视图：配置 + kp_rows（part_category/description/qty）一套。"""
     from app.services.portal_flow_adapter import requirement_slots_from_ext
     ext = {
-        "server_type": "AI训练", "series": "Orion", "form": "4U", "purchase_qty": 1,
+        "server_type": "AI训练", "series": "AMD", "form": "4U", "purchase_qty": 1,
         "warranty_years": 3,
         # ext 里仍可能有旧窄字段（历史数据/下游信号），但登记表视图不得再暴露它们。
         "cpu": {"model": "兆芯50000", "qty": 2, "cores": 96},
@@ -22,7 +22,7 @@ def test_requirement_slots_from_ext_only_kp_rows():
     }
     slots = requirement_slots_from_ext(ext)
     assert slots["server_type"] == "AI训练"
-    assert slots["platform_type"] == "Orion"
+    assert slots["platform_type"] == "AMD"
     assert slots["chassis_form"] == "4U"
     assert slots["purchase_qty"] == 1
     assert slots["warranty_years"] == "3"

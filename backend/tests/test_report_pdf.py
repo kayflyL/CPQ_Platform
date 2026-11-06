@@ -21,10 +21,10 @@ MD = """## 商机趋势分析报告
 
 | 平台 | 商机数 | 金额(万) |
 | --- | --- | --- |
-| Polaris | 12 | 340.5 |
-| Orion | 8 | 210.0 |
+| 兆芯 | 12 | 340.5 |
+| AMD | 8 | 210.0 |
 
-- Polaris 占比 56.4%，**环比 +3.2%**
+- 兆芯 占比 56.4%，**环比 +3.2%**
 - 4U 机箱形态占比 48.1%
 
 ### 二、关键洞察
@@ -51,8 +51,8 @@ def test_parse_markdown_blocks_structure():
     assert len(tables) == 1
     assert tables[0]["rows"] == [
         ["平台", "商机数", "金额(万)"],
-        ["Polaris", "12", "340.5"],
-        ["Orion", "8", "210.0"],
+        ["兆芯", "12", "340.5"],
+        ["AMD", "8", "210.0"],
     ]
     headings = [b for b in blocks if b["type"] == "heading"]
     assert headings[0]["level"] == 2

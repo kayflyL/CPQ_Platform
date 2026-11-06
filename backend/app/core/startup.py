@@ -722,6 +722,10 @@ _DEFAULT_PERMISSIONS = [
     {"key": "page.settings.excel", "name": "解析规则", "group": "page", "module": "设置"},
     {"key": "page.settings.templates", "name": "导出模板", "group": "page", "module": "设置"},
     {"key": "page.settings.admin", "name": "服务器管理", "group": "page", "module": "设置"},
+    # 工具中心：页面键管入口（此前对全员开放，页面键回填所有现有角色保持现状），
+    # 编辑键管展示文案的后台编辑（默认仅 admin=目录全量兜底，可在用户与权限开放）
+    {"key": "page.tools", "name": "工具菜单（工具中心 / 工具页）", "group": "page", "module": "工具"},
+    {"key": "action.tools.content.manage", "name": "工具内容编辑（工具中心卡片/工具页文案）", "group": "action", "module": "工具"},
 ]
 
 # 死键回收：工作台恒开无门控（page.portal）、AI 设置已并入 AI 办公室 Manage Teams
@@ -766,6 +770,27 @@ def ensure_permission_catalog():
         if catalog is not _DEFAULT_PERMISSIONS or changed:
             repo.set("auth.permissions", catalog, type="json", description="权限目录")
         print("✅ Permission catalog ensured (auth.permissions)")
+    finally:
+        repo.close()
+
+
+def ensure_tools_page_role_grant():
+    """page.tools 一次性回填进所有现有角色（幂等）：工具页此前对全员开放，
+    引入页面键后若不回填，非 admin 角色的工具入口会集体消失——回填=保持现状，
+    此后「用户与权限」页可按角色收权。新角色不回填（由创建者在编辑器里勾选）。"""
+    from app.repository.role_repo import RoleRepository
+    repo = RoleRepository()
+    try:
+        granted = 0
+        for role in repo.list_all():
+            if role.get("role_key") == "admin":
+                continue  # admin 目录全量兜底，无需回填
+            perms = role.get("permissions") or []
+            if "page.tools" not in perms:
+                repo.update(role["role_key"], permissions=[*perms, "page.tools"])
+                granted += 1
+        if granted:
+            print(f"✅ page.tools granted to {granted} existing role(s)")
     finally:
         repo.close()
 
@@ -1673,6 +1698,10 @@ def init_rules_db():
         ensure_permission_catalog()
     except Exception as e:
         print(f"⚠️ Permission catalog init failed: {e}")
+    try:
+        ensure_tools_page_role_grant()
+    except Exception as e:
+        print(f"⚠️ page.tools role backfill failed: {e}")
     try:
         ensure_loss_reason_dict()
         ensure_win_reason_dict()

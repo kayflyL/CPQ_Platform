@@ -64,7 +64,7 @@ const emit = defineEmits<{
             <div v-for="(c, i) in form.whenAll" :key="i" class="cre-cond-row">
               <a-auto-complete :value="c.field" :options="fieldOpts" placeholder="字段 kp.GPU.qty" style="width: 210px" :filter-option="filterFn" @update:value="(v: any) => c.field = String(v || '')" />
               <a-select :value="c.op" style="width: 88px" :options="RULE_OP_OPTIONS" @change="(v: any) => c.op = v" />
-              <a-input :value="String(c.value ?? '')" placeholder="值（Polaris / 1 / NVMe）" style="flex: 1; min-width: 140px" @change="(e: any) => c.value = e.target.value" />
+              <a-input :value="String(c.value ?? '')" placeholder="值（兆芯 / 1 / NVMe）" style="flex: 1; min-width: 140px" @change="(e: any) => c.value = e.target.value" />
               <a-button type="text" danger size="small" @click="emit('del-cond', i)"><DeleteOutlined /></a-button>
             </div>
             <a-button type="dashed" size="small" block @click="emit('add-cond')"><PlusOutlined /> 增加条件</a-button>

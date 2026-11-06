@@ -6,8 +6,8 @@
   "answers": {
     "server_type": "通用计算服务器",
     "chassis_form": "2U",
-    "platform_type": "Polaris",
-    "server_model": "@pick:Polaris",
+    "platform_type": "兆芯",
+    "server_model": "@pick:兆芯",
     "brain_ask": "@recommend",
     "GPU": "@absent",
     "NIC": "@recommend",

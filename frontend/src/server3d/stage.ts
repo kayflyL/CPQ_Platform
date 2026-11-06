@@ -9,6 +9,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { STAGE_THEMES, glow } from './themes'
 import { createMachine, DEFAULT_MACHINE_CONFIG, type MachineConfig } from './machine'
@@ -75,11 +76,45 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
   controls.autoRotate = true
   controls.autoRotateSpeed = 0.85
 
+  // ── 选择性bloom双composer:辉光件打BLOOM层,其余件在bloom-only通道涂黑——
+  // 金属镜面高光与霓虹辉光彻底解耦(2026-11-05 炸白根治):镀镍再亮也进不了bloom,阈值不必再悬停妥协 ──
+  const BLOOM_LAYER = 1
+  const bloomLayer = new THREE.Layers()
+  bloomLayer.set(BLOOM_LAYER)
+  const renderPass = new RenderPass(scene, camera)
+  const bloomComposer = new EffectComposer(renderer)
+  bloomComposer.renderToScreen = false
+  bloomComposer.addPass(renderPass)
+  const bloom = new UnrealBloomPass(new THREE.Vector2(container.clientWidth || 800, container.clientHeight || 480), 1.1, 0.5, 0.25)
+  bloomComposer.addPass(bloom)
+  const mixPass = new ShaderPass(new THREE.ShaderMaterial({
+    uniforms: {
+      baseTexture: { value: null },
+      bloomTexture: { value: bloomComposer.renderTarget2.texture },
+    },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform sampler2D baseTexture; uniform sampler2D bloomTexture; varying vec2 vUv;
+      void main(){ gl_FragColor = texture2D(baseTexture, vUv) + texture2D(bloomTexture, vUv); }`,
+  }), 'baseTexture')
   const composer = new EffectComposer(renderer)
-  composer.addPass(new RenderPass(scene, camera))
-  const bloom = new UnrealBloomPass(new THREE.Vector2(container.clientWidth || 800, container.clientHeight || 480), 0.85, 0.55, 0.72)
-  composer.addPass(bloom)
+  composer.addPass(renderPass)
+  composer.addPass(mixPass)
   composer.addPass(new OutputPass())
+
+  // bloom-only 通道的涂黑/还原:黑涂料关雾(fog:true 会把涂黑件染向雾色=背景色,浅色下假发光)
+  const darkMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, fog: false })
+  const darkened = new Map<THREE.Object3D, THREE.Material | THREE.Material[]>()
+  function darkenNonBloomed(o: THREE.Object3D) {
+    const mesh = o as THREE.Mesh
+    if (mesh.isMesh && !bloomLayer.test(o.layers)) {
+      darkened.set(o, mesh.material as THREE.Material)
+      mesh.material = darkMaterial
+    }
+  }
+  function restoreMaterial(o: THREE.Object3D) {
+    const m = darkened.get(o)
+    if (m) { (o as THREE.Mesh).material = m; darkened.delete(o) }
+  }
 
   const ambient = new THREE.AmbientLight('#8fb4dd', 0.65)
   scene.add(ambient)
@@ -150,12 +185,50 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
   }))
   scene.add(dust)
 
+  // ── 灯光rig:点光/装饰环/尘埃统一装组,随模型包围球缩放(基准=整机半径4.6)。
+  // 点光物理衰减∝1/d²,位置×s则强度×s²,模型表面照度与模型尺寸无关;
+  // 平行光方向/环境光/环境反射天然尺度不变;雾密度反比缩放保持同等的空气透视感。 ──
+  const RIG_REF_RADIUS = 4.6
+  const rig = new THREE.Group()
+  scene.add(rig)
+  rig.add(fillTop, rimCyan, rimViolet, ringA, ringB, dust)
+  const rigScale = { s: 1 }
+  let themeName: 'dark' | 'light' = 'dark'
+  function applyRigScale() {
+    if (!fitSphere || fitSphere.radius <= 0) return
+    const s = Math.max(0.12, fitSphere.radius / RIG_REF_RADIUS)
+    rigScale.s = s
+    rig.scale.setScalar(s)
+    ;(scene.fog as THREE.FogExp2).density = 0.022 / s
+    const sc = key.shadow.camera
+    sc.left = -9 * s; sc.right = 9 * s; sc.top = 9 * s; sc.bottom = -9 * s
+    sc.updateProjectionMatrix()
+    controls.minDistance = 3.5 * s
+    controls.maxDistance = 40 * s
+    const t = STAGE_THEMES[themeName]
+    fillTop.intensity = t.fill * s * s
+    rimCyan.intensity = t.rimC * s * s
+    rimViolet.intensity = t.rimV * s * s
+  }
+
   const machine = (opts.partType === 'cpu' ? createCpuModel(opts.partSpec)
     : opts.partType === 'fan' ? createFanModel(opts.partSpec as FanSpec)
     : createMachine(cfg)) as StageModel
   scene.add(machine.root)
 
+  // 辉光件上bloom层:整机的霓虹件恰好全是 MeshBasicMaterial(边光/LED/光环/走线),按材质类型标记;
+  // cpu 品牌刻字是白色 Basic 平面(非霓虹)带 noBloom 豁免。环/尘埃是舞台自带的霓虹,直接标记。
+  machine.root.traverse(o => {
+    const mesh = o as THREE.Mesh
+    if (mesh.isMesh && (mesh.material as THREE.MeshBasicMaterial)?.isMeshBasicMaterial && !o.userData.noBloom)
+      o.layers.enable(BLOOM_LAYER)
+  })
+  ringA.layers.enable(BLOOM_LAYER)
+  ringB.layers.enable(BLOOM_LAYER)
+  dust.layers.enable(BLOOM_LAYER)
+
   function applyTheme(name: 'dark' | 'light') {
+    themeName = name
     const t = STAGE_THEMES[name]
     ;(scene.background as THREE.Color).set(t.bg)
     ;(scene.fog as THREE.FogExp2).color.set(t.bg)
@@ -174,9 +247,9 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
     }
     ambient.intensity = t.amb
     key.intensity = t.key
-    fillTop.intensity = t.fill
-    rimCyan.intensity = t.rimC
-    rimViolet.intensity = t.rimV
+    fillTop.intensity = t.fill * rigScale.s * rigScale.s
+    rimCyan.intensity = t.rimC * rigScale.s * rigScale.s
+    rimViolet.intensity = t.rimV * rigScale.s * rigScale.s
     scene.environmentIntensity = t.env
     bloom.strength = t.bloom
     bloom.threshold = t.bloomThr
@@ -196,6 +269,7 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
       center: box.getCenter(new THREE.Vector3()),
       radius: box.getBoundingSphere(new THREE.Sphere()).radius,
     }
+    applyRigScale()
   }
   function fitDistance() {
     if (!fitSphere) return 12
@@ -262,6 +336,16 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
   const clock = new THREE.Clock()
   let rafId = 0
   let disposed = false
+  /** 选择性bloom一帧:涂黑非辉光件渲染bloom-only通道,再混进干净场景一次出屏 */
+  function renderFrame() {
+    const bg = scene.background
+    scene.background = null
+    scene.traverse(darkenNonBloomed)
+    bloomComposer.render()
+    scene.traverse(restoreMaterial)
+    scene.background = bg
+    composer.render()
+  }
   function tick() {
     if (disposed) return
     rafId = requestAnimationFrame(tick)
@@ -288,7 +372,7 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
     ringA.material.color.set('#21a8ff').multiplyScalar(1.2 + 0.35 * Math.sin(t * 1.4))
     dust.rotation.y += dt * 0.01
     dust.position.y = Math.sin(t * 0.18) * 0.3
-    composer.render()
+    renderFrame()
   }
 
   function resize() {
@@ -298,6 +382,7 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
     camera.updateProjectionMatrix()
     renderer.setSize(w, h)
     composer.setSize(w, h)
+    bloomComposer.setSize(w, h)
     // 未动手前跟随画布尺寸自动取景;一旦用户手动控制即交还
     if (!userMoved && fitSphere) {
       const dir = camera.position.clone().sub(controls.target).normalize()
@@ -328,7 +413,7 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
       machine.updateTick(dt, t)
       machine.setHover(hovered)
       controls.update()
-      composer.render()
+      renderFrame()
     },
     onResize: resize,
     dispose() {
@@ -337,6 +422,8 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
       ro.disconnect()
       renderer.domElement.removeEventListener('pointermove', onPointerMove)
       controls.dispose()
+      composer.dispose()
+      bloomComposer.dispose()
       renderer.dispose()
       if (renderer.domElement.parentElement === container) container.removeChild(renderer.domElement)
     },

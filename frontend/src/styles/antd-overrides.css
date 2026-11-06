@@ -524,16 +524,16 @@ body .ant-picker-dropdown .ant-picker-panel-container {
   border-radius: var(--cpq-radius-lg);
   box-shadow: 0 8px 32px var(--cpq-shadow-color, rgba(0,0,0,.12));
 }
-.period-custom-pop .ant-popover-inner-content { padding: 14px; }
-.period-custom-pop .custom-panel { width: 250px; display: flex; flex-direction: column; gap: 12px; }
-.period-custom-pop .custom-sec-title { font-size: var(--cpq-font-size-xs); font-weight: 600; color: var(--cpq-text-secondary); margin-bottom: 7px; letter-spacing: .3px; }
-.period-custom-pop .preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.period-custom-pop .preset-btn { padding: 5px 0; border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm); background: transparent; color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); cursor: pointer; transition: all .2s ease; }
+.period-custom-pop .ant-popover-inner-content { padding: var(--cpq-space-4); }
+.period-custom-pop .custom-panel { width: 250px; display: flex; flex-direction: column; gap: var(--cpq-space-3); }
+.period-custom-pop .custom-sec-title { font-size: var(--cpq-font-size-xs); font-weight: var(--cpq-font-weight-semibold); color: var(--cpq-text-secondary); margin-bottom: var(--cpq-space-2); }
+.period-custom-pop .preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--cpq-space-1); }
+.period-custom-pop .preset-btn { padding: var(--cpq-space-1) 0; border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm); background: transparent; color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); cursor: pointer; transition: color var(--cpq-transition-fast), border-color var(--cpq-transition-fast), background-color var(--cpq-transition-fast); }
 .period-custom-pop .preset-btn:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
-.period-custom-pop .preset-btn.active { color: #fff; background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
+.period-custom-pop .preset-btn.active { color: var(--cpq-accent-on-primary); background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
 .period-custom-pop .preset-btn.ghost { background: transparent; color: var(--cpq-text-muted); border-color: var(--cpq-border-light); }
-.period-custom-pop .custom-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--cpq-border-secondary); }
-.period-custom-pop .custom-cur { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.period-custom-pop .custom-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--cpq-space-2); padding-top: var(--cpq-space-2); border-top: 1px solid var(--cpq-border-secondary); }
+.period-custom-pop .custom-cur { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-primary); font-weight: var(--cpq-font-weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 全屏弹窗底部操作条（ResponsiveModal footer 槽约定类）：桌面右聚，手机端全宽等分、拇指可及 */
 #app .req-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }

@@ -225,7 +225,7 @@ function addItem() { sceneForm.items.push({ category: '网卡', text: '' }) }
 function delItem(i: number) { sceneForm.items.splice(i, 1) }
 
 const ITEM_CATS = ['网卡', '内存', 'CPU', '系统盘', '电源', 'NVMe 缓存', 'GPU', '硬盘', 'RAID 卡', '网络']
-const platformOpts = computed(() => (series.values.length ? series.values : ['Orion', 'Polaris', 'Intel', '工作站'])
+const platformOpts = computed(() => (series.values.length ? series.values : ['AMD', '兆芯', 'Intel', '工作站'])
   .map(v => ({ label: v, value: v })))
 </script>
 
@@ -237,15 +237,15 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
       </a>
       <span class="rr-sep">/</span>
       <span class="rr-bar-title">需求分析规则</span>
-      <div class="rr-tools">
-        <a-input v-model:value="searchText" placeholder="搜索规则名称/信号词/要点" size="small" allow-clear />
-      </div>
     </div>
 
     <div class="rrw-body">
       <div class="rr">
-        <!-- 页头只留一行备注：页面名在顶栏面包屑已有，不再重复 -->
-        <p class="rr-sub">服务器配置基线知识：让 AI 出配置时<em>该配什么、配多少</em>有据可依。基线只做推荐依据，<em>客户确认后才落表</em>。</p>
+        <!-- 页头只留一行备注：页面名在顶栏面包屑已有，不再重复；搜索与兼容规则页同构，放简介行右侧 -->
+        <div class="rr-top">
+          <p class="rr-sub">服务器配置基线知识：让 AI 出配置时<em>该配什么、配多少</em>有据可依。基线只做推荐依据，<em>客户确认后才落表</em>。</p>
+          <a-input v-model:value="searchText" class="rr-search" placeholder="搜索规则名称/信号词/要点" size="small" allow-clear />
+        </div>
         <div v-if="loadError" class="rr-err">规则加载失败，请检查后端服务后
           <a @click="load">重试</a>
         </div>
@@ -310,7 +310,7 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
       <div class="rr-frow">
         <div class="rr-fld grow2">
           <label>名称 <i>*</i></label>
-          <a-input v-model:value="platForm.name" placeholder="如：平台：CPU AMD/EPYC → Orion" />
+          <a-input v-model:value="platForm.name" placeholder="如：平台：CPU AMD/EPYC → AMD" />
         </div>
         <div class="rr-fld">
           <label>状态</label>
@@ -329,7 +329,7 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
       </div>
       <div class="rr-fld">
         <label>依据 <i>*</i>（官方指南 / 参考架构 / 目录实测 / 业务确认）</label>
-        <a-input v-model:value="platForm.evidence" placeholder="如：目录实测：Orion 在售机型 CPU 全为 EPYC" />
+        <a-input v-model:value="platForm.evidence" placeholder="如：目录实测：AMD 在售机型 CPU 全为 EPYC" />
       </div>
       <div class="rr-tip">规则渲染进绑定节点的 AI 系统提示（知识注入）：AI 读词典按语义就近归置，另有影子校验在登记时比对；归置值属推断，须经客户确认。</div>
       <div class="rr-m-foot">
@@ -398,27 +398,29 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 .rr-arrow { font-size: var(--cpq-font-size-base); }
 .rr-sep { color: var(--cpq-text-muted); opacity: .6; }
 .rr-bar-title { font-size: 13.5px; font-weight: 600; color: var(--cpq-text-primary); }
-.rr-tools { margin-left: auto; width: 240px; }
 .rrw-body { margin-top: 16px; }
 .rr-err {
   padding: 8px 14px; font-size: 12.5px; color: var(--cpq-accent-danger);
   border: 1px dashed rgba(255, 107, 107, .45); border-radius: var(--cpq-radius-md);
   background: rgba(255, 107, 107, .08);
 }
-.rr { display: flex; flex-direction: column; gap: 14px; }
-.rr-sub { font-size: 12.5px; color: var(--cpq-text-secondary); margin: 0; }
+.rr { display: flex; flex-direction: column; gap: var(--cpq-space-4); }
+.rr-top { display: flex; align-items: center; gap: var(--cpq-space-4); }
+.rr-sub { flex: 1; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); margin: 0; }
+.rr-search { width: 240px; flex-shrink: 0; }
 .rr-sub em { font-style: normal; color: var(--cpq-accent-primary); }
 
-.rr-sec { display: flex; flex-direction: column; gap: 12px; }
-.rr-sec-head { display: flex; align-items: center; gap: 10px; }
-.rr-sec-title { font-size: 15px; font-weight: 700; color: var(--cpq-text-primary); }
+.rr-sec { display: flex; flex-direction: column; gap: var(--cpq-space-3); }
+.rr-sec-head { display: flex; align-items: center; gap: var(--cpq-space-2); }
+.rr-sec-title { font-size: var(--cpq-font-size-base); font-weight: 600; color: var(--cpq-text-primary); }
 .rr-sec-count {
-  font-size: 11.5px; color: var(--cpq-text-muted); padding: 0 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); padding: 0 8px;
   border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-w6);
 }
 .rr-sec-desc { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
 
-.rr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.rr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--cpq-space-3); }
 .rr-cell { cursor: pointer; min-width: 0; }
 .rc-linkbtn {
   border: 0; background: transparent; padding: 2px 8px;
@@ -428,14 +430,14 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 .rc-linkbtn:hover { color: var(--cpq-accent-primary); background: var(--cpq-overlay-w6); }
 .rc-linkbtn--danger:hover { color: var(--cpq-accent-danger); }
 .rr-add {
-  border: 1px dashed var(--cpq-glass-border); border-radius: var(--cpq-radius-lg); min-height: 74px;
+  border: 1px dashed var(--cpq-glass-border); border-radius: var(--cpq-radius-lg); min-height: 72px;
   display: flex; align-items: center; justify-content: center; color: var(--cpq-text-muted);
-  font-size: 12.5px; cursor: pointer; background: transparent; transition: .18s;
+  font-size: var(--cpq-font-size-sm); cursor: pointer; background: transparent; transition: .18s;
 }
 .rr-add:hover { border-color: var(--cpq-glass-border-strong); color: var(--cpq-accent-primary); }
 
 .rr-none {
-  margin-top: 10px; padding: 14px; text-align: center; font-size: 12.5px;
+  margin-top: var(--cpq-space-2); padding: var(--cpq-space-3); text-align: center; font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted); border: 1px dashed var(--cpq-glass-border); border-radius: var(--cpq-radius-lg);
 }
 

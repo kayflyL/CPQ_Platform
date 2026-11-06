@@ -3,7 +3,7 @@
 替换原 pricing.margin_tier（按平台三档）为多维度加法模型。每条维度一条 active 策略，
 type 为维度 key（与 frontend constants/pricingMeta.ts 的 DimensionKey 一致），scope=None（全局系数表）：
 
-    platform_baseline  base   {Polaris:15, Orion:11, Intel:11, 工作站:13}      基准毛利，加法链起点
+    platform_baseline  base   {兆芯:15, AMD:11, Intel:11, 工作站:13}      基准毛利，加法链起点
     industry_adj       add    {行业→±百分点}                                     在基准上 ±
     region_adj         add    {factors:{桶→±百分点|{pct,fixed_fee}}, keywords}  交付地区分桶后 ±（海外可带每台固定费）
     form_adj           add    {2U:0, 4U:-1, 5U:-1, 塔式:1}                      机箱形态 ±百分点（4U 成本高压点）
@@ -48,7 +48,7 @@ from app.repository.strategy_repo import StrategyRepository
 DEFAULT_DIMS = {
     "platform_baseline": {
         "name": "平台基准毛利",
-        "body": {"Polaris": 15, "Orion": 11, "Intel": 11, "工作站": 13},
+        "body": {"兆芯": 15, "AMD": 11, "Intel": 11, "工作站": 13},
         "desc": "按芯片平台取基准毛利率（百分点），加法链起点",
     },
     "industry_adj": {

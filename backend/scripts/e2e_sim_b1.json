@@ -5,11 +5,11 @@
   "input": "CPU：2颗 AMD EPYC 9354（32核）\n内存：512G DDR5\n硬盘：2块1.92T NVMe SSD + 4块8T SATA\n网卡：2张双口25G\n电源：双电源\n服务：3年",
   "answers": {
     "server_type": "通用计算服务器",
-    "platform_type": "Orion",
+    "platform_type": "AMD",
     "chassis_form": "2U",
     "purchase_qty": "1台",
     "warranty_years": "3年",
-    "server_model": "@pick:Orion",
+    "server_model": "@pick:AMD",
     "brain_ask": "@recommend"
   },
   "max_turns": 12

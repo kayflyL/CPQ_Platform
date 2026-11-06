@@ -32,7 +32,6 @@ onBeforeUnmount(() => { stopHero(); markHeroDark(false) })
           <div class="rw-head-title">
             <span class="rich-icon-badge"><FileTextOutlined /></span>
             <div>
-              <span class="rw-eyebrow">线索登记</span>
               <h3>需求登记</h3>
             </div>
           </div>
@@ -79,15 +78,11 @@ onBeforeUnmount(() => { stopHero(); markHeroDark(false) })
   background: var(--cpq-overlay-w4);
 }
 .rw-head-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.rw-eyebrow { display: none; }
-.rw-head h3 { margin: 0; color: var(--cpq-text-primary); font-size: 14px; }
+.rw-head h3 { margin: 0; color: var(--cpq-text-primary); font-size: var(--cpq-font-size-base); }
 .rich-icon-badge {
-  width: 40px; height: 40px; flex-shrink: 0;
+  flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  border-radius: var(--cpq-radius-md);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.92), rgba(139, 92, 246, 0.88));
-  color: #fff; font-size: 18px;
-  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.28);
+  color: var(--cpq-text-secondary); font-size: 18px;
 }
 .lfp-card-body { padding: 18px 22px 22px; }
 @media (max-width: 640px) {

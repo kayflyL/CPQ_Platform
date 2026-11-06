@@ -5,7 +5,6 @@ import { RULE_CATEGORY_SEED, RULE_OP_MAP, humanizeFieldPath } from '@/constants/
 export function useRuleCatalog() {
   const rules = ref<CompatibilityRule[]>([])
   const loading = ref(false)
-  const catFilter = ref<string>('__all__')
   const searchText = ref('')
 
   const seedFirstSort = (a: string, b: string) => {
@@ -14,29 +13,10 @@ export function useRuleCatalog() {
     return a.localeCompare(b, 'zh')
   }
 
-  const categoryChips = computed(() => {
-    const counts = new Map<string, number>()
-    for (const r of rules.value) {
-      if (!r.category) continue
-      counts.set(r.category, (counts.get(r.category) || 0) + 1)
-    }
-    return [...counts.entries()]
-      .sort(([a], [b]) => seedFirstSort(a, b))
-      .map(([name, count]) => ({ name, count }))
-  })
-
-  const uncategorizedCount = computed(() => rules.value.filter(r => !r.category).length)
   const categoryOpts = computed(() =>
     [...new Set(rules.value.map(r => r.category).filter(Boolean) as string[])]
       .sort(seedFirstSort).map(c => ({ value: c, label: c }))
   )
-
-  const filtered = computed(() => {
-    const f = catFilter.value
-    if (!f || f === '__all__') return rules.value
-    if (f === '__none__') return rules.value.filter(r => !r.category)
-    return rules.value.filter(r => r.category === f)
-  })
 
   function whenSummary(b: any): string {
     const w = b?.when
@@ -55,8 +35,8 @@ export function useRuleCatalog() {
 
   const searched = computed(() => {
     const q = searchText.value.trim().toLowerCase()
-    if (!q) return filtered.value
-    return filtered.value.filter(r =>
+    if (!q) return rules.value
+    return rules.value.filter(r =>
       r.name.toLowerCase().includes(q) ||
       (whenSummary(r.body) || '').toLowerCase().includes(q)
     )
@@ -93,8 +73,7 @@ export function useRuleCatalog() {
 
   return {
     rules, loading, load,
-    catFilter, searchText,
-    categoryChips, uncategorizedCount, categoryOpts,
-    filtered, searched, groupRules,
+    searchText, categoryOpts, whenSummary,
+    searched, groupRules,
   }
 }

@@ -78,7 +78,7 @@ def sample_l6_data():
             'model': '2U Server',
             'drive_bays': '12',
             'psu': '4+2',
-            'motherboard': 'Polaris MB',
+            'motherboard': '兆芯 MB',
             'price': 15000.0
         },
         {
@@ -87,7 +87,7 @@ def sample_l6_data():
             'model': '1U Server',
             'drive_bays': '4',
             'psu': '2+1',
-            'motherboard': 'Orion MB',
+            'motherboard': 'AMD MB',
             'price': 8000.0
         }
     ]

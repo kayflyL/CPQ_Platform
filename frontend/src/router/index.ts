@@ -265,6 +265,26 @@ const routes = [
         component: () => import('@/views/admin/strategy/SolutionEditorPage.vue'),
         meta: { title: '编辑解决方案', perm: 'page.strategies' }
       },
+      // 工具中心（注册表驱动，见 constants/toolsRegistry.ts）：hub + 工具页 + 内容后台编辑器。
+      // /tools/admin 静态段优先于 /tools/:toolId 动态段；GPU 工具页内组件零改动迁入。
+      {
+        path: '/tools',
+        name: 'ToolsHome',
+        component: () => import('@/views/tools/ToolsHome.vue'),
+        meta: { title: '工具', perm: 'page.tools' }
+      },
+      {
+        path: '/tools/admin',
+        name: 'ToolsAdmin',
+        component: () => import('@/views/tools/ToolsAdmin.vue'),
+        meta: { title: '工具内容编辑', perm: 'action.tools.content.manage' }
+      },
+      {
+        path: '/tools/:toolId',
+        name: 'ToolPage',
+        component: () => import('@/views/tools/ToolPage.vue'),
+        meta: { title: '工具', perm: 'page.tools' }
+      },
       // 导出模板（统一入口）
       {
         path: '/export-templates',

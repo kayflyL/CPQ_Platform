@@ -12,7 +12,7 @@ MODEL = {
     "id": 1, "name": "ESA240 V3", "base_config_id": 100,
     "server_type_id": 1, "use": "AI", "product_content": "x",
 }
-BC = {"id": 100, "model_id": 1, "series": "Orion", "form": "4U",
+BC = {"id": 100, "model_id": 1, "series": "AMD", "form": "4U",
       "bays": 8, "parts_count": 10, "total_price": 100000.0, "bom_template_id": 7}
 
 
@@ -46,8 +46,8 @@ def _select(series=None, no_signal_strategy=None, type_name="AI / 加速计算�
 
 
 def test_exact_match_returns_candidate():
-    """严格命中（系列=Orion）→ 返回候选，标注精确匹配。"""
-    bl = _select(series="Orion")
+    """严格命中（系列=AMD）→ 返回候选，标注精确匹配。"""
+    bl = _select(series="AMD")
     assert len(bl) == 1
     assert bl[0]["match_stage"] == "exact"
     assert bl[0]["fallback_note"] == "精确匹配"
@@ -93,5 +93,5 @@ def test_type_mismatch_returns_empty_not_other_type():
     with patch("app.services.model_candidates.ServerCatalogRepository", _Cat), \
          patch("app.services.model_candidates.BaseConfigRepository", _Bc):
         from app.services.model_candidates import select_models
-        bl = select_models(None, "存储服务器", series="Orion", form="4U")
+        bl = select_models(None, "存储服务器", series="AMD", form="4U")
     assert bl == []

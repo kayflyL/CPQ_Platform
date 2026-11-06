@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>需求分析 Workflow 架构对比：一节点一大脑 → 唯一大脑 + 引擎托管状态</title>
+<style>
+  :root {
+    --ink: #1f2933;
+    --ink-2: #52606d;
+    --ink-3: #7b8794;
+    --line: #d9dee5;
+    --card: #ffffff;
+    --bg: #f5f6f8;
+    --red: #b3413a;
+    --red-bg: #fdf0ef;
+    --blue: #2f6fbf;
+    --blue-bg: #eef4fb;
+    --green: #35754a;
+    --green-bg: #eef6f0;
+    --amber: #9a7b1e;
+    --amber-bg: #fbf6e7;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 24px 64px;
+    gap: 56px;
+  }
+  .figure { width: 980px; max-width: 100%; }
+  .figure-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .figure-sub {
+    font-size: 13px;
+    color: var(--ink-2);
+    margin-bottom: 20px;
+  }
+  .tag {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 999px;
+    margin-left: 8px;
+    vertical-align: 3px;
+  }
+  .tag-deprecated { background: var(--red-bg); color: var(--red); }
+  .tag-current { background: var(--green-bg); color: var(--green); }
+
+  /* ---------- 节点卡 ---------- */
+  .node {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 13px;
+    line-height: 1.5;
+    box-shadow: 0 1px 2px rgba(31,41,51,.05);
+  }
+  .node b { display: block; font-size: 13.5px; margin-bottom: 2px; }
+  .node .desc { color: var(--ink-2); font-size: 12px; }
+  .node .dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: 1px;
+  }
+  .dot-red { background: var(--red); }
+  .dot-blue { background: var(--blue); }
+  .dot-green { background: var(--green); }
+  .dot-amber { background: var(--amber); }
+  .dot-gray { background: var(--ink-3); }
+
+  /* ---------- 连接线 ---------- */
+  .v-arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 34px;
+    position: relative;
+  }
+  .v-arrow::before {
+    content: "";
+    width: 2px;
+    flex: 1;
+    background: var(--ink-3);
+  }
+  .v-arrow::after {
+    content: "";
+    width: 0; height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 7px solid var(--ink-3);
+  }
+  .v-arrow .lbl {
+    position: absolute;
+    left: calc(50% + 12px);
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    color: var(--red);
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .v-arrow.muted .lbl { color: var(--ink-2); font-weight: 400; }
+
+  /* ---------- 旧模式：泳道行 ---------- */
+  .engine-box {
+    border: 1.5px solid var(--line);
+    border-radius: 14px;
+    background: rgba(255,255,255,.6);
+    padding: 20px 22px 14px;
+    position: relative;
+  }
+  .engine-box > .box-label {
+    position: absolute;
+    top: -11px; left: 18px;
+    background: var(--bg);
+    padding: 0 10px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--ink-2);
+  }
+  .lane { display: flex; align-items: stretch; gap: 0; }
+  .lane .node { flex: 1; }
+  .h-arrow {
+    align-self: center;
+    width: 34px;
+    height: 2px;
+    background: var(--ink-3);
+    position: relative;
+    flex-shrink: 0;
+  }
+  .h-arrow::after {
+    content: "";
+    position: absolute;
+    right: -1px; top: -4px;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-left: 7px solid var(--ink-3);
+  }
+  .h-arrow .lbl {
+    position: absolute;
+    top: -20px; left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: var(--ink-3);
+    white-space: nowrap;
+  }
+  .lane-gap {
+    display: flex;
+    align-items: center;
+    padding: 8px 0 8px 60px;
+    gap: 10px;
+    height: 40px;
+  }
+  .lane-gap .drop-line {
+    width: 2px; height: 100%;
+    background: var(--red);
+    opacity: .55;
+  }
+  .lane-gap .gap-lbl {
+    font-size: 12px;
+    color: var(--red);
+    font-weight: 600;
+    background: var(--red-bg);
+    border: 1px dashed rgba(179,65,58,.4);
+    border-radius: 999px;
+    padding: 3px 12px;
+  }
+  .lane-gap .note { font-size: 12px; color: var(--ink-3); }
+
+  /* ---------- 现状 ---------- */
+  .top-row { display: flex; gap: 16px; align-items: stretch; }
+  .top-row .node { flex: 1; }
+  .executor {
+    background: var(--blue-bg);
+    border: 1.5px solid rgba(47,111,191,.45);
+    border-radius: 12px;
+    padding: 12px 18px;
+    text-align: center;
+  }
+  .executor b { font-size: 14.5px; color: var(--blue); }
+  .executor .desc { font-size: 12.5px; color: var(--ink-2); margin-top: 2px; }
+  .loop-box {
+    border: 1.5px solid rgba(47,111,191,.4);
+    border-radius: 14px;
+    background: rgba(238,244,251,.45);
+    padding: 22px 20px 16px;
+    position: relative;
+  }
+  .loop-box > .box-label {
+    position: absolute;
+    top: -11px; left: 18px;
+    background: var(--bg);
+    padding: 0 10px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--blue);
+  }
+  .chain { display: flex; align-items: stretch; }
+  .chain .node { flex: 1; }
+  .chain .h-arrow .lbl { top: -22px; }
+  .retry-wrap { position: relative; height: 52px; margin: 6px 10px 0; }
+  .retry-line {
+    position: absolute;
+    left: 8%; right: 8%; top: 0;
+    height: 34px;
+    border-left: 2px solid var(--amber);
+    border-right: 2px solid var(--amber);
+    border-bottom: 2px dashed var(--amber);
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    opacity: .75;
+  }
+  .retry-line::after {
+    content: "";
+    position: absolute;
+    left: -5px; top: -7px;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-bottom: 7px solid var(--amber);
+  }
+  .retry-lbl {
+    position: absolute;
+    left: 50%; bottom: -2px;
+    transform: translateX(-50%);
+    font-size: 12px;
+    color: var(--amber);
+    background: var(--amber-bg);
+    border-radius: 999px;
+    padding: 2px 12px;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .branch-row { display: flex; gap: 12px; margin-top: 10px; }
+  .branch-row .node { flex: 1; }
+  .state-band {
+    display: flex;
+    gap: 12px;
+    background: var(--green-bg);
+    border: 1.5px solid rgba(53,117,74,.4);
+    border-radius: 14px;
+    padding: 18px 20px 14px;
+    position: relative;
+  }
+  .state-band > .box-label {
+    position: absolute;
+    top: -11px; left: 18px;
+    background: var(--bg);
+    padding: 0 10px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--green);
+  }
+  .state-band .node { flex: 1; box-shadow: none; }
+  .exchange {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 64px;
+    position: relative;
+  }
+  .exchange .pair {
+    display: flex;
+    gap: 56px;
+    flex: 1;
+    align-items: stretch;
+  }
+  .exchange .pair .col {
+    display: flex; flex-direction: column; align-items: center;
+    width: 0; position: relative; flex: 1;
+  }
+  .exchange .pair .col::before {
+    content: ""; width: 2px; flex: 1; background: var(--green); opacity: .7;
+  }
+  .exchange .pair .col.down::after {
+    content: ""; width: 0; height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 7px solid var(--green);
+  }
+  .exchange .pair .col.up::before {
+    background: var(--green); opacity: .7;
+  }
+  .exchange .pair .col.up::after {
+    content: ""; width: 0; height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-bottom: 7px solid var(--green);
+    position: absolute; top: 0;
+  }
+  .exchange .lbl {
+    position: absolute;
+    top: 34%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    color: var(--green);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .exchange .lbl-read { left: calc(25% + 16px); }
+  .exchange .lbl-write { left: calc(75% + 16px); }
+  .foot-row { display: flex; gap: 16px; }
+  .foot-row .node.main { flex: 2.4; }
+  .foot-row .node.side { flex: 1; border-style: dashed; background: transparent; box-shadow: none; }
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-top: 18px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+  .legend span { display: inline-flex; align-items: center; }
+  .legend .swatch {
+    width: 10px; height: 10px; border-radius: 3px;
+    margin-right: 6px; display: inline-block;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ 图一：旧模式 ============ -->
+<section class="figure">
+  <div class="figure-title">图一 · 旧模式：一节点一大脑<span class="tag tag-deprecated">已废弃</span></div>
+  <div class="figure-sub">说明挂在节点里，引擎逐节点发起独立 LLM 调用——调用边界就是大脑边界</div>
+
+  <div class="node" style="max-width:220px; margin:0 auto;"><b>客户需求</b></div>
+  <div class="v-arrow"></div>
+
+  <div class="engine-box">
+    <span class="box-label">确定性流程引擎 · 按流程图逐节点推进</span>
+
+    <div class="lane">
+      <div class="node"><b><span class="dot dot-gray"></span>节点①说明</b><div class="desc">线索登记</div></div>
+      <div class="h-arrow"><span class="lbl">提示装入</span></div>
+      <div class="node" style="border-color:rgba(179,65,58,.5); background:var(--red-bg);"><b><span class="dot dot-red"></span>LLM 调用 ①</b><div class="desc">消息列表 = 节点说明 + 上游表<br>一次性，用完即扔</div></div>
+      <div class="h-arrow"></div>
+      <div class="node"><b><span class="dot dot-gray"></span>产出物表 ①</b><div class="desc">只有结论，没有推理过程</div></div>
+    </div>
+
+    <div class="lane-gap">
+      <div class="drop-line"></div>
+      <span class="gap-lbl">只传表，过程即弃</span>
+      <span class="note">下游请求里没装旧历史 → 对模型来说等于从未发生</span>
+    </div>
+
+    <div class="lane">
+      <div class="node"><b><span class="dot dot-gray"></span>节点②说明</b><div class="desc">机型选型</div></div>
+      <div class="h-arrow"><span class="lbl">提示装入</span></div>
+      <div class="node" style="border-color:rgba(179,65,58,.5); background:var(--red-bg);"><b><span class="dot dot-red"></span>LLM 调用 ②</b><div class="desc">全新失忆的大脑<br>拿结论表靠猜补全语境</div></div>
+      <div class="h-arrow"></div>
+      <div class="node"><b><span class="dot dot-gray"></span>产出物表 ②</b><div class="desc">重复反问 · 推翻上游权衡</div></div>
+    </div>
+
+    <div class="lane-gap">
+      <div class="drop-line"></div>
+      <span class="gap-lbl">只传表，过程即弃</span>
+      <span class="note">同一个断点，每个节点都会再长出一个新大脑</span>
+    </div>
+
+    <div class="lane">
+      <div class="node"><b><span class="dot dot-gray"></span>节点③说明</b><div class="desc">配件选配 / 组装 …</div></div>
+      <div class="h-arrow"><span class="lbl">提示装入</span></div>
+      <div class="node" style="border-color:rgba(179,65,58,.5); background:var(--red-bg);"><b><span class="dot dot-red"></span>LLM 调用 ③</b><div class="desc">又一个新大脑</div></div>
+      <div class="h-arrow"></div>
+      <div class="node" style="border-style:dashed; background:transparent;"><b><span class="dot dot-gray"></span>…</b></div>
+    </div>
+  </div>
+
+  <div class="v-arrow muted"><span class="lbl">频频返工，耗时极长</span></div>
+  <div class="node" style="max-width:300px; margin:0 auto; text-align:center;"><b>最终产出</b><div class="desc">配出来的内容问题频出</div></div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--red-bg); border:1px solid rgba(179,65,58,.5);"></i>独立大脑：各自持一张一次性消息列表，互不相通</span>
+    <span><i class="swatch" style="background:var(--red);"></i>节点间唯一流通的东西是结论表</span>
+  </div>
+</section>
+
+<!-- ============ 图二：现状 ============ -->
+<section class="figure">
+  <div class="figure-title">图二 · 现状：唯一大脑 + 引擎托管状态<span class="tag tag-current">当前架构</span></div>
+  <div class="figure-sub">说明书前置，同一个执行器持有全程记账；大脑每步仍是新调用，上下文由引擎装配</div>
+
+  <div class="top-row">
+    <div class="node"><b><span class="dot dot-gray"></span>客户需求</b><div class="desc">原始输入</div></div>
+    <div class="node" style="flex:2;"><b><span class="dot dot-blue"></span>工作流说明书（skill 形态）</b><div class="desc">流程步骤 · 每步规则 · 工具清单 · 产出契约 —— 不再挂在节点里</div></div>
+  </div>
+  <div class="v-arrow"></div>
+
+  <div class="executor">
+    <b>回合执行器</b>
+    <div class="desc">同一个执行器从头到尾持有全程记账（消息列表 + 结构化状态）</div>
+  </div>
+  <div class="v-arrow"></div>
+
+  <div class="loop-box">
+    <span class="box-label">每个节点回合 —— 大脑仍是全新调用，上下文由引擎装配</span>
+
+    <div class="chain">
+      <div class="node"><b><span class="dot dot-blue"></span>引擎自动 begin</b><div class="desc">确定性预处理：候选池 / 目录检索</div></div>
+      <div class="h-arrow"></div>
+      <div class="node"><b><span class="dot dot-blue"></span>上下文装配</b><div class="desc">说明书 + 状态 + 本回合历史</div></div>
+      <div class="h-arrow"></div>
+      <div class="node" style="border-color:rgba(154,123,30,.5); background:var(--amber-bg);"><b><span class="dot dot-amber"></span>大脑回合（LLM）</b><div class="desc">读说明书 · 调工具 · 出结论</div></div>
+      <div class="h-arrow"></div>
+      <div class="node"><b><span class="dot dot-blue"></span>引擎自动 end</b><div class="desc">节点契约校验</div></div>
+    </div>
+
+    <div class="retry-wrap">
+      <div class="retry-line"></div>
+      <span class="retry-lbl">缺字段 / 前提未确认 → 回喂重试</span>
+    </div>
+
+    <div class="branch-row">
+      <div class="node" style="border-color:rgba(154,123,30,.5);"><b><span class="dot dot-amber"></span>结构化确认卡</b><div class="desc">推进不动时交客户拍板，暂停待续</div></div>
+      <div class="node"><b><span class="dot dot-blue"></span>结果接线</b><div class="desc">本步落定，产物沉淀进状态</div></div>
+      <div class="node"><b><span class="dot dot-green"></span>冻结护栏</b><div class="desc">下游改写上游落定产物 → 判红暴露</div></div>
+    </div>
+  </div>
+
+  <div class="exchange">
+    <div class="pair">
+      <div class="col up"></div>
+      <div class="col down"></div>
+    </div>
+    <span class="lbl lbl-read">读：装配进下一回合</span>
+    <span class="lbl lbl-write">写：确认 / 锁定 / 产物沉淀</span>
+  </div>
+
+  <div class="state-band">
+    <span class="box-label">引擎托管的结构化状态（跨节点唯一记忆）</span>
+    <div class="node"><b>登记槽位 + 客户确认记录</b><div class="desc">哪些是拍板过的，哪些是推断</div></div>
+    <div class="node"><b>锁定机型 + 方案草稿</b><div class="desc">上游权衡的结论与理由</div></div>
+    <div class="node"><b>各节点产物</b><div class="desc">登记表 / 配件表 / BOM</div></div>
+  </div>
+
+  <div class="v-arrow"></div>
+
+  <div class="foot-row">
+    <div class="node main" style="text-align:center;"><b>终检 + 组装 + 交付</b><div class="desc">方案配置草稿 / BOM / 报告</div></div>
+    <div class="node side"><b><span class="dot dot-gray"></span>前端：推理画布</b><div class="desc">节点抽屉（运行详情 / 产物）· 确认卡交互</div></div>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--blue);"></i>引擎（确定性）：预处理 · 装配 · 校验 · 闸门 · 组装</span>
+    <span><i class="swatch" style="background:var(--amber);"></i>大脑（LLM）：理解与决策，每步都是新调用</span>
+    <span><i class="swatch" style="background:var(--green);"></i>状态：跨节点连续性的唯一来源</span>
+  </div>
+</section>
+
+</body>
+</html>

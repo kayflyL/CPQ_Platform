@@ -778,7 +778,7 @@ async function applyImport(file: File) {
               <div class="card-collapse-inner info-inner">
                 <a-form layout="vertical" :disabled="loading">
                   <a-row :gutter="12">
-                    <a-col :span="6"><a-form-item label="基准名称" required><a-input v-model:value="form.name" placeholder="如 Orion-2U-标准型" /></a-form-item></a-col>
+                    <a-col :span="6"><a-form-item label="基准名称" required><a-input v-model:value="form.name" placeholder="如 AMD-2U-标准型" /></a-form-item></a-col>
                     <a-col :span="5"><a-form-item label="类型"><a-select v-model:value="form.server_type_id" allow-clear placeholder="机型类型"><a-select-option v-for="t in types" :key="t.id" :value="t.id">{{ t.name }}</a-select-option></a-select></a-form-item></a-col>
                     <a-col :span="3"><a-form-item label="系列"><a-select v-model:value="form.series"><a-select-option v-for="o in seriesOptions" :key="o.value" :value="o.value">{{ o.label }}</a-select-option></a-select></a-form-item></a-col>
                     <a-col :span="3"><a-form-item label="形态"><a-select v-model:value="form.form"><a-select-option v-for="o in formOptions" :key="o.value" :value="o.value">{{ o.label }}</a-select-option></a-select></a-form-item></a-col>

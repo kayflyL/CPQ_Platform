@@ -29,15 +29,15 @@ const formOptions = ref<{ value: string; label: string }[]>([])
 
 const defaultKpCategories = ref<string[]>([])
 const seriesOptions = computed(() => {
-  // 公开模式平台字段对外用芯片品牌（用户口径：AMD 就是 Orion，兆芯就是 Polaris），
+  // 公开模式平台字段对外用芯片品牌（用户口径：AMD 就是 AMD，兆芯就是 兆芯），
   // 提交后由后端翻译回内部代号；内部模式照旧走系列 store。
   if (props.publicMode) {
     return ['AMD', 'Intel', '兆芯', '海光', '其他'].map((b) => ({ value: b, label: b }))
   }
   return seriesStore.items.map((s) => ({ value: s.value, label: s.label }))
 })
-// 内部代号 → 品牌（公开表单展示用；onModelSelect 带出 / fromSlots 回填时翻译）
-const _CHIP_BY_SERIES: Record<string, string> = { Orion: 'AMD', Polaris: '兆芯' }
+// 旧内部代号 → 品牌（2026-11-06 系列已直接用品牌名；保留旧键兼容改名前的草稿回填）
+const _CHIP_BY_SERIES: Record<string, string> = { AMD: 'AMD', 兆芯: '兆芯', Orion: 'AMD', Polaris: '兆芯' }  // 旧代号键兼容改名前草稿回填
 const modelOptions = ref<{ value: string; label: string }[]>([])
 const serverTypeOptions = ref<{ value: string; label: string }[]>([])
 const modelRecords = ref<ServerModel[]>([])

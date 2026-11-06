@@ -18,7 +18,7 @@ const { show: showAssistant } = useAssistantShell()
 interface ModuleCard { key: string; title: string; desc: string; to: string }
 const MODULES: ModuleCard[] = [
   { key: 'requirement', title: '需求分析', desc: '该配什么、配多少', to: '/strategies/requirement' },
-  { key: 'selection', title: '选型配置', desc: '互斥规则 + BOM 案例库', to: '/strategies/selection' },
+  { key: 'selection', title: '选型配置', desc: '兼容规则 + BOM 案例库', to: '/strategies/selection' },
   { key: 'pricing', title: '报价策略', desc: '加法定价引擎', to: '/strategies/pricing' },
 ]
 

@@ -1,7 +1,7 @@
 """一次性修复：存量 baseline 解决方案的适配平台从虚构型号刷成真实机型绑定。
 
 种子（solution_seed._SEED）按 key 幂等、绝不覆盖已有行，因此 DB 里带虚构型号
-（Orion ES22V3 / Titan TS33V2…，link=/strategies/selection）的存量行不会被种子更新。
+（AMD ES22V3 / Titan TS33V2…，link=/strategies/selection）的存量行不会被种子更新。
 本脚本从 _SEED 取权威内容，只刷 platforms 列；幂等护栏：行内任一平台已带 model_id
 （视为已人工整理过）则整行跳过。运行前把旧值备份到同目录 _backup_solutions_platforms_*.json。
 

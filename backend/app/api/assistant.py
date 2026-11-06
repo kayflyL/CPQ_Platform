@@ -524,7 +524,7 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
                 raise HTTPException(status_code=403, detail="请选择可用的 AI 角色")
 
         # history 必须先于本轮落库读取（history=之前的消息）：组 prompt/需求原文时当前消息
-        # 由各消费方显式追加，混入会造成双发双写（2026-09-05 需求原文双 Polaris 实测）。
+        # 由各消费方显式追加，混入会造成双发双写（2026-09-05 需求原文双 兆芯 实测）。
         history = repo.list_messages(thread_id)
         # 引用回复：名字/正文截断快照存 data JSON（不存 message_id——被引用消息删除后引用仍自洽）
         quote = None

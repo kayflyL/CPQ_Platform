@@ -62,7 +62,7 @@ function toggleCfg(id: number) {
 const seriesRaw = computed(() => model.value?.base_config?.series || '')
 const seriesLabel = computed(() => {
   const found = seriesStore.items.find(i => i.value === seriesRaw.value)
-  return found?.label || seriesRaw.value || 'Polaris'
+  return found?.label || seriesRaw.value || '兆芯'
 })
 
 // 场景主题常量已抽取共享：constants/stageThemes.ts（星河首页弹窗 banner 同源复用）

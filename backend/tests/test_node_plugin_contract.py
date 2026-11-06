@@ -91,12 +91,12 @@ def test_fill_node_validate_is_the_required_field_gate():
     plugin = plugin_for("agent_fill")
     v = _run(plugin.validate({"ext": {}}))
     assert v["ok"] is False, "必填字段没登记完就放行"
-    filled = {"server_type": "通用计算服务器", "platform_type": "Orion",
+    filled = {"server_type": "通用计算服务器", "platform_type": "AMD",
               "chassis_form": "2U", "purchase_qty": 1}
     # 目录前提（平台/系列）只有推断值、没有客户确认记录 → 拦住（见 test_premise_gate_*）
     blocked = _run(plugin.validate({"ext": filled}))
     assert blocked["ok"] is False and "前提" in blocked["hint"]
-    assert _run(plugin.validate({"ext": {**filled, "confirmed_slots": {"platform_type": "Orion"}}}))["ok"] is True
+    assert _run(plugin.validate({"ext": {**filled, "confirmed_slots": {"platform_type": "AMD"}}}))["ok"] is True
 
 
 def test_model_node_validate_needs_a_locked_baseline():
@@ -152,11 +152,11 @@ def test_kp_node_bridge_only_publishes_its_own_context():
     engine = {"kp_parts": [{"category": "CPU", "request_spec": "2颗兆芯50000", "qty": 2,
                             "unmatched": True}],
               "ext": {"kp_rows": []}, "node_state": {},
-              "_locked_baseline": {"series": "Polaris"},
+              "_locked_baseline": {"series": "兆芯"},
               "flow_configs": {"kp_reason": {}}}
     ctx: dict = {}
     plugin_for("kp_reason").bridge_ctx(engine, ctx)
-    assert ctx["kp_series"] == "Polaris"
+    assert ctx["kp_series"] == "兆芯"
     assert ctx["kp_rows_ctx"][0]["row_key"] == "CPU|2颗兆芯50000"
     assert "node_state" not in ctx, "别把节点状态当上下文下发"
 
@@ -289,7 +289,7 @@ def _plugin_wiring_engine() -> dict:
 
 
 def _fill_engine() -> dict:
-    return {"ext": {"server_type": "通用计算服务器", "platform_type": "Orion",
+    return {"ext": {"server_type": "通用计算服务器", "platform_type": "AMD",
                     "chassis_form": "2U", "purchase_qty": 1}}
 
 
@@ -297,25 +297,25 @@ def test_fill_premise_gap_offers_catalog_candidates_with_inferred_recommended(mo
     """前提字段无客户确认 → 系统出确认卡：目录系列候选、推断值标推荐、点选=登记字段确认。"""
     plugin = plugin_for("agent_fill")
     monkeypatch.setattr(plugin, "_catalog_dimension_candidates",
-                        lambda engine, key: ["Orion", "Polaris", "Vega"])
+                        lambda engine, key: ["AMD", "兆芯", "Vega"])
     gaps = plugin.system_gaps(_fill_engine())
     assert len(gaps) == 1
     g = gaps[0]
     assert g["slot"] == "platform_type" and g["reason_code"] == "premise_confirm"
-    assert [o["value"] for o in g["options"]] == ["Orion", "Polaris", "Vega"]
+    assert [o["value"] for o in g["options"]] == ["AMD", "兆芯", "Vega"]
     rec = [o for o in g["options"] if o.get("recommended")]
-    assert len(rec) == 1 and rec[0]["value"] == "Orion"
+    assert len(rec) == 1 and rec[0]["value"] == "AMD"
     # 点选信号走统一出口：slot/value = 登记表字段确认（点击通道写 confirmed_slots）
     from ai_office.skill_plan_runtime import ask_option_signal
-    assert ask_option_signal("", g["options"][0], "") == {"platform_type": "Orion"}
+    assert ask_option_signal("", g["options"][0], "") == {"platform_type": "AMD"}
 
 
 def test_fill_premise_gap_silent_when_confirmed_or_delegated_or_incomplete(monkeypatch):
     """三种不弹卡的合法情形：客户已确认 / 整单委托 / 登记没填完（先让大脑补登记）。"""
     plugin = plugin_for("agent_fill")
-    monkeypatch.setattr(plugin, "_catalog_dimension_candidates", lambda engine, key: ["Orion"])
+    monkeypatch.setattr(plugin, "_catalog_dimension_candidates", lambda engine, key: ["AMD"])
     eng = _fill_engine()
-    eng["ext"]["confirmed_slots"] = {"platform_type": "Orion"}
+    eng["ext"]["confirmed_slots"] = {"platform_type": "AMD"}
     assert plugin.system_gaps(eng) == []
     eng2 = _fill_engine()
     eng2["ext"]["delegation"] = "full"

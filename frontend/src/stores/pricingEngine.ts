@@ -56,7 +56,7 @@ export interface PricingStep {
   dimKey: DimensionKey
   opKind: OpKind
   value: number | string         // 命中的系数（base 15 / add +3 / mult ×0.75 / clamp "7~30"）；未命中为 '—'
-  matched?: string               // 命中的枚举/桶（'Polaris' / '海外'）
+  matched?: string               // 命中的枚举/桶（'兆芯' / '海外'）
   subtotal: number               // 本步后的累计毛利率（百分点）
   note?: string                  // 降级/未命中说明
   skipped?: boolean              // 该步实际未生效（无数据/无配置）

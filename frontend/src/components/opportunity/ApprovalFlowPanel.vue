@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
+import { PaperClipOutlined } from '@ant-design/icons-vue'
 import type { FeedAttachment, FeedMessage } from '@/api/feed'
 import type { ApprovalItem, FlowCard, FlowInfo, FlowNode, PortalOpp } from '@/api/portal'
 import { portalApi } from '@/api/portal'
@@ -441,7 +442,7 @@ onBeforeUnmount(() => {
               v-for="att in row.attachments"
               :key="att.attachment_id"
               @click.prevent="downloadAtt(att)"
-            >📎 {{ att.original_filename }}</a>
+            ><PaperClipOutlined /> {{ att.original_filename }}</a>
           </div>
         </div>
       </article>
@@ -481,7 +482,7 @@ onBeforeUnmount(() => {
       <div class="af-composer-foot">
         <div v-if="selectedFiles.length" class="af-file-chips">
           <span v-for="(f, i) in selectedFiles" :key="`${f.name}-${i}`" class="af-file-chip">
-            📎 {{ f.name }}
+            <PaperClipOutlined /> {{ f.name }}
             <button type="button" class="af-file-remove" @click="removeSelectedFile(i)">×</button>
           </span>
         </div>
@@ -552,11 +553,11 @@ onBeforeUnmount(() => {
 }
 .af-current {
   flex: none;
-  padding: 11px;
-  margin-bottom: 10px;
+  padding: var(--cpq-space-3);
+  margin-bottom: var(--cpq-space-2);
   border: 1px solid var(--cpq-accent-primary);
   border-radius: var(--cpq-radius-md);
-  background: linear-gradient(135deg, var(--cpq-overlay-a10), transparent), var(--cpq-bg-elevated);
+  background: var(--cpq-bg-elevated);
   box-shadow: 0 10px 20px -22px rgba(0, 0, 0, 0.65);
 }
 .af-current-head {
@@ -573,17 +574,14 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   background: var(--cpq-accent-primary);
   color: #fff;
-  font-weight: 700;
+  font-weight: var(--cpq-font-weight-semibold);
   font-size: var(--cpq-font-size-sm);
 }
 .af-avatar.sm {
   width: 22px;
   height: 22px;
   margin-top: 1px;
-  font-size: 10px;
-}
-.af-avatar.comment {
-  background: #8b5cf6;
+  font-size: var(--cpq-font-size-xs);
 }
 .af-current-copy {
   flex: 1;
@@ -604,7 +602,7 @@ onBeforeUnmount(() => {
 .af-current-copy small {
   display: block;
   margin-top: 2px;
-  font-size: 10px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 .af-status {
@@ -613,8 +611,8 @@ onBeforeUnmount(() => {
   border-radius: var(--cpq-radius-full);
   background: var(--cpq-overlay-a10);
   color: var(--cpq-accent-primary);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--cpq-font-size-xs);
+  font-weight: var(--cpq-font-weight-semibold);
 }
 .af-status.done {
   background: var(--cpq-overlay-success15);
@@ -627,7 +625,7 @@ onBeforeUnmount(() => {
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4);
   color: var(--cpq-text-secondary);
-  font-size: 10px;
+  font-size: var(--cpq-font-size-xs);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
@@ -638,7 +636,7 @@ onBeforeUnmount(() => {
 .af-metrics {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 7px;
+  gap: var(--cpq-space-2);
   margin-top: 9px;
 }
 .af-metrics div {
@@ -674,7 +672,7 @@ onBeforeUnmount(() => {
 .af-tabs button.active {
   background: var(--cpq-overlay-a10);
   color: var(--cpq-accent-primary);
-  font-weight: 700;
+  font-weight: var(--cpq-font-weight-semibold);
 }
 .af-feed {
   flex: 1;
@@ -689,7 +687,7 @@ onBeforeUnmount(() => {
 }
 .af-feed-item {
   display: flex;
-  gap: 9px;
+  gap: var(--cpq-space-2);
   padding: 8px 0;
   border-bottom: 1px dashed var(--cpq-overlay-w5);
 }
@@ -702,13 +700,13 @@ onBeforeUnmount(() => {
 }
 .af-feed-copy b {
   display: block;
-  font-size: 11.5px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-primary);
 }
 .af-feed-copy small {
   display: block;
   margin-top: 3px;
-  font-size: 10.5px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 .af-node-chip {
@@ -733,7 +731,7 @@ onBeforeUnmount(() => {
   margin-top: 7px;
 }
 .af-attach-list a {
-  color: #2563eb;
+  color: var(--cpq-accent-primary);
   font-size: var(--cpq-font-size-sm);
   text-decoration: none;
 }
@@ -811,7 +809,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 6px;
-  font-size: 10.5px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 .af-composer-foot {

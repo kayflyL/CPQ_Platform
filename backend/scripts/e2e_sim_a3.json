@@ -5,11 +5,11 @@
   "input": "先记一下：2 颗 AMD 32 核 CPU，内存 256G DDR5",
   "answers": {
     "server_type": "通用计算服务器，对了还要 4 块 8T 硬盘",
-    "platform_type": "Orion，网卡要 2 个万兆的",
+    "platform_type": "AMD，网卡要 2 个万兆的",
     "chassis_form": "2U",
     "purchase_qty": "1台",
     "warranty_years": "3年",
-    "server_model": "@pick:Orion",
+    "server_model": "@pick:AMD",
     "brain_ask": "@recommend",
     "GPU": "@absent"
   },

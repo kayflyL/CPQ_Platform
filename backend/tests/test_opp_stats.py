@@ -5,7 +5,7 @@
 本文件锁三件事：
 1. 口径实现单点：dashboard / opportunity_repo / 工具全部指向 opp_caliber_repo + opp_stats
 2. 工具注册：spec 在册、registry 按 enabled_tools 启用、坏日期参数不炸
-3. compute 的全量数字口径由生产库人工核验（本月 18/Polaris 7 与线索页一致），
+3. compute 的全量数字口径由生产库人工核验（本月 18/兆芯 7 与线索页一致），
    这里只测离线可测的部分。
 """
 import asyncio
@@ -37,13 +37,13 @@ def test_repo_slot_map_delegates_to_core():
 
     def _capture(session, opp_ids=None):
         sent["session"] = session
-        return {"OPP-1": {"platform_type": "Polaris"}}
+        return {"OPP-1": {"platform_type": "兆芯"}}
 
     repo = OpportunityRepository()
     repo._session = MagicMock(name="session")
     with patch("app.repository.opp_caliber_repo.current_slot_map", _capture):
         out = repo._current_slot_map(["OPP-1"])
-    assert out == {"OPP-1": {"platform_type": "Polaris"}}
+    assert out == {"OPP-1": {"platform_type": "兆芯"}}
     assert sent["session"] is repo.session
 
 

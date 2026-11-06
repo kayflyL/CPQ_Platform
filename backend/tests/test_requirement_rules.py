@@ -34,10 +34,10 @@ def _scene(name: str, signals: list, title: str, items: list, desc: str, evidenc
 
 
 _REQ_RULES = [
-    _plat("平台：CPU 兆芯/KH → Polaris", ["兆芯", "KH", "kh"], "Polaris", "客户点名兆芯（KH 系列）CPU → 整机平台推导为 Polaris；推导值属推断，须经客户确认",
-          "库内实测：兆芯 KH50000 库存只适配 Polaris 平台"),
-    _plat("平台：CPU AMD/EPYC/霄龙 → Orion", ["AMD", "EPYC", "霄龙"], "Orion", "客户点名 AMD（EPYC/霄龙）→ 整机平台推导为 Orion；推导值属推断，须经客户确认",
-          "目录实测：Orion 在售机型 CPU 全为 EPYC"),
+    _plat("平台：CPU 兆芯/KH → 兆芯", ["兆芯", "KH", "kh"], "兆芯", "客户点名兆芯（KH 系列）CPU → 整机平台推导为 兆芯；推导值属推断，须经客户确认",
+          "库内实测：兆芯 KH50000 库存只适配 兆芯 平台"),
+    _plat("平台：CPU AMD/EPYC/霄龙 → AMD", ["AMD", "EPYC", "霄龙"], "AMD", "客户点名 AMD（EPYC/霄龙）→ 整机平台推导为 AMD；推导值属推断，须经客户确认",
+          "目录实测：AMD 在售机型 CPU 全为 EPYC"),
     _plat("平台：CPU Intel/至强 → Intel", ["Intel", "intel", "至强", "Xeon", "xeon"], "Intel", "客户点名 Intel（至强/Xeon）→ 整机平台推导为 Intel 系；推导值属推断，须经客户确认",
           "业务确认：至强/Intel 阵营归 Intel 系平台（待目录复核补实证）"),
     _scene("场景基线：AI 训练服务器", ["训练", "GPU服务器", "算力"], "AI 训练服务器", [
@@ -84,11 +84,11 @@ def _ext(server_type: str = "通用计算服务器", cpu_spec: str = "", require
 def test_platform_derive_all_three_camps():
     rules = [r for r in _requirement_rules() if r["category"] == "平台归置"]
     ctx = registration_rule_context(_ext(cpu_spec="2× EPYC 9654"))
-    assert eval_assign_value(rules, ctx, "opportunity.platform_type") == "Orion"
+    assert eval_assign_value(rules, ctx, "opportunity.platform_type") == "AMD"
     ctx = registration_rule_context(_ext(cpu_spec="2× Intel 8558U 至强"))
     assert eval_assign_value(rules, ctx, "opportunity.platform_type") == "Intel"
     ctx = registration_rule_context(_ext(cpu_spec="兆芯 KH50000"))
-    assert eval_assign_value(rules, ctx, "opportunity.platform_type") == "Polaris"
+    assert eval_assign_value(rules, ctx, "opportunity.platform_type") == "兆芯"
 
 
 def test_platform_signals_do_not_cross_match():
@@ -96,7 +96,7 @@ def test_platform_signals_do_not_cross_match():
     rules = [r for r in _requirement_rules() if r["category"] == "平台归置"]
     assert eval_assign_value(
         rules, registration_rule_context(_ext(cpu_spec="EPYC 9754")), "opportunity.platform_type"
-    ) == "Orion"
+    ) == "AMD"
 
 
 # ===== 场景基线：信号命中语义锁定（渲染对信号语义的依赖） =====
@@ -138,7 +138,7 @@ def test_scene_group_render_carries_items_and_usage():
 def test_scene_render_excludes_non_baseline_rules():
     """平台归置规则不混进原则卡知识块（组分桶隔离）。"""
     text = render_group(SCENE_GROUP, _requirement_rules())
-    assert "Polaris" not in text
+    assert "兆芯" not in text
     assert text.count("【需求理解知识·") == 1
 
 
@@ -218,20 +218,20 @@ def test_merge_node_bindings_overwrite_and_deep_copy():
 # ── 注入语义：组绑定 ∪ 单条勾选；旧列表形状绑定读时归一 ────────────────────────
 def test_knowledge_union_of_group_binding_and_single_rule():
     rules = [
-        {**_plat("兆芯", ["兆芯", "KH"], "Polaris", "d", "e"), "id": 1},
-        {**_plat("AMD", ["AMD", "EPYC"], "Orion", "d", "e"), "id": 2},
+        {**_plat("兆芯", ["兆芯", "KH"], "兆芯", "d", "e"), "id": 1},
+        {**_plat("AMD", ["AMD", "EPYC"], "AMD", "d", "e"), "id": 2},
         {**_scene("AI训练", ["AI训练"], "AI 训练基线", [{"category": "GPU", "text": "按需"}], "d", "e"), "id": 3},
         {**_scene("通用", ["通用"], "通用基线", [{"category": "内存", "text": "均衡"}], "d", "e"), "id": 4},
     ]
     bindings = {"kp_reason": {"groups": ["平台归置"], "rule_ids": [4]}}
     text = knowledge_for_node("kp_reason", rules=rules, bindings=bindings)
-    assert "Polaris" in text and "Orion" in text          # 整组：平台归置 2 条全进
+    assert "兆芯" in text and "AMD" in text          # 整组：平台归置 2 条全进
     assert "通用基线" in text and "AI 训练基线" not in text  # 单条：只进了 id=4
     assert "场景配置基线" in text                            # 单条触达的组照常出块带用法行
 
 
 def test_knowledge_old_list_shape_binding_normalized():
-    rules = [{**_plat("兆芯", ["兆芯"], "Polaris", "d", "e"), "id": 1}]
+    rules = [{**_plat("兆芯", ["兆芯"], "兆芯", "d", "e"), "id": 1}]
     text = knowledge_for_node("agent_fill", rules=rules,
                               bindings={"agent_fill": ["平台归置"]})  # DB 旧形状
-    assert "Polaris" in text
+    assert "兆芯" in text

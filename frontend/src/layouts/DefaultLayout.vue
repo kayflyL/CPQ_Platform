@@ -232,6 +232,7 @@ const topItems = computed<NavItem[]>(() => {
     { key: '/servers', label: '服务器', perm: 'page.servers' },
     { key: '/parts', label: '配件', perm: 'page.parts' },
     { key: '/strategies', label: '解决方案', perm: 'page.strategies' },
+    { key: '/tools', label: '工具', perm: 'page.tools' },
   ]
   return items.filter((i) => !i.perm || auth.can(i.perm))
 })
