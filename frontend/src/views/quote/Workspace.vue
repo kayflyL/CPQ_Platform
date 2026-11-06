@@ -1066,7 +1066,7 @@ import { ref, reactive, onMounted, onBeforeUnmount, computed, h, nextTick, watch
 import { useRouter, useRoute } from 'vue-router'
 import { useQuoteStore, type ConfigData, type Item } from '@/store/quote'
 import { usePricingRulesStore } from '@/stores/pricingRules'
-import { normalizeDriveKind } from '@/stores/selectionEngine'
+import { normalizeDriveKind } from '@/utils/partFit'
 import { useSelectionGate, gateAlertsOf } from '@/composables/useSelectionGate'
 import type { GatePartInput } from '@/api/selectionGate'
 import { alertIcon } from '@/constants/ruleMeta'
@@ -2130,13 +2130,29 @@ const handleSave = async () => {
   if (hardViolations.length) {
     const confirmed = await Modal.confirm({
       title: `保存前校验 · ${hardViolations.length} 项需要处理`,
-      content: h('div', { style: 'font-size:13px;line-height:1.8;color:var(--cpq-text-primary);' },
-        hardViolations.map(v => h('div', `· ${v.desc}`))),
+      content: h('div', { style: 'font-size:13px;line-height:1.8;color:var(--cpq-text-primary);' }, [
+        ...hardViolations.map(v => h('div', `· ${v.desc}`)),
+        ((activeConfig.value as any)?.gate_waivers?.length)
+          ? h('div', { style: 'margin-top:8px;color:var(--cpq-text-secondary)' },
+              `该方案已有 ${(activeConfig.value as any).gate_waivers.length} 次豁免留痕,将随方案保存`)
+          : null,
+      ]),
       okText: '仍要保存',
       cancelText: '返回修改',
       okType: 'danger',
     })
     if (!confirmed) return
+    // 豁免留痕:随方案 JSON 持久化(操作人/时间/违规明细),审计可回溯
+    const cfgNow = activeConfig.value as any
+    if (cfgNow) {
+      const waivers: any[] = cfgNow.gate_waivers || []
+      waivers.push({
+        at: nowIso(),
+        by: auth.user?.user_id || auth.user?.name || '',
+        items: hardViolations.map(v => ({ ruleId: v.ruleId, ruleName: v.ruleName, severity: v.severity, desc: v.desc })),
+      })
+      cfgNow.gate_waivers = waivers
+    }
   }
 
   warnLowMarginIfNeeded()

@@ -5,15 +5,12 @@
  * 规则本体的 WHEN/THEN 编辑在 RuleEditModal（通用引擎编辑器），卡片只做浏览与快捷操作。
  */
 import { computed } from 'vue'
-import { useSelectionRulesStore } from '@/stores/selectionRules'
 import RuleCard from '@/components/flow-canvas/RuleCard.vue'
 import RuleEditModal from './selection/compatibility/RuleEditModal.vue'
 import { useRuleCatalog } from '@/composables/useRuleCatalog'
 import { useRuleEditor } from '@/composables/useRuleEditor'
 import { RULE_TYPE_MAP, RULE_TYPE_BADGE } from '@/constants/ruleMeta'
 import type { CompatibilityRule } from '@/api/compatibilityRules'
-
-const selectionRulesStore = useSelectionRulesStore()
 
 const catalog = useRuleCatalog()
 const sections = computed(() => catalog.groupRules(catalog.searched.value))
@@ -23,8 +20,7 @@ const editor = useRuleEditor({
 })
 
 async function afterChange() {
-  await catalog.load()
-  await selectionRulesStore.invalidateRules()
+  await catalog.load()  // 引擎直读 DB,规则改动下一次 resolve 即生效,无需再刷前端缓存
 }
 
 const { loading, searchText, categoryOpts, whenSummary } = catalog

@@ -14,7 +14,7 @@ import { bomTemplateApi, baseConfigApi, rearIOApi } from '@/api/serverConfig'
 import { evalBomContext, type BomEvalContext } from '@/utils/bomRuleEngine'
 import { loadBomCategoryAliases } from '@/utils/bomCategoryAliases'
 import { rearSlotsFor, COMBO_REAR_SLOTS, rearIOBucket } from '@/constants/chassisMeta'
-import { normalizeDriveKind } from '@/stores/selectionEngine'
+import { normalizeDriveKind } from '@/utils/partFit'
 import { DRIVE_RE, GPU_RE, PSU_RE, gpuModelFrom, raidModelFrom, highBwNicFrom } from '@/utils/bomL6Derive'
 import type { Plan } from '@/api/reasoning'
 

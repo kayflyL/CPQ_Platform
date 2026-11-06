@@ -9,8 +9,8 @@
  */
 import type { RearSlot } from '@/api/serverConfig'
 
-/** 盘类型协议集（SSOT 在 selectionEngine，这里透出给机箱域复用）*/
-export { DRIVE_KIND_KEYS as CORE_DRIVE_KINDS } from '@/stores/selectionEngine'
+/** 盘类型协议集（SSOT 在 utils/partFit，这里透出给机箱域复用）*/
+export { DRIVE_KIND_KEYS as CORE_DRIVE_KINDS } from '@/utils/partFit'
 
 /**
  * 后面板槽位按底座分模板（基于 15 份真实配置归纳）。

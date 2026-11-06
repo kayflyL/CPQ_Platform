@@ -8,7 +8,7 @@
  */
 import type { RearSlot } from '@/api/serverConfig'
 import { BACKPLANE_TYPE_KEYWORDS } from '@/constants/chassisMeta'
-import { normalizeDriveKind } from '@/stores/selectionEngine'
+
 
 export type BackplaneType = 'tri' | 'dc'
 
@@ -35,10 +35,16 @@ export function backplaneTypeOf(part: SpecdPart | null | undefined): BackplaneTy
   return null
 }
 
+/** 盘类型协议集（原 SSOT 在 stores/selectionEngine,引擎 v2 退役后迁驻于此）*/
+export const DRIVE_KIND_KEYS = ['SATA', 'SAS', 'NVMe'] as const
 /**
- * 盘类型：复用 selectionEngine.normalizeDriveKind——
- * specs.interface / kind / type 优先，缺失回退型号名嗅探。返回 SATA/SAS/NVMe 或 undefined。
+ * 盘类型规范化：specs.interface / kind / type 优先，缺失回退型号名嗅探。返回 SATA/SAS/NVMe 或 undefined。
  */
+export function normalizeDriveKind(raw: any): string | undefined {
+  const up = String(raw ?? '').toUpperCase()
+  return DRIVE_KIND_KEYS.find(k => up.includes(k.toUpperCase()))
+}
+
 export function driveKindOf(part: SpecdPart): string | undefined {
   const s = part.specs || {}
   return normalizeDriveKind(s.interface || s.kind || s.type) || normalizeDriveKind(part.name)

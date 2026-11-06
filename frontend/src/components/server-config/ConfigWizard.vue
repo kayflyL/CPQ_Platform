@@ -24,12 +24,11 @@ import { fromKpPart } from '@/composables/usePartAdapter'
 import { SERVER_ANATOMY, type AnatomyForm } from '@/constants/serverAnatomy'
 import type { PickerItem } from '@/types/picker'
 import type { GpuArch } from '@/composables/useServerConfig'
-import { useSelectionRulesStore, type RuleContext } from '@/stores/selectionRules'
-import { normalizeDriveKind } from '@/stores/selectionEngine'
+import { normalizeDriveKind } from '@/utils/partFit'
+import { useSelectionGate, gateAlertsOf } from '@/composables/useSelectionGate'
 
 const props = defineProps<{ model: ServerModel; /** 公开模式：右栏完成动作=「提交配置」（emit submit-config），登录版保持规格书行为 */ leadMode?: boolean }>()
 const emit = defineEmits<{ (e: 'submit-config'): void }>()
-const selectionRulesStore = useSelectionRulesStore()
 
 // ---- KP 核心配件（扁平 kpLines；卡片是 groupBy 视图）----
 const kpLines = ref<{ cat: string; pn: string; qty: number }[]>([])
@@ -251,9 +250,6 @@ async function init() {
       kpCategories.value.map(c => kpPartsApi.listByCategory(c.id, series.value || undefined))
     )
     kpCategories.value.forEach((c, i) => { kpCatalog.value[c.name] = kpPartsResults[i] })
-    // 兼容性规则引擎：加载 active 规则供 selectionActions 求值（失败不阻塞配置）
-    selectionRulesStore.ensureRules().catch(() => {})
-
     if (!kpLines.value.length) {
       const firstPn = (cat: string) => (kpCatalog.value[cat]?.[0] || {}).pn || ''
       // GPU 架构优先读 base_config.gpu_arch_default（数据驱动，可在「机箱能力」标签配）；
@@ -364,45 +360,35 @@ const kpSummary = computed(() => {
   }
 })
 
-// ---- 兼容性规则引擎：构建 context + 求值（缺必配 / 互斥 / 派生建议）----
-function buildRuleContext(): RuleContext {
-  const kp: RuleContext['kp'] = {}
+// ---- 选型引擎(单一判定出口):已选行变化 → resolve;规则结果/阻断校验全走引擎 ----
+function buildGateParts() {
+  const parts: Array<{ category: string; pn: string; name: string; qty: number; id?: number | null; specs?: Record<string, any> }> = []
   for (const l of kpLines.value) {
-    const spec = (kpPart(l.pn)?.specs || {}) as Record<string, any>
-    const node = kp[l.cat] || (kp[l.cat] = { qty: 0, items: [], spec: {} })
-    node.qty += l.qty || 0
-    node.items.push({ pn: l.pn, qty: l.qty, spec })
-    if (Object.keys(node.spec).length === 0) node.spec = spec
+    const part = kpPart(l.pn) as any
+    parts.push({
+      category: l.cat, pn: l.pn || '', name: part?.name || l.pn || '',
+      qty: l.qty || 0, id: part?.id ?? null, specs: part?.specs || {},
+    })
   }
-  // 盘类型分别供给，供「每8盘→线缆」类 derive 规则；与 L6ChassisConfig 使用同一 kpSummary.drivesByKind
-  const drivesByKind = kpSummary.value.drivesByKind || {}
-  const drive_kinds = (Object.keys(drivesByKind) as string[]).filter(k => (drivesByKind as Record<string, number>)[k] > 0)
-  // 注入机型能力档案（base_config 可配）：让「CPU/内存/GPU/盘/电源 超上限」类规则真实触发；
-  // 同一批能力字段也接到 KP 卡数量控件上硬夹紧（maxQtyFor），双通道 = 规则告警 + 控件封顶
-  // （未配置的能力字段 → undefined，规则自动不触发、控件不夹紧）
-  const cap = props.model?.base_config || {}
-  return {
-    kp,
-    config: {
-      series: series.value,
-      model: props.model?.name,
-      form: props.model?.base_config?.form,
-      sata_qty: drivesByKind.SATA || 0,
-      sas_qty: drivesByKind.SAS || 0,
-      nvme_qty: drivesByKind.NVMe || 0,
-      drive_kinds,
-      max_cpu: cap.max_cpu,
-      max_dimm: cap.max_dimm,
-      max_tdp: cap.max_tdp,
-      gpu_slots: cap.gpu_slots,
-      psu_bays: cap.psu_bays,
-      bays: cap.bays,
-      psu_qty: psuQty.value,
-    },
-    opportunity: {},
-  }
+  if (psuQty.value > 0) parts.push({ category: 'PSU', pn: 'psu', name: '电源', qty: psuQty.value })
+  return parts
 }
-const selectionActions = computed(() => selectionRulesStore.evaluateRules(buildRuleContext()))
+const gate = useSelectionGate({
+  baseConfigId: () => (props.model as any)?.base_config_id ?? null,
+  series: () => series.value || '',
+  serverModel: () => props.model?.name || '',
+  kpRows: () => buildGateParts(),
+})
+// 规则结果面板 = 硬违规 + 建议 + 派生(信息级);阻断校验只认引擎硬违规
+const selectionActions = computed(() => [
+  ...gateAlertsOf(gate.violations, gate.recommends),
+  ...(gate.derived.value || []).map(a => ({
+    ruleId: a.ruleId, action: 'derive', severity: 'info',
+    desc: a.desc, offenders: a.offenders,
+    deriveQty: a.deriveQty, assignValue: a.assignValue,
+  })),
+])
+const hardGateViolations = computed(() => gate.violations.value.filter(v => isBlockingSeverity(v.severity)))
 
 // ---- KP 卡数量上限（A：控件级夹紧，与后面板槽位 cap 同思路；C：规则侧告警兜底）----
 // CPU→max_cpu / Memory→max_dimm / GPU→gpu_slots / HDD-SSD→bays；未配置 → 不限（NIC 等无能力字段的类别不受限）
@@ -449,7 +435,7 @@ function linkSpeedValue(value: any): number {
   return m[2] === 'T' ? parseFloat(m[1]) * 1000 : parseFloat(m[1])
 }
 function actionLabel(kind: string): string {
-  const map: Record<string, string> = { require: '必配', exclude: '互斥', derive: '派生', filter: '过滤', recommend: '建议' }
+  const map: Record<string, string> = { require: '必配', exclude: '互斥', derive: '派生', filter: '过滤', recommend: '建议', homogeneous: '互斥', resource: '预算', clamp: '钳制' }
   return map[kind] || kind
 }
 function resultValueText(a: any): string {
@@ -695,7 +681,7 @@ function confirmBlocking(blocking: { desc: string }[]): Promise<boolean> {
 async function generateSpec() {
   if (!l6Apply.value) { message.warning('请先完成机箱选配'); return }
   // CRE 阻断级校验升级：有 conflict/require 命中时弹确认，用户可「仍然保存」强存
-  const blocking = selectionActions.value.filter(a => isBlockingSeverity(a.severity))
+  const blocking = hardGateViolations.value
   if (blocking.length && !(await confirmBlocking(blocking))) return
   saving.value = true
   try {
@@ -746,7 +732,7 @@ watch(chassisModalOpen, (v) => { if (v) openDrawer.value = null })
 const ruleBadge = computed(() => {
   const acts = selectionActions.value
   if (!acts.length) return null
-  const conflict = acts.filter((a) => a.severity === 'conflict').length
+  const conflict = gate.violations.value.filter((v) => v.severity === 'conflict').length
   return conflict > 0
     ? { n: conflict, cls: 'is-conflict' }
     : { n: acts.length, cls: 'is-warn' }
@@ -802,7 +788,7 @@ function getPublicSnapshot() {
 // 公开「提交配置」面板的「查看规格书」入口：走组件内既有规格书 overlay（复用模板/打印/PDF 链路）
 async function openSpecSheet() {
   if (!l6Apply.value) { message.warning('请先完成机箱选配'); return }
-  const blocking = selectionActions.value.filter(a => isBlockingSeverity(a.severity))
+  const blocking = hardGateViolations.value
   if (blocking.length && !(await confirmBlocking(blocking))) return
   specVisible.value = true
 }
@@ -915,7 +901,7 @@ defineExpose({ getPublicSnapshot, openSpecSheet })
           <section class="rr-block">
             <div class="rr-title"><span>🛡</span>规则结果</div>
             <div v-if="selectionActions.length" class="rr-rule-list">
-              <div v-for="a in selectionActions" :key="a.ruleId" class="rr-rule" :class="`rr-${a.severity}`">
+              <div v-for="a in selectionActions" :key="String(a.ruleId) + '-' + a.action" class="rr-rule" :class="`rr-${a.severity}`">
                 <span class="rr-badge">{{ actionLabel(a.action) }}</span>
                 <span class="rr-desc">{{ a.desc }}</span>
                 <span class="rr-val">{{ resultValueText(a) }}</span>
@@ -1031,7 +1017,7 @@ defineExpose({ getPublicSnapshot, openSpecSheet })
           <section class="rr-block">
             <div class="rr-title"><span>🛡</span>规则结果</div>
             <div v-if="selectionActions.length" class="rr-rule-list">
-              <div v-for="a in selectionActions" :key="a.ruleId" class="rr-rule" :class="`rr-${a.severity}`">
+              <div v-for="a in selectionActions" :key="String(a.ruleId) + '-' + a.action" class="rr-rule" :class="`rr-${a.severity}`">
                 <span class="rr-badge">{{ actionLabel(a.action) }}</span>
                 <span class="rr-desc">{{ a.desc }}</span>
                 <span class="rr-val">{{ resultValueText(a) }}</span>
