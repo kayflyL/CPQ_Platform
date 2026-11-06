@@ -45,7 +45,7 @@ const VIEW_DIRS: Record<StageView, [number, number, number]> = {
 }
 
 export function createServerStage(container: HTMLElement, cfg: MachineConfig = DEFAULT_MACHINE_CONFIG,
-  opts: { partType?: 'cpu' | 'fan'; partSpec?: CpuSpec | FanSpec } = {}) {
+  opts: { partType?: 'cpu' | 'fan'; partSpec?: CpuSpec | FanSpec; cpuFamily?: 'sp5' | 'kh' } = {}) {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.setSize(container.clientWidth || 800, container.clientHeight || 480)
@@ -213,7 +213,7 @@ export function createServerStage(container: HTMLElement, cfg: MachineConfig = D
 
   const machine = (opts.partType === 'cpu' ? createCpuModel(opts.partSpec)
     : opts.partType === 'fan' ? createFanModel(opts.partSpec as FanSpec)
-    : createMachine(cfg)) as StageModel
+    : createMachine(opts.cpuFamily ? { ...cfg, cpuFamily: opts.cpuFamily } : cfg)) as StageModel
   scene.add(machine.root)
 
   // 辉光件上bloom层:整机的霓虹件恰好全是 MeshBasicMaterial(边光/LED/光环/走线),按材质类型标记;

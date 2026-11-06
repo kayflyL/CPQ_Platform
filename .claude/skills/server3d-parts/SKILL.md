@@ -55,7 +55,9 @@ description: 服务器3D部件库建模的强制工作流（蓝图→分pass→�
 7. **8000 端口后端可能是提权进程**：netstat 看得见 kill 不掉——别硬杀。幂等迁移直接对库执行，新后端代码等它自然重启时 startup 自愈生效。
 8. **E2E 登录**：AUTH 开启时签发 token 用 opportunities.feed_users 里 **is_active=true** 的 admin（曾拿过 is_active=false 的行，/me 永远 401），键 cpq_auth_token。
 9. **实体验证顺序**：`npm run build`（style-gate 会拦）→ 迁移落库 → 浏览器 `window.__s3dStage`（含 camera/controls/renderOnce 调试口）读状态，别靠截图猜。
-10. **参考数据拿不到 = 停机条件，不是降级条件（2026-11-04 机箱事故）**：ZTE 站点 GLB/JSON 被 WAF 按扩展名封死（css/js/png 放行，json/glb 一律兜底页，cookie/UA/http2 都试过无效）——此时**明说"这个精度我做不出来"并给用户选项**（用户从浏览器 DevTools Network 保存 GLB 给我解析 / 接受降级 / 改用实件照片），禁止默默用截图猜一个低精度版本交付。
+10. **参考数据拿不到 = 停机条件，不是降级条件（2026-11-04 机箱事故）**：ZTE 站点 GLB/JSON 被 WAF 按扩展名封死（css/js/png 放行，json/glb 一律兜底页，cookie/UA/http2 都试过无效）——此时**明说"这个精度我做不出来"并给用户选项**（用户从浏览器 DevTools 保存 GLB 给我解析 / 接受降级 / 改用实件照片），禁止默默用截图猜一个低精度版本交付。
+11. **setCounts 的 popIn 补间会踩掉自带缩放（2026-11-06 CPU 并入整机实测）**：units 清单里的组经过 popIn 后 `scale.setScalar(0.6→1)` 收尾——部件模块若把 mm→整机缩放（如 0.00825）直接挂在模块根上会被补间踢成 1（机器瞬间巨型化/穿台）。**自带缩放的模块必须外套一层 scale=1 的 unit 壳组**（补间踩壳组，缩放内层保住），fan 墙没进 setCounts 清单所以没暴露此坑。
+12. **实机排障先验舞台句柄是不是孤儿（2026-11-06 CPU 轮）**：HMR/路由切换后 `window.__s3dStage` 可能指向已卸载实例的 stage（旧 canvas 已 detached 但 rAF 还在跑，甚至挤爆 WebGL context 数导致当前 context lost——canvas 呈现页面 CSS 渐变的"假白帧"）。正确姿势：`document.querySelector('.s3d-wrap').__vueParentComponent.setupState.stage` 取**可见实例**的句柄再测量/截图；多实例页面 `__s3dStage.controls.domElement === 可见canvas` 校验一下身份。WebGL canvas 读取还要在同一 eval 里先 renderOnce 再 drawImage（后台合成会清 drawing buffer，跨 eval 读到黑帧/旧帧）。
 
 ## 验收清单（闸4 打勾用）
 

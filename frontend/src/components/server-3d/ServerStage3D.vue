@@ -16,6 +16,8 @@ const props = withDefaults(defineProps<{
   partType?: 'cpu' | 'fan' | null
   /** 部件参数(layout_config 解析):如 { family:'kh' } 切兆芯形态族 */
   partSpec?: { family?: 'sp5' | 'kh' } | null
+  /** 整机处理器封装族:sp5=AMD(默认);kh=兆芯。品牌即参数,同一份资产按机型 series 切换 */
+  cpuFamily?: 'sp5' | 'kh' | null
 }>(), { counts: () => ({}), theme: 'auto', height: '380px' })
 
 const host = ref<HTMLDivElement | null>(null)
@@ -30,7 +32,7 @@ function currentTheme(): 'light' | 'dark' {
 
 onMounted(() => {
   if (!host.value) return
-  stage = createServerStage(host.value, undefined, { partType: props.partType ?? undefined, partSpec: props.partSpec ?? undefined })
+  stage = createServerStage(host.value, undefined, { partType: props.partType ?? undefined, partSpec: props.partSpec ?? undefined, cpuFamily: props.cpuFamily ?? undefined })
   stage.applyTheme(currentTheme())
   stage.setOnHover((k) => {
     if (!k || !stage) { tip.value = null; return }
@@ -53,12 +55,12 @@ onMounted(() => {
 
 watch(() => props.counts, (c) => stage?.machine.setCounts(c || {}), { deep: true })
 watch(() => props.theme, () => stage?.applyTheme(currentTheme()))
-watch(() => [props.partType, props.partSpec], () => {
-  // 部件类型/形态族变化=重建舞台(工厂在创建时定型)
+watch(() => [props.partType, props.partSpec, props.cpuFamily], () => {
+  // 部件类型/形态族/整机CPU品牌变化=重建舞台(工厂在创建时定型)
   stage?.dispose()
   stage = null
   if (host.value) {
-    stage = createServerStage(host.value, undefined, { partType: props.partType ?? undefined, partSpec: props.partSpec ?? undefined })
+    stage = createServerStage(host.value, undefined, { partType: props.partType ?? undefined, partSpec: props.partSpec ?? undefined, cpuFamily: props.cpuFamily ?? undefined })
     stage.applyTheme(currentTheme())
   }
 })

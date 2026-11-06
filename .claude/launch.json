@@ -20,6 +20,12 @@
       "port": 8933
     },
     {
+      "name": "workflow-docs",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-X", "utf8", "-m", "http.server", "8934", "--directory", "docs/项目介绍/AI办公室/工作流workflow"],
+      "port": 8934
+    },
+    {
       "name": "tools-verify",
       "runtimeExecutable": "bash",
       "runtimeArgs": ["-c", "VITE_API_TARGET=http://127.0.0.1:8001 npm run dev -- --port 5177 --strictPort"],

@@ -8,6 +8,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { glow, type StageTheme } from './themes'
 import { createFanModule, FAN_THEME } from './parts/fan'
+import { createCpuModule, CPU_THEME, type CpuModuleMats } from './parts/cpu'
 
 export interface MachineConfig {
   bays: number
@@ -18,6 +19,8 @@ export interface MachineConfig {
   psu: { total: number; active: number }
   pcie: number
   ocp: number
+  /** 处理器封装族:sp5=AMD(默认);kh=兆芯。品牌即参数,同一份资产按机型 series 切换 */
+  cpuFamily?: 'sp5' | 'kh'
   size: { W: number; H: number; D: number }
 }
 
@@ -65,6 +68,16 @@ export const KEY_ALIAS: Record<string, string | null> = {
 
 export function createMachine(cfg: MachineConfig) {
   const { W, H, D } = cfg.size
+  const cpuFamily = cfg.cpuFamily ?? 'sp5'
+  // ── CPU 模块共享材质(cpuFamily 定色,applyTheme 换色用) ──
+  const cpuMats: CpuModuleMats = {
+    sub: new THREE.MeshPhysicalMaterial({ color: cpuFamily === 'kh' ? CPU_THEME.dark.subKh : CPU_THEME.dark.sub, roughness: 0.85, envMapIntensity: 0.15 }),
+    chip: new THREE.MeshPhysicalMaterial({ color: CPU_THEME.dark.chip, metalness: 0.5, roughness: 0.3, iridescence: 0.55, iridescenceIOR: 1.3, clearcoat: 0.5, envMapIntensity: 0.6 }),
+    iod: new THREE.MeshPhysicalMaterial({ color: CPU_THEME.dark.iod, metalness: 0.4, roughness: 0.3, iridescence: 0.7, iridescenceIOR: 1.3, clearcoat: 0.5, envMapIntensity: 0.6 }),
+    ihs: new THREE.MeshPhysicalMaterial({ color: CPU_THEME.dark.ihs, metalness: 1.0, roughness: 0.55, envMapIntensity: 0.4 }),
+    caps: new THREE.MeshPhysicalMaterial({ color: CPU_THEME.dark.caps, metalness: 0.3, roughness: 0.5, envMapIntensity: 0.2 }),
+    gold: new THREE.MeshPhysicalMaterial({ color: '#d4a94f', metalness: 0.7, roughness: 0.4 }),
+  }
   const root = new THREE.Group()
 
   // ── 共享材质(少材质=少切换;主题切换时整批换色) ──
@@ -287,21 +300,26 @@ export function createMachine(cfg: MachineConfig) {
       tr.position.set(-1.5 + i * 0.5, 0.335, D * 0.09)
       cpuBank.add(tr)
     }
+    // ── 双路 CPU:部件库公共模块按 cpuFamily 定型(AMD/兆芯同资产换参),插座发光定位框替代旧发光顶盖 ──
+    const MM = 0.00825 // CPU mm→整机单位(同风扇系数;基板 75mm→0.62)
     for (const s of [-1, 1]) {
       const unit = new THREE.Group()
-      const fin = new THREE.Group()
-      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.06, 0.48), tagGlow('cpu', M.cpuCap.clone()))
-      cap.position.y = 0.38
-      fin.add(cap)
-      for (let i = 0; i < 9; i++) {
-        const f = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.012, 0.44), M.fin)
-        f.position.y = 0.44 + i * 0.03
-        f.castShadow = true
-        fin.add(f)
+      unit.position.set(s * 0.85, 0.325, D * 0.09)
+      // 插座发光定位框(局部坐标,与模块同组——单路机型 counts 隐藏 CPU 时框随之隐藏)
+      const S = 0.66, T = 0.012
+      for (const [sw, sh, sd, sx, sz] of [
+        [S, T, T, 0, S / 2], [S, T, T, 0, -S / 2],
+        [T, T, S, S / 2, 0], [T, T, S, -S / 2, 0],
+      ] as const) {
+        const seg = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, sd), tagGlow('cpu', M.cpuCap.clone()))
+        seg.position.set(sx, 0.005, sz)
+        unit.add(seg)
       }
-      fin.position.set(0, 0, D * 0.09)
-      unit.add(fin)
-      unit.position.set(s * 0.85, 0, 0)
+      const mod = createCpuModule(cpuMats, { family: cpuFamily })
+      // 外壳组承接 setCounts 的 popIn 弹入补间(补间会把 scale 写成 0.6→1,
+      // 直接挂模块会被踢掉 mm→整机单位的 0.00825 缩放——外壳=1,模块缩放内层保住)
+      mod.g.scale.setScalar(MM)
+      unit.add(mod.g)
       cpuBank.add(unit)
       cpuUnits.push(unit)
     }
@@ -433,7 +451,7 @@ export function createMachine(cfg: MachineConfig) {
   let glassBase = 0.1
   function setGlassBase(v: number) { glassBase = v }
 
-  // ── 主题:原 M 袋六材质换色(与 stage 回退同式)+ 风扇模块色表(FAN_THEME 双档,深色塑胶保留,浅色提亮防糊白) ──
+  // ── 主题:M 袋六材质换色(与 stage 回退同式)+ 风扇/CPU 模块色表(双档,深色塑胶保留,浅色提亮防糊白) ──
   function applyTheme(t: StageTheme, name: 'dark' | 'light') {
     M.body.color.set(t.body)
     M.dark.color.set(t.dark)
@@ -447,6 +465,12 @@ export function createMachine(cfg: MachineConfig) {
     fanModuleMats.rotor.color.set(pal.rotor)
     fanModuleMats.hub.color.set(pal.hub)
     fanModuleMats.sticker.color.set(pal.sticker)
+    const cp = CPU_THEME[name]
+    cpuMats.sub.color.set(cpuFamily === 'kh' ? cp.subKh : cp.sub)
+    cpuMats.chip.color.set(cp.chip)
+    cpuMats.iod.color.set(cp.iod)
+    cpuMats.ihs.color.set(cp.ihs)
+    cpuMats.caps.color.set(cp.caps)
   }
 
   function updateTick(dt: number, t: number) {
@@ -490,8 +514,19 @@ export function createMachine(cfg: MachineConfig) {
     }
   }
 
+  // 兆芯机型:CPU 区文案按 family 出(规格行不能挂着 AMD 型号);labels 覆盖机制照旧在顶层
+  const partInfo = cpuFamily === 'kh'
+    ? {
+        ...PART_INFO,
+        cpu: {
+          name: 'CPU/内存区', spec: '兆芯平台 · DDR5',
+          desc: '绿色主板,双路兆芯处理器,内存单行依次排列绕双CPU分三组(6/12/6)。对应图纸俯视图「CPU/内存区」。',
+        },
+      }
+    : PART_INFO
+
   return {
-    root, M, parts, glowMats, PART_INFO, KEY_ALIAS,
+    root, M, parts, glowMats, PART_INFO: partInfo, KEY_ALIAS,
     units: { gpuUnits, cpuUnits, dimmUnits, bayTrays },
     setCounts, setExploded, updateTick, setHover, setGlassBase, applyTheme,
     get explodeRatio() { return explode },

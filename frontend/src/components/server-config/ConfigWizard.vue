@@ -861,6 +861,7 @@ defineExpose({ getPublicSnapshot, openSpecSheet })
               v-if="model3d"
               :counts="counts3d"
               :labels="model3dLabels"
+              :cpu-family="series.includes('兆芯') ? 'kh' : undefined"
               height="420px"
             />
             <ServerAnatomyViewer
@@ -968,6 +969,7 @@ defineExpose({ getPublicSnapshot, openSpecSheet })
               v-if="model3d"
               :counts="counts3d"
               :labels="model3dLabels"
+              :cpu-family="series.includes('兆芯') ? 'kh' : undefined"
               height="420px"
             />
             <ServerAnatomyViewer

@@ -234,6 +234,13 @@ def ensure_server_3d_model_kind():
             "SELECT '风扇墙模块', 'part', 'fan', NULL, "
             "to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), to_char(now(), 'YYYY-MM-DD HH24:MI:SS') "
             "WHERE NOT EXISTS (SELECT 1 FROM l6.server_3d_models WHERE kind='part' AND part_type='fan')"))
+        # 兆芯 CPU 部件补登记(2026-11-06):工厂双形态但 20261103 只种了 AMD 行,family 无入口致 kh 不可达;
+        # layout_config.family 是编辑页读形态族的唯一键(前端零改动),对应 migrations/20261106_seed_zhaoxin_cpu_part.sql
+        c.execute(text(
+            "INSERT INTO l6.server_3d_models (name, kind, part_type, layout_config, created_at, updated_at) "
+            "SELECT '兆芯 CPU 部件模型', 'part', 'cpu', '{\"family\":\"kh\"}', "
+            "to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), to_char(now(), 'YYYY-MM-DD HH24:MI:SS') "
+            "WHERE NOT EXISTS (SELECT 1 FROM l6.server_3d_models WHERE kind='part' AND part_type='cpu' AND layout_config LIKE '%\"family\":\"kh\"%')"))
 
 
 def ensure_server_model_published_column():

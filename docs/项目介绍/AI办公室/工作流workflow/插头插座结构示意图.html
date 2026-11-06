@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>插头插座结构示意图：接口契约先行，实现可后补</title>
+<style>
+  :root {
+    --ink: #1f2933;
+    --ink-2: #52606d;
+    --ink-3: #7b8794;
+    --line: #d9dee5;
+    --bg: #f5f6f8;
+    --red: #b3413a;
+    --red-bg: #fdf0ef;
+    --blue: #2f6fbf;
+    --blue-bg: #eef4fb;
+    --green: #35754a;
+    --green-bg: #f0f7f2;
+    --amber: #9a7b1e;
+    --amber-bg: #fbf6e7;
+    --plug-line: #9aa5b1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 24px 64px;
+  }
+  .figure { width: 1160px; max-width: 100%; }
+  .figure-title { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .figure-sub { font-size: 13px; color: var(--ink-2); margin-bottom: 22px; }
+
+  /* ---------- 主干：节点链 ---------- */
+  .main-row { display: flex; align-items: stretch; }
+  .wnode {
+    width: 142px;
+    flex-shrink: 0;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 9px 10px 8px;
+    box-shadow: 0 1px 2px rgba(31,41,51,.05);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .wname { font-size: 13.5px; font-weight: 700; }
+  .wname .dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    margin-right: 6px; vertical-align: 1px; background: var(--blue);
+  }
+  .chip {
+    font-size: 11px; line-height: 1.5; text-align: center;
+    border-radius: 6px; padding: 2px 4px; border: 1px solid;
+  }
+  .chip-socket { background: var(--blue-bg); color: var(--blue); border-color: rgba(47,111,191,.35); }
+  .chip-brain  { background: var(--amber-bg); color: var(--amber); border-color: rgba(154,123,30,.35); }
+  .chip-gate   { background: var(--red-bg); color: var(--red); border-color: rgba(179,65,58,.35); }
+  .socket-strip {
+    margin-top: 4px;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: center; gap: 14px;
+    padding-top: 3px;
+  }
+  .socket-strip i { width: 6px; height: 7px; background: var(--ink-2); border-radius: 1px 1px 0 0; }
+
+  .conn {
+    flex: 1; min-width: 30px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 3px; padding: 0 2px;
+  }
+  .art-chip {
+    font-size: 11px; color: var(--ink-2); white-space: nowrap;
+    background: #fff; border: 1px solid var(--line);
+    border-radius: 999px; padding: 1px 9px;
+  }
+  .h-arrow { width: 100%; height: 2px; background: var(--ink-3); position: relative; }
+  .h-arrow::after {
+    content: ""; position: absolute; right: -1px; top: -4px;
+    border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+    border-left: 7px solid var(--ink-3);
+  }
+  .conn-note { font-size: 10px; color: var(--ink-3); white-space: nowrap; }
+
+  .gate-card {
+    width: 112px; flex-shrink: 0;
+    background: var(--red-bg);
+    border: 1.5px solid rgba(179,65,58,.5);
+    border-radius: 10px;
+    padding: 9px 10px;
+    text-align: center;
+  }
+  .gate-card b { font-size: 13px; color: var(--red); display: block; }
+  .gate-card .desc, .out-card .desc { font-size: 11px; color: var(--ink-2); margin-top: 2px; }
+  .out-card {
+    width: 112px; flex-shrink: 0;
+    background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    padding: 9px 10px; text-align: center;
+    box-shadow: 0 1px 2px rgba(31,41,51,.05);
+  }
+  .out-card b { font-size: 13px; display: block; }
+
+  /* ---------- 插座→插头连接带 ---------- */
+  .rail {
+    margin: 12px 56px 0;
+    border-top: 2px dashed var(--plug-line);
+    position: relative;
+  }
+  .rail .rail-chip {
+    position: absolute;
+    left: 50%; top: 0;
+    transform: translate(-50%, -55%);
+    font-size: 12px; font-weight: 600; color: var(--ink-2);
+    background: var(--bg);
+    border: 1px dashed var(--plug-line);
+    border-radius: 999px;
+    padding: 2px 14px;
+    white-space: nowrap;
+  }
+  .plug-row { display: flex; gap: 16px; margin: 0 56px; }
+  .plug { flex: 1; padding-top: 16px; position: relative; }
+  .plug .stub {
+    position: absolute; top: 0; left: 50%;
+    width: 0; height: 12px;
+    border-left: 2px dashed var(--plug-line);
+  }
+  .prongs { display: flex; justify-content: center; gap: 12px; margin-bottom: -1px; }
+  .prongs i { width: 7px; height: 10px; background: var(--plug-line); border-radius: 2px 2px 0 0; }
+  .plug-body {
+    border: 1.5px dashed rgba(53,117,74,.55);
+    background: var(--green-bg);
+    border-radius: 10px;
+    padding: 9px 13px;
+  }
+  .plug-body b { font-size: 13px; color: var(--green); display: block; margin-bottom: 2px; }
+  .plug-body .desc { font-size: 11.5px; color: var(--ink-2); line-height: 1.55; }
+  .plug-note {
+    margin: 14px 56px 0;
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--green);
+    font-weight: 600;
+    background: var(--green-bg);
+    border: 1px solid rgba(53,117,74,.35);
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+
+  .legend {
+    display: flex; gap: 20px; flex-wrap: wrap;
+    margin-top: 18px; font-size: 12px; color: var(--ink-2);
+  }
+  .legend span { display: inline-flex; align-items: center; }
+  .legend .swatch {
+    width: 10px; height: 10px; border-radius: 3px;
+    margin-right: 6px; display: inline-block;
+  }
+</style>
+</head>
+<body>
+
+<section class="figure">
+  <div class="figure-title">图 · 插头插座结构：接口契约先行，实现可后补</div>
+  <div class="figure-sub">插座 = 节点间的接口契约（目标层定死）；插头 = 数据 · 规则 · 工具实现（随时后补、更换，不碰代码）；每个节点落定前过闸门</div>
+
+  <div class="main-row">
+    <div class="conn" style="min-width:44px;">
+      <span class="art-chip">客户需求</span>
+      <div class="h-arrow"></div>
+    </div>
+
+    <div class="wnode">
+      <div class="wname"><span class="dot"></span>需求分析</div>
+      <div class="chip chip-socket">目标层 · 插座<br>登记表契约</div>
+      <div class="chip chip-brain">大脑回合</div>
+      <div class="chip chip-gate">闸门校验</div>
+      <div class="socket-strip"><i></i><i></i></div>
+    </div>
+
+    <div class="conn">
+      <span class="art-chip">线索登记表</span>
+      <div class="h-arrow"></div>
+      <span class="conn-note">按契约交付</span>
+    </div>
+
+    <div class="wnode">
+      <div class="wname"><span class="dot"></span>机型选型</div>
+      <div class="chip chip-socket">目标层 · 插座<br>机箱表契约</div>
+      <div class="chip chip-brain">大脑回合</div>
+      <div class="chip chip-gate">闸门校验</div>
+      <div class="socket-strip"><i></i><i></i></div>
+    </div>
+
+    <div class="conn">
+      <span class="art-chip">机箱表</span>
+      <div class="h-arrow"></div>
+      <span class="conn-note">按契约交付</span>
+    </div>
+
+    <div class="wnode">
+      <div class="wname"><span class="dot"></span>配件选配</div>
+      <div class="chip chip-socket">目标层 · 插座<br>配件表契约</div>
+      <div class="chip chip-brain">大脑回合</div>
+      <div class="chip chip-gate">闸门校验</div>
+      <div class="socket-strip"><i></i><i></i></div>
+    </div>
+
+    <div class="conn">
+      <span class="art-chip">配件表</span>
+      <div class="h-arrow"></div>
+      <span class="conn-note">按契约交付</span>
+    </div>
+
+    <div class="wnode">
+      <div class="wname"><span class="dot"></span>方案组装</div>
+      <div class="chip chip-socket">目标层 · 插座<br>方案配置表</div>
+      <div class="chip chip-brain">大脑回合</div>
+      <div class="chip chip-gate">闸门校验</div>
+      <div class="socket-strip"><i></i><i></i></div>
+    </div>
+
+    <div class="conn" style="min-width:36px;">
+      <div class="h-arrow"></div>
+    </div>
+
+    <div class="gate-card">
+      <b>终检闸门</b>
+      <div class="desc">总闸 · 整体校验<br>不过即打回</div>
+    </div>
+
+    <div class="conn" style="min-width:36px;">
+      <div class="h-arrow"></div>
+    </div>
+
+    <div class="out-card">
+      <b>方案配置表</b>
+      <div class="desc">交付客户</div>
+    </div>
+  </div>
+
+  <div class="rail"><span class="rail-chip">插头层 —— 数据 · 规则 · 工具，可随时后补、更换（不碰代码）</span></div>
+
+  <div class="plug-row">
+    <div class="plug">
+      <div class="stub"></div>
+      <div class="prongs"><i></i><i></i></div>
+      <div class="plug-body">
+        <b>数据源插头</b>
+        <div class="desc">机箱目录 · 配件库 · 候选池数据源<br>数据补齐换实现，插座纹丝不动</div>
+      </div>
+    </div>
+    <div class="plug">
+      <div class="stub"></div>
+      <div class="prongs"><i></i><i></i></div>
+      <div class="plug-body">
+        <b>规则插头</b>
+        <div class="desc">策略中心 · 需求分析<br>例：兆芯芯片 → 锁定兆芯系列机箱</div>
+      </div>
+    </div>
+    <div class="plug">
+      <div class="stub"></div>
+      <div class="prongs"><i></i><i></i></div>
+      <div class="plug-body">
+        <b>工具插头</b>
+        <div class="desc">目录检索 · 配件检索 · 确认卡<br>角色未绑的工具，工作流内自动可用</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="plug-note">换一张目标层表格 / 换一套数据源 / 录一条新规则 —— 不碰代码，即时生效</div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--blue);"></i>插座：接口契约，节点建好时就定死</span>
+    <span><i class="swatch" style="background:var(--amber);"></i>大脑：AI 理解与决策</span>
+    <span><i class="swatch" style="background:var(--red);"></i>闸门：落定前确定性校验（必填 / 前提确认 / 候选接地 / 冻结护栏）</span>
+    <span><i class="swatch" style="background:var(--green-bg); border:1.5px dashed rgba(53,117,74,.55);"></i>插头：具体实现，后补</span>
+  </div>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>CPU并入整机 · P1 块头比例</title>
+<style>
+  html,body{margin:0;height:100%;background:#0a1526;overflow:hidden;font-family:"Microsoft YaHei",sans-serif}
+  #app{width:100%;height:100%}
+  #hud{position:fixed;top:12px;left:16px;color:#9fc3e8;font-size:13px;letter-spacing:.5px;pointer-events:none}
+  #hud b{color:#dff0ff;font-size:15px}
+  #snapImg{position:fixed;inset:0;width:100%;height:100%;display:none;z-index:9}
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app"></div>
+<div id="hud"><b>CPU并入整机 · P1 块头</b>　<span id="famLabel"></span>双路模块 · 插座发光框 · 基板75mm→0.62单位</div>
+<img id="snapImg" alt="">
+<script type="module">
+import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+
+const qs = new URLSearchParams(location.search)
+const FAMILY = qs.get('f') === 'kh' ? 'kh' : 'sp5'
+document.getElementById('famLabel').textContent = FAMILY === 'kh' ? '兆芯(kh单片die) · ' : 'AMD(sp5 chiplet) · '
+
+// ── 整机比例(同 machine.ts) ──
+const W = 4.6, H = 1.78, D = 7.2
+const MM = 0.00825
+
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+renderer.setSize(Math.max(innerWidth, 1), Math.max(innerHeight, 1))
+renderer.toneMapping = THREE.ACESFilmicToneMapping
+renderer.toneMappingExposure = 1.15
+renderer.shadowMap.enabled = true
+renderer.shadowMap.type = THREE.PCFSoftShadowMap
+document.getElementById('app').appendChild(renderer.domElement)
+
+const scene = new THREE.Scene()
+scene.background = new THREE.Color('#0a1526')
+scene.fog = new THREE.FogExp2('#0a1526', 0.03)
+const pmrem = new THREE.PMREMGenerator(renderer)
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+scene.environmentIntensity = 0.45
+
+const camera = new THREE.PerspectiveCamera(42, Math.max(innerWidth, 1) / Math.max(innerHeight, 1), 0.1, 200)
+{
+  const dir = qs.get('v') === 'top' ? [0.02, 1, 0.18] : [0.58, 0.42, 0.7]
+  camera.position.set(0, 0.9, 0.6).addScaledVector(new THREE.Vector3(...dir).normalize(), 6.5)
+  camera.lookAt(0, 0.9, 0.6)
+}
+const controls = new OrbitControls(camera, renderer.domElement)
+controls.target.set(0, 0.9, 0.6)
+controls.enableDamping = true
+controls.autoRotate = !qs.get('v')
+
+scene.add(new THREE.AmbientLight('#8fb4dd', 0.65))
+const key = new THREE.DirectionalLight('#eaf4ff', 2.0)
+key.position.set(7, 12, 6); key.castShadow = true
+scene.add(key)
+const rimCyan = new THREE.PointLight('#1e6fff', 7, 30); rimCyan.position.set(-8, 4, -8); scene.add(rimCyan)
+const rimViolet = new THREE.PointLight('#7c3aed', 5, 30); rimViolet.position.set(8, 3, -9); scene.add(rimViolet)
+const fillTop = new THREE.PointLight('#a5d8ff', 14, 16); fillTop.position.set(0, 4.2, 0.5); scene.add(fillTop)
+const floor = new THREE.Mesh(new THREE.CircleGeometry(34, 72),
+  new THREE.MeshStandardMaterial({ color: '#0c1930', roughness: 0.92, metalness: 0.25 }))
+floor.rotation.x = -Math.PI / 2; floor.position.y = -0.08; floor.receiveShadow = true
+scene.add(floor)
+
+// ── 机壳(半透明) + 主板 ──
+const shell = new THREE.Mesh(new THREE.BoxGeometry(W, H, D),
+  new THREE.MeshStandardMaterial({ color: '#2e4059', metalness: 0.6, roughness: 0.45, transparent: true, opacity: 0.28, depthWrite: false }))
+shell.position.y = H / 2; scene.add(shell)
+const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(W, H, D)),
+  new THREE.LineBasicMaterial({ color: '#2fa8e8', transparent: true, opacity: 0.5 }))
+edges.position.y = H / 2; scene.add(edges)
+const board = new THREE.Mesh(new THREE.BoxGeometry(W - 0.7, 0.05, 2.05),
+  new THREE.MeshStandardMaterial({ color: '#1f8a4c', metalness: 0.3, roughness: 0.5 }))
+board.position.set(0, 0.3, D * 0.09); scene.add(board)
+
+// ── 内存示意条(6/12/6 三组) ──
+const dimmMat = new THREE.MeshStandardMaterial({ color: '#4ade80', metalness: 0.25, roughness: 0.4, emissive: '#166534', emissiveIntensity: 0.3 })
+const dimmX = []
+for (let i = 0; i < 6; i++) dimmX.push(-1.92 + i * 0.12)
+for (let i = 0; i < 12; i++) dimmX.push(-0.5 + i * 0.09)
+for (let i = 0; i < 6; i++) dimmX.push(1.2 + i * 0.12)
+for (const x of dimmX) {
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 0.85), dimmMat)
+  bar.position.set(x, 0.535, D * 0.09)
+  scene.add(bar)
+}
+
+// ── 插座发光定位框(每路一圈 cyan 描边) ──
+const sockMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#38bdf8').multiplyScalar(1.4) })
+function socketFrame(cx) {
+  const s = 0.66, t = 0.012, y = 0.33, z = D * 0.09
+  for (const [w, h, d, x2, y2, z2] of [
+    [s, t, t, 0, 0, s / 2], [s, t, t, 0, 0, -s / 2],
+    [t, t, s, s / 2, 0, 0], [t, t, s, -s / 2, 0, 0]]) {
+    const seg = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), sockMat)
+    seg.position.set(cx + x2, y + y2, z + z2)
+    scene.add(seg)
+  }
+}
+
+// ── 公共单颗 CPU 模块(mm 域,照 parts/cpu.ts 几何,无底面触点阵) ──
+const TH = FAMILY === 'kh'
+  ? { sub: '#2c4a34', chip: '#1a2032', iod: null, ihs: '#c9ced6', caps: '#2a2f3a' }
+  : { sub: '#2e5f66', chip: '#1a2032', iod: '#4a2a63', ihs: '#c9ced6', caps: '#2a2f3a' }
+const subMat = new THREE.MeshPhysicalMaterial({ color: TH.sub, roughness: 0.85, envMapIntensity: 0.15 })
+const chipMat = new THREE.MeshPhysicalMaterial({ color: TH.chip, metalness: 0.5, roughness: 0.3, iridescence: 0.55, iridescenceIOR: 1.3, clearcoat: 0.5, envMapIntensity: 0.6 })
+const iodMat = new THREE.MeshPhysicalMaterial({ color: TH.iod, metalness: 0.4, roughness: 0.3, iridescence: 0.7, iridescenceIOR: 1.3, clearcoat: 0.5, envMapIntensity: 0.6 })
+const ihsMat = new THREE.MeshPhysicalMaterial({ color: TH.ihs, metalness: 1.0, roughness: 0.55, envMapIntensity: 0.4 })
+const capsMat = new THREE.MeshPhysicalMaterial({ color: TH.caps, metalness: 0.3, roughness: 0.5, envMapIntensity: 0.2 })
+const brand = TH ? (FAMILY === 'kh' ? '兆芯' : 'AMD') : 'AMD'
+let labelTex
+{
+  const cv = document.createElement('canvas'); cv.width = cv.height = 256
+  const g = cv.getContext('2d')
+  g.fillStyle = '#2f353d'
+  g.font = `700 ${brand.length > 2 ? 100 : 120}px "Arial","Microsoft YaHei"`
+  g.textAlign = 'center'; g.textBaseline = 'middle'
+  g.fillText(brand, 128, 136)
+  labelTex = new THREE.CanvasTexture(cv)
+  labelTex.colorSpace = THREE.SRGBColorSpace
+}
+const skirt = FAMILY === 'kh' ? 68 : 66
+const capW = FAMILY === 'kh' ? 58 : 55
+function cpuModule() {
+  const g = new THREE.Group()
+  const sub = new THREE.Mesh(new THREE.BoxGeometry(75, 1.2, 75), subMat)
+  sub.position.y = 0.6; sub.castShadow = true; sub.receiveShadow = true
+  g.add(sub)
+  const mkBox = (w, h, d, mat, x, y, z) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat)
+    m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true
+    g.add(m); return m
+  }
+  if (FAMILY === 'sp5') {
+    for (const sx of [1, -1]) for (const x of [-25, -17].map(v => v * sx)) for (const z of [-4.5, -13, 4.5, 13])
+      mkBox(7, 0.6, 8.5, chipMat, x, 1.5, z)
+    for (const [x, z] of [[7, -26], [-7, -26], [7, 26], [-7, 26]])
+      mkBox(7, 0.6, 8.5, chipMat, x, 1.5, z)
+    mkBox(17, 0.7, 17, iodMat, 0, 1.55, 0)
+  } else {
+    mkBox(26, 0.8, 26, chipMat, 0, 1.6, 0)
+  }
+  { // SMD 电容排 上下各20
+    const caps = new THREE.InstancedMesh(new THREE.BoxGeometry(3, 0.8, 1.6), capsMat, 40)
+    const d = new THREE.Object3D()
+    for (let i = 0; i < 20; i++) for (const [k, z] of [[0, 35.4], [1, -35.4]]) {
+      d.position.set(-30 + i * 3.15, 1.6, z); d.updateMatrix()
+      caps.setMatrixAt(k * 20 + i, d.matrix)
+    }
+    g.add(caps)
+  }
+  mkBox(skirt, 1.2, skirt, ihsMat, 0, 1.8, 0)
+  mkBox(capW, 2.6, capW, ihsMat, 0, 3.7, 0)
+  for (const z of [30, -30]) mkBox(12, 2.6, 6, ihsMat, 0, 3.7, z)
+  { // 品牌刻字
+    const label = new THREE.Mesh(new THREE.PlaneGeometry(26, 26),
+      new THREE.MeshBasicMaterial({ map: labelTex, transparent: true }))
+    label.rotation.x = -Math.PI / 2
+    label.position.y = 5.02
+    g.add(label)
+  }
+  { // 金三角 pin1
+    const s = new THREE.Shape()
+    s.moveTo(0, 0); s.lineTo(6, 0); s.lineTo(0, 6); s.closePath()
+    const tri = new THREE.Mesh(new THREE.ShapeGeometry(s),
+      new THREE.MeshPhysicalMaterial({ color: '#d4a94f', metalness: 0.7, roughness: 0.4 }))
+    tri.rotation.x = -Math.PI / 2
+    tri.position.set(-30.5, 1.22, -30.5)
+    g.add(tri)
+  }
+  return g
+}
+
+// ── 双路装机 ──
+for (const sx of [-1, 1]) {
+  socketFrame(sx * 0.85)
+  const m = cpuModule()
+  m.scale.setScalar(MM)
+  m.position.set(sx * 0.85, 0.325, D * 0.09)
+  scene.add(m)
+}
+
+addEventListener('resize', () => {
+  camera.aspect = Math.max(innerWidth, 1) / Math.max(innerHeight, 1)
+  camera.updateProjectionMatrix()
+  renderer.setSize(Math.max(innerWidth, 1), Math.max(innerHeight, 1))
+})
+const clock = new THREE.Clock()
+function tick() {
+  requestAnimationFrame(tick)
+  const dt = Math.min(clock.getDelta(), 0.05)
+  controls.update()
+  sockMat.color.set('#38bdf8').multiplyScalar(1.2 + 0.3 * Math.sin(clock.elapsedTime * 2.0))
+  renderer.render(scene, camera)
+}
+tick()
+if (qs.has('snap')) {
+  const snap = () => {
+    if (!renderer.domElement.width) return setTimeout(snap, 300)
+    renderer.render(scene, camera) // 后台面板合成会清 drawing buffer,抓帧前必须同步渲染一帧
+    const c2 = document.createElement('canvas')
+    c2.width = renderer.domElement.width; c2.height = renderer.domElement.height
+    c2.getContext('2d').drawImage(renderer.domElement, 0, 0)
+    const img = document.getElementById('snapImg')
+    img.src = c2.toDataURL('image/png')
+    img.style.display = 'block'
+  }
+  setTimeout(snap, 2500)
+}
+</script>
+</body>
+</html>
