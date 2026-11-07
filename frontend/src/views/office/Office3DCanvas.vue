@@ -49,6 +49,14 @@
             <button type="button" class="office-3d-tool" title="全屏" @click="toggleFullscreen"><FullscreenOutlined /><span>{{ isFullscreen ? '退出全屏' : '全屏' }}</span></button>
           </div>
 
+          <span class="office-3d-topbar-sep"></span>
+
+          <!-- 日照滑块（G4）：重摆穿窗阳光 rig，session 记忆在 localStorage -->
+          <div class="office-3d-sun" title="日照时刻（拖动看晨昏光线）">
+            <span class="office-3d-sun-label">{{ sunLabel }}</span>
+            <input type="range" min="6" max="20" step="0.25" :value="sunHour" @input="onSunInput" />
+          </div>
+
           <div class="office-3d-toolgroup office-3d-toolgroup--end">
             <a-popconfirm
               title="用默认样板替换当前布局？保存前可撤销。"
@@ -137,9 +145,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createCharacterAssetStore, loadCharacterAsset } from '@/office3d/assets/gltfCache'
 import { envMaterial, applyShadow } from '@/office3d/environment/materials'
 import { mergeStaticGroup } from '@/office3d/environment/mergeStatic'
-import { applyToonLightRig, applyToonStyle, buildWindowShafts, toonStyleEnabled } from '@/office3d/environment/toonStyle'
 import { buildFloor, createRectangularGrid } from '@/office3d/environment/floor'
-import { createWindowedBackWall, createSideWall, buildTerrace, buildCeilingEdges, buildLighting } from '@/office3d/environment/walls'
+import { createWindowedBackWall, createSideWall, buildTerrace, buildCeilingEdges, buildWallColumns, buildLighting, applySunlight } from '@/office3d/environment/walls'
 import { buildProps } from '@/office3d/environment/furniture'
 import { clampFurnitureSize, furnitureMinSize, FURNITURE_MAX_SIZE, SYMMETRIC_FURNITURE_TYPES, furnitureSize as sizeOfCatalog } from '@/office3d/environment/furnitureSize'
 import { WALK_SPEED } from '@/office3d/characters/metrics'
@@ -170,8 +177,9 @@ import {
   ZoomInOutlined,
   ZoomOutOutlined,
 } from '@ant-design/icons-vue'
-import { useOfficeEdit } from '@/composables/useOfficeEdit'
+import { useOfficeEdit, type RoomWallRect } from '@/composables/useOfficeEdit'
 import { createNavWorld, type MeetingBounds, type MeetingDoorSide } from '@/office3d/nav/world'
+import { planPose, isoFrom, currentPose, camTweenPose, easeInOutCubic, clamp01, type Pose3 } from '@/office3d/viewTween'
 
 const props = defineProps<{
   colleagues: any[]
@@ -269,6 +277,7 @@ const {
   setArmedRoom,
   toggleRotate,
   flipSelected,
+  nudgeSelected,
   panMode,
   setPanMode,
   setPlanVisible,
@@ -280,6 +289,8 @@ const {
   zoomOut,
   undo,
   redo,
+  getPlanGroup,
+  getPlanCenter,
   canUndo,
   canRedo,
   cancelEdit,
@@ -291,7 +302,33 @@ const {
   config: () => officeConfigValue(),
   environment: () => environment,
   rebuildEnvironment: () => buildEnvironment(false),
+  roomWalls: officeRoomWalls,
 })
+
+/** G2 防穿墙墙段：有墙房间矩形（与 buildRoomShell/buildMeetingRoom 同用 navWorld.meetingRoomBounds）
+ *  + 门洞（front=+Z / back=-Z / left=-X / right=+X，与 buildMeetingRoom 同口径）。
+ *  只有真渲染了墙的房间才收录：会议房必有壳；普通房间仅 zone.door 存在时才有墙（见 buildRoomShell）。 */
+function officeRoomWalls(): RoomWallRect[] {
+  const out: RoomWallRect[] = []
+  for (const zone of officeZones()) {
+    const isMeeting = zone.type === 'meeting'
+    const hasWalls = isMeeting || (zone.room === true && !!zone.door && typeof zone.door === 'object')
+    if (!hasWalls) continue
+    const b = navWorld.meetingRoomBounds(zone)
+    const rect: RoomWallRect = { minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ }
+    const side = (isMeeting ? navWorld.meetingDoorSide(zone) : (zone.door?.side as MeetingDoorSide) || 'front')
+    const dw = zone.door?.width ?? 1.3
+    const off = zone.door?.offset ?? 0
+    const cx = zone.position?.x ?? 0
+    const cz = zone.position?.z ?? 0
+    if (side === 'front') rect.door = { axis: 'x', at: rect.maxZ, from: cx + off - dw / 2, to: cx + off + dw / 2 }
+    else if (side === 'back') rect.door = { axis: 'x', at: rect.minZ, from: cx + off - dw / 2, to: cx + off + dw / 2 }
+    else if (side === 'left') rect.door = { axis: 'z', at: rect.minX, from: cz + off - dw / 2, to: cz + off + dw / 2 }
+    else if (side === 'right') rect.door = { axis: 'z', at: rect.maxX, from: cz + off - dw / 2, to: cz + off + dw / 2 }
+    out.push(rect)
+  }
+  return out
+}
 
 function setEnvironmentVisible(visible: boolean) {
   if (environment) environment.visible = visible
@@ -305,6 +342,8 @@ function setActorsVisible(visible: boolean) {
 
 function toggleEdit() {
   if (editing.value) {
+    cancelViewTween()
+    restoreViewCamera()
     exit()
     view3D.value = false
     if (controls) controls.enabled = true
@@ -313,6 +352,7 @@ function toggleEdit() {
     emit('save-config', officeConfigValue())
     leaveFullscreen()
   } else {
+    savedViewPose = camera && controls ? currentPose(camera, controls.target) : null
     enter()
     setPlanVisible(true)
     setEnvironmentVisible(true)
@@ -325,6 +365,8 @@ function toggleEdit() {
 
 function saveAndExit() {
   if (!editing.value) return
+  cancelViewTween()
+  restoreViewCamera()
   exit()
   view3D.value = false
   if (controls) controls.enabled = true
@@ -347,6 +389,8 @@ async function resetToSample() {
 
 function cancelAndExit() {
   if (!editing.value) return
+  cancelViewTween()
+  restoreViewCamera()
   cancelEdit()
   view3D.value = false
   if (controls) controls.enabled = true
@@ -371,13 +415,187 @@ function setView(mode: '2d' | '3d') {
   const next = mode === '3d'
   if (view3D.value === next) return
   view3D.value = next
-  setPlanVisible(!next)
-  setTransformVisible(!next)
   setEnvironmentVisible(true)
-  setActorsVisible(!editing.value)
-  if (controls) controls.enabled = next
-  if (!next && editing.value) ensureFit()
+  if (controls) controls.enabled = false
+  if (next) beginEnter3D()
+  else beginExit2D()
   requestAnimationFrame(() => onResize())
+}
+
+// ── 2D↔3D 过渡（B1+B2）：planPose 像素对齐 → 交叉淡入图纸层 → 静止 420ms →
+//    球坐标弧线镜头 1700ms，墙先长（t .1-.65）家具后长（t .45-.95）；退出为逆过程 ──
+function beginEnter3D() {
+  const cam3 = camera
+  const ec = editCamera.value
+  if (!cam3 || !ec || !controls) return
+  setActorsVisible(false)
+  restorePlanFade()
+  planFadeList = collectPlanFade()
+  const A = planPose(getPlanCenter().cx, getPlanCenter().cz, ec.top, cam3.fov)
+  const B = isoFrom(A)
+  cam3.up.copy(A.up)
+  cam3.position.copy(A.p)
+  cam3.lookAt(A.t)
+  viewTween = { mode: 'enter-hold', t0: performance.now(), A, B, g0: 0.001, f0: 0.001 }
+  grow = 0.001
+  furnGrow = 0.001
+  applyGrow()
+  if (renderer) renderer.shadowMap.needsUpdate = true
+}
+
+function beginExit2D() {
+  const cam3 = camera
+  const ec = editCamera.value
+  if (!cam3 || !ec || !controls) return
+  const A = currentPose(cam3, controls.target)
+  const B = planPose(getPlanCenter().cx, getPlanCenter().cz, ec.top, cam3.fov)
+  restorePlanFade()
+  planFadeList = collectPlanFade()
+  fadePlan(0)
+  setPlanVisible(true)
+  viewTween = { mode: 'exit-run', t0: performance.now(), A, B, g0: grow, f0: furnGrow }
+  controls.enabled = false
+  setActorsVisible(false)
+}
+
+function finishEnter3D(B: Pose3) {
+  viewTween = null
+  grow = 1
+  furnGrow = 1
+  applyGrow()
+  if (!camera || !controls) return
+  camera.up.copy(B.up)
+  camera.position.copy(B.p)
+  camera.lookAt(B.t)
+  controls.target.copy(B.t)
+  controls.update()
+  controls.enabled = true
+  setPlanVisible(false)
+  setTransformVisible(false)
+  setActorsVisible(false)
+}
+
+function finishExit2D(_B: Pose3) {
+  viewTween = null
+  grow = 1
+  furnGrow = 1
+  applyGrow()
+  restorePlanFade()
+  setPlanVisible(true)
+  setTransformVisible(true)
+  setActorsVisible(false)
+  // 渲染切换回正交相机时帧已对齐（planPose 数学保证），无需 ensureFit
+}
+
+function cancelViewTween() {
+  const tw = viewTween
+  viewTween = null
+  grow = 1
+  furnGrow = 1
+  applyGrow()
+  restorePlanFade()
+  if (tw && camera && controls) {
+    camera.position.copy(tw.B.p)
+    camera.up.copy(tw.B.up)
+    camera.lookAt(tw.B.t)
+    controls.target.copy(tw.B.t)
+    controls.update()
+  }
+}
+
+/** 离开编辑模式时还原透视相机到进入前的视角。B 线过渡会把相机挪到等轴测/俯视位、
+ *  up 压成 (0,0,-1)；残留到视图模式后 OrbitControls 每帧 lookAt 带着错误 up 渲染，
+ *  拖拽旋转就变成整个沙盘斜转（相机滚转）。 */
+let savedViewPose: Pose3 | null = null
+function restoreViewCamera() {
+  if (!camera || !controls) return
+  if (savedViewPose) {
+    camera.up.copy(savedViewPose.up)
+    camera.position.copy(savedViewPose.p)
+    camera.lookAt(savedViewPose.t)
+    controls.target.copy(savedViewPose.t)
+    controls.update()
+  } else {
+    camera.up.set(0, 1, 0)
+    applyViewportCamera(officeWorkspace())
+  }
+  savedViewPose = null
+}
+
+type PlanFadeItem = { mat: THREE.Material & { opacity: number }; base: number }
+let planFadeList: PlanFadeItem[] = []
+
+function collectPlanFade(): PlanFadeItem[] {
+  const list: PlanFadeItem[] = []
+  const g = getPlanGroup()
+  if (!g) return list
+  g.traverse((o) => {
+    const m = (o as THREE.Mesh).material as (THREE.Material & { opacity: number }) | undefined
+    if (m && typeof m.opacity === 'number') list.push({ mat: m, base: m.opacity })
+  })
+  return list
+}
+
+function fadePlan(k: number) {
+  for (const it of planFadeList) it.mat.opacity = it.base * k
+}
+
+function restorePlanFade() {
+  for (const it of planFadeList) it.mat.opacity = it.base
+  planFadeList = []
+}
+
+/** 错峰生长（B2）：arch 先长、furn 后长，scale.y 挂组上向地面收敛。
+ *  压平期（生长 <8%）整组隐去：几百个网格塌到贴地亚毫米高度，与地板/露台共面，
+ *  俯视镜头直视必 z-fighting 闪烁；长出可见高度再显形（地板在 environment 根，保留）。 */
+function applyGrow() {
+  if (!envGroups) return
+  envGroups.arch.scale.y = Math.max(grow, 0.001)
+  envGroups.furn.scale.y = Math.max(furnGrow, 0.001)
+  if (viewTween) {
+    envGroups.arch.visible = grow > 0.08
+    envGroups.furn.visible = furnGrow > 0.08
+  } else {
+    envGroups.arch.visible = true
+    envGroups.furn.visible = true
+  }
+}
+
+function stepViewTween(now: number) {
+  const tw = viewTween
+  const cam3 = camera
+  if (!tw || !cam3) return
+  if (tw.mode === 'enter-hold') {
+    const k = clamp01((now - tw.t0) / 420)
+    fadePlan(1 - k)
+    if (k >= 1) {
+      setPlanVisible(false)
+      restorePlanFade()
+      tw.mode = 'enter-run'
+      tw.t0 = now
+    }
+  } else if (tw.mode === 'enter-run') {
+    const t = clamp01((now - tw.t0) / 1700)
+    const e = easeInOutCubic(t)
+    camTweenPose(tw.A, tw.B, e, { p: cam3.position, t: twTmp.t, up: cam3.up })
+    cam3.lookAt(twTmp.t)
+    grow = Math.max(easeInOutCubic(clamp01((t - 0.1) / 0.55)), 0.001)
+    furnGrow = Math.max(easeInOutCubic(clamp01((t - 0.45) / 0.5)), 0.001)
+    applyGrow()
+    if (renderer) renderer.shadowMap.needsUpdate = true
+    if (t >= 1) finishEnter3D(tw.B)
+  } else {
+    const t = clamp01((now - tw.t0) / 1300)
+    const e = easeInOutCubic(t)
+    fadePlan(Math.min(1, e * 1.8))
+    camTweenPose(tw.A, tw.B, e, { p: cam3.position, t: twTmp.t, up: cam3.up })
+    cam3.lookAt(twTmp.t)
+    furnGrow = Math.max(tw.f0 * (1 - easeInOutCubic(clamp01(t / 0.45))), 0.001)
+    grow = Math.max(tw.g0 * (1 - easeInOutCubic(clamp01((t - 0.2) / 0.6))), 0.001)
+    applyGrow()
+    if (renderer) renderer.shadowMap.needsUpdate = true
+    if (t >= 1) finishExit2D(tw.B)
+  }
 }
 
 const canvasCursorClass = computed(() => {
@@ -456,7 +674,40 @@ let renderer: THREE.WebGLRenderer | null = null
 let controls: OrbitControls | null = null
 let resizeObserver: ResizeObserver | null = null
 let environment: THREE.Group | null = null
+/** 生长分组（B2）：arch=墙/房间/露台/收边，furn=家具。scale.y 挂在组上（组原点在地面，缩放向地面收敛） */
+let envGroups: { arch: THREE.Group; furn: THREE.Group } | null = null
+let grow = 1
+let furnGrow = 1
+/** 2D↔3D 过渡状态机（B1/B2）：null = 空闲。tick() 每帧推进，见 stepViewTween */
+let viewTween: {
+  mode: 'enter-hold' | 'enter-run' | 'exit-run'
+  t0: number
+  A: Pose3
+  B: Pose3
+  /** 退出起点生长值：中断进场后退出从当前生长续变，防墙瞬跳满高 */
+  g0: number
+  f0: number
+} | null = null
+const twTmp = { t: new THREE.Vector3() }
 let rafId = 0
+
+// ── 日照滑块（G4）──
+const SUN_HOUR_KEY = 'office_sun_hour'
+const sunHour = ref(Math.min(20, Math.max(6, Number(localStorage.getItem(SUN_HOUR_KEY)) || 10.5)))
+const sunLabel = computed(() => {
+  const h = Math.floor(sunHour.value)
+  const m = Math.round((sunHour.value - h) * 60)
+  return `${h}:${String(m).padStart(2, '0')}`
+})
+function onSunInput(e: Event) {
+  sunHour.value = Number((e.target as HTMLInputElement).value)
+}
+watch(sunHour, (h) => {
+  localStorage.setItem(SUN_HOUR_KEY, String(h))
+  const fl = officeFloor()
+  applySunlight(environment, h, fl.width || 24, fl.depth || 16)
+  if (renderer) renderer.shadowMap.needsUpdate = true
+})
 let disposed = false
 let pointerDown = { x: 0, y: 0 }
 let followRoleKey: string | null = null
@@ -811,6 +1062,9 @@ function init() {
   el.appendChild(renderer.domElement)
 
   // F1 精细度·环境光贴图（IBL）：全场材质获得反射质感。桌面档启用，移动档跳过省内存与带宽。
+  // IBL 全局乘数 0.45 配合 surfaces.gradeEnv 的逐材质分级（金属 1.0 / 光滑 0.5 /
+  // 哑光 0）：金属该闪就闪，哑光墙面零反射不发灰。逐材质分级已由 envMaterial/
+  // surfaces 配方自动挂上，这里只管全局乘数。
   if (!window.matchMedia('(max-width: 860px)').matches) {
     const pmrem = new THREE.PMREMGenerator(renderer)
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
@@ -902,6 +1156,13 @@ function buildEnvironment(mergeStatic = true) {
 
   environment = new THREE.Group()
   environment.name = 'office-environment'
+  // 错峰生长分组（B2）：墙/房间归 arch、家具归 furn，组原点都在地面，scale.y 向地面收敛
+  const archG = new THREE.Group()
+  const furnG = new THREE.Group()
+  archG.name = 'office-arch'
+  furnG.name = 'office-furn'
+  environment.add(archG, furnG)
+  envGroups = { arch: archG, furn: furnG }
 
   const theme = officeTheme()
   const floorConfig = officeFloor()
@@ -911,38 +1172,34 @@ function buildEnvironment(mergeStatic = true) {
   const wallThickness = 0.28
 
   buildFloor(theme, width, depth, environment)
-  buildWalls(theme, width, depth, wallHeight, wallThickness)
-  buildTerrace(theme, width, depth, environment)
-  buildCeilingEdges(theme, width, depth, wallHeight, wallThickness, environment)
+  buildWalls(theme, width, depth, wallHeight, wallThickness, archG)
+  buildTerrace(theme, width, depth, archG)
+  buildCeilingEdges(theme, width, depth, wallHeight, wallThickness, archG)
   buildLighting(theme, width, depth, wallHeight, environment)
-  buildProps(theme, width, depth, wallHeight, environment, officeFurniture(), officeConfigValue().furniture_catalog)
+  buildProps(theme, width, depth, wallHeight, furnG, officeFurniture(), officeConfigValue().furniture_catalog)
 
   for (const zone of officeZones()) {
     if (zone.room === true || zone.type === 'meeting') {
-      if (zone.type === 'meeting') buildMeetingRoom(zone)
-      else buildRoomShell(zone)
+      if (zone.type === 'meeting') buildMeetingRoom(zone, archG)
+      else buildRoomShell(zone, archG)
     }
   }
 
   scene.add(environment)
+  // 日照滑块状态重摆（重建后灯组是新的）
+  applySunlight(environment, sunHour.value, width, depth)
   // 静态环境合并渲染（性能 R5）：千级小网格 → 按材质并成几十个大网格。
   // 原件就地隐藏、保留作拾取代理（编辑器 hitTestAt 走 userData.edit 链，three 对
   // 不可见对象仍做射线求交）；合并体自身 raycast 已禁用。
   // 编辑态 rebuild 传 mergeStatic=false 跳过合并（拖拽频繁重建，合并耗时可感）；
   // 退出编辑触发 save-config 重建时再合并。
   if (mergeStatic) mergeStaticGroup(environment)
-  // 三渲二轻风格化（?officeStyle=pbr 一键回退）：toon 孪生材质在合并体上换引用（零额外
-  // draw call）+ 描边外壳（模块内已并成单网格）+ 专用光位（侧低位长影）+ 窗口光柱。
-  // 编辑态 rebuild（mergeStatic=false）跳过，退出编辑重建时恢复。
-  if (mergeStatic && toonStyleEnabled()) {
-    const { twinCount, outline } = applyToonStyle(environment)
-    if (outline) environment.add(outline)
-    applyToonLightRig(environment)
-    environment.add(buildWindowShafts(width, depth, wallHeight))
-    if (debugOn.value) console.info(`[office3d] toon style: ${twinCount} 材质孪生`)
-  }
   // 阴影贴图走降频刷新（autoUpdate=false），布局重建后立刻补一帧，避免开场短暂无影
-  if (renderer) renderer.shadowMap.needsUpdate = true
+  if (renderer) {
+    renderer.shadowMap.needsUpdate = true
+    // 阳光 rig 受光面亮度高，曝光压一档防 ACES 推白
+    renderer.toneMappingExposure = 0.9
+  }
 }
 
 
@@ -972,11 +1229,12 @@ function officeWallDoorGap(targetWall: 'left' | 'right' | 'back'): { center: num
   return null
 }
 
-function buildWalls(theme: OfficeEnvironmentTheme, width: number, depth: number, height: number, thickness: number) {
-  if (!environment) return
-  environment.add(createWindowedBackWall(theme, width, depth, height, thickness))
-  environment.add(createSideWall(theme, width, depth, height, thickness, -1, officeWallDoorGap('left') || undefined))
-  environment.add(createSideWall(theme, width, depth, height, thickness, 1, officeWallDoorGap('right') || undefined))
+function buildWalls(theme: OfficeEnvironmentTheme, width: number, depth: number, height: number, thickness: number, parent: THREE.Group | null) {
+  if (!parent) return
+  parent.add(createWindowedBackWall(theme, width, depth, height, thickness))
+  parent.add(createSideWall(theme, width, depth, height, thickness, -1, officeWallDoorGap('left') || undefined))
+  parent.add(createSideWall(theme, width, depth, height, thickness, 1, officeWallDoorGap('right') || undefined))
+  buildWallColumns(theme, width, depth, height, parent)
 }
 
 
@@ -1520,7 +1778,9 @@ function onPointerMove(event: PointerEvent) {
   }
   const dx = Math.abs(event.clientX - pointerDown.x)
   const dy = Math.abs(event.clientY - pointerDown.y)
-  if (dx > 5 || dy > 5) {
+  // 触屏手指落点抖动大，点按阈值分档（与 useOfficeEdit.tapThreshold 同款）
+  const tapPx = event.pointerType === 'touch' ? 12 : 5
+  if (dx > tapPx || dy > tapPx) {
     followRoleKey = null
   }
   // 拖拽/按压中不探测；空闲时限频 ~10Hz，驱动悬停光标与名牌
@@ -1542,7 +1802,8 @@ function onPointerUp(event: PointerEvent) {
   }
   const dx = Math.abs(event.clientX - pointerDown.x)
   const dy = Math.abs(event.clientY - pointerDown.y)
-  if (dx > 5 || dy > 5) return
+  const tapPx = event.pointerType === 'touch' ? 12 : 5
+  if (dx > tapPx || dy > tapPx) return
   pickActor(event.clientX, event.clientY)
 }
 
@@ -1569,6 +1830,19 @@ function onKeyEdit(event: KeyboardEvent) {
   }
   if (event.key.toLowerCase() === 'r') {
     toggleRotate()
+    return
+  }
+  // 方向键微调选中家具（屏幕上方向 = 世界 -Z，相机 up 已设 (0,0,-1)）
+  const nudge: Record<string, [number, number]> = {
+    ArrowUp: [0, -1],
+    ArrowDown: [0, 1],
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+  }
+  const step = nudge[event.key]
+  if (step) {
+    event.preventDefault()
+    nudgeSelected(step[0], step[1])
   }
 }
 
@@ -1764,7 +2038,9 @@ function tick(time: number) {
     }
   }
 
-  const activeCamera = editing.value && editCamera.value && !view3D.value ? editCamera.value : camera
+  // 2D↔3D 过渡推进（B1/B2）：退出过渡期间 view3D 已翻但帧仍由透视相机渲染至对齐完成
+  if (viewTween) stepViewTween(time)
+  const activeCamera = editing.value && editCamera.value && !view3D.value && !viewTween ? editCamera.value : camera
   renderer.render(scene, activeCamera)
   if (dbgRunning) {
     const frameMs = performance.now() - dbgStart
@@ -1836,6 +2112,7 @@ function dispose() {
       else if (material) actors.disposeMaterial(material)
     })
     environment = null
+    envGroups = null
   }
 
   controls?.dispose()
@@ -2012,6 +2289,28 @@ function dispose() {
   color: #c5d6f2;
   font-size: var(--cpq-font-size-sm);
   font-variant-numeric: tabular-nums;
+}
+
+/* 日照滑块（G4）：滑轨用主题 token，随晨昏拖动重摆穿窗阳光 */
+.office-3d-sun {
+  display: flex;
+  align-items: center;
+  gap: var(--cpq-space-2);
+}
+
+.office-3d-sun-label {
+  min-width: 40px;
+  text-align: center;
+  color: #c5d6f2;
+  font-size: var(--cpq-font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.office-3d-sun input[type='range'] {
+  width: 96px;
+  height: 4px;
+  accent-color: var(--cpq-accent-primary, #1677ff);
+  cursor: pointer;
 }
 
 .office-3d-side {

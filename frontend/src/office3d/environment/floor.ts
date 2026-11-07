@@ -59,6 +59,7 @@ export function buildFloor(theme: OfficeEnvironmentTheme, width: number, depth: 
     map: wood,
     roughness: theme.preset === 'midnight' ? 0.68 : 0.72,
     metalness: 0.04,
+    envMapIntensity: 0,
   })
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), floorMat)
   floor.rotation.x = -Math.PI / 2

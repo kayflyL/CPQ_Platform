@@ -34,10 +34,17 @@ const DEFAULT_CATALOG: FurnitureDefinition[] = [
 
 const GRID_STEP = 0.25
 const PLAN_Y = 0.05
-/** 距离墙面多近才触发“磁吸靠墙”（米）。 */
-const WALL_SNAP_TOLERANCE = 0.35
 /** 吸墙时家具边缘与墙之间保留的缝隙（米）。 */
 const WALL_GAP = 0.03
+
+/** 房间墙体矩形（G2 防穿墙）；door = 墙上的门洞跨度（axis 'x' = 该墙平行 X 轴） */
+export interface RoomWallRect {
+  minX: number
+  maxX: number
+  minZ: number
+  maxZ: number
+  door?: { axis: 'x' | 'z'; at: number; from: number; to: number }
+}
 
 export interface OfficeEditOptions {
   container: () => HTMLElement | null
@@ -47,6 +54,8 @@ export interface OfficeEditOptions {
   environment: () => THREE.Group | null
   rebuildEnvironment?: () => void
   onChanged?: (config: OfficeConfig) => void
+  /** 有墙房间矩形（SFC 按会议/普通房间与门洞配置供给）；缺省 = 不设防 */
+  roomWalls?: () => RoomWallRect[]
 }
 
 interface EditSel {
@@ -130,6 +139,7 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
     undoStack.value.push(snapConfig())
     if (undoStack.value.length > 100) undoStack.value.shift()
     redoStack.value.length = 0
+    lastNudgeFrom = null
   }
 
   function undo() {
@@ -169,6 +179,58 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
 
   function snap(v: number) {
     return Math.round(v / GRID_STEP) * GRID_STEP
+  }
+
+  /** 屏幕 px → 世界米（正交相机视口高 ÷ 容器像素高）。吸附/判定阈值一律经它换算：
+   *  按屏幕像素恒定而非按世界米数恒定，任何缩放级别手感一致（floorplan-3d 同款思路）。 */
+  function pxToWorld(px: number): number {
+    const cam = editCamera.value
+    const el = opts.container()
+    if (!cam || !el || !el.clientHeight) return px * 0.02
+    return ((cam.top - cam.bottom) / el.clientHeight) * px
+  }
+
+  /** 点按/拖拽判定阈值：触屏手指落点天然抖动大（>5px 很常见），分档防误拖。 */
+  function tapThreshold(ev: { pointerType?: string }): number {
+    return ev.pointerType === 'touch' ? 12 : 5
+  }
+
+  /** G2 防穿墙：从 (startX,startZ) 拖到 (px,pz) 是否穿墙。
+   *  1) 中心在房间矩形内外的翻转 = 穿越（矩形模型天然堵住墙段角落的斜穿漏洞）；
+   *     穿越点落在门洞跨度内则放行。2) 压线：矩形覆盖墙线（贴墙接触 GAP=0.03 放行，深压拦截）。 */
+  function crossesRoomWall(startX: number, startZ: number, px: number, pz: number, rotY: number, s: { width: number; depth: number }): boolean {
+    const rects = opts.roomWalls?.() ?? []
+    if (!rects.length) return false
+    const c = Math.abs(Math.cos(rotY))
+    const sn = Math.abs(Math.sin(rotY))
+    const hx = (c * s.width + sn * s.depth) / 2
+    const hz = (sn * s.width + c * s.depth) / 2
+    const GAP = 0.03
+    for (const r of rects) {
+      const inside = (x: number, z: number) => x > r.minX + GAP && x < r.maxX - GAP && z > r.minZ + GAP && z < r.maxZ - GAP
+      if (inside(startX, startZ) !== inside(px, pz)) {
+        const door = r.door
+        const throughDoor = !!door && (door.axis === 'x' ? pz > door.at - 0.6 && px > door.from && px < door.to : px > door.at - 0.6 && pz > door.from && pz < door.to)
+        if (!throughDoor) return true
+      }
+      const lines: Array<{ at: number; axis: 'x' | 'z'; s0: number; s1: number }> = [
+        { axis: 'x', at: r.minZ, s0: r.minX, s1: r.maxX },
+        { axis: 'x', at: r.maxZ, s0: r.minX, s1: r.maxX },
+        { axis: 'z', at: r.minX, s0: r.minZ, s1: r.maxZ },
+        { axis: 'z', at: r.maxX, s0: r.minZ, s1: r.maxZ },
+      ]
+      for (const ln of lines) {
+        const center = ln.axis === 'x' ? pz : px
+        const half = ln.axis === 'x' ? hz : hx
+        const along = ln.axis === 'x' ? px : pz
+        const alongHalf = ln.axis === 'x' ? hx : hz
+        if (along + alongHalf <= ln.s0 || along - alongHalf >= ln.s1) continue
+        const door = r.door && r.door.axis === ln.axis && Math.abs(r.door.at - ln.at) < 0.01 ? r.door : null
+        if (door && along > door.from && along < door.to) continue
+        if (Math.abs(center - ln.at) < half - GAP) return true
+      }
+    }
+    return false
   }
 
   function isRoom(zone: OfficeZone): boolean {
@@ -211,9 +273,9 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
     return { width: width || 1, depth: depth || 1 }
   }
 
-  /** 把旋转角归一化到最近的 90° 倍数（弧度，范围 [0, 2π)）。 */
+  /** 把旋转角归一化到最近的 15° 倍数（弧度，范围 [0, 2π)）；吸墙时由 constrainFurniture 覆盖为朝墙 90°。 */
   function normalizeRotation(rot: number): number {
-    const step = Math.PI / 2
+    const step = Math.PI / 12
     const twoPi = Math.PI * 2
     let a = rot % twoPi
     if (a < 0) a += twoPi
@@ -234,6 +296,8 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
     const s = furnitureSizeOf(item)
     const zones = opts.config().zones || []
     let best: { nx: number; nz: number; rotationY: number; dist: number } | null = null
+    // 磁吸触发半径按屏幕像素恒定（14px）：缩小视图不再"吸不到"，放大视图不再"隔空吸走"
+    const wallTol = pxToWorld(14)
 
     for (const zone of zones) {
       if (!isRoom(zone)) continue
@@ -254,7 +318,7 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
           const wallCoord = wall === 'minZ' ? b.minZ : b.maxZ
           const edge = wall === 'minZ' ? z - perp : z + perp
           const d = wall === 'minZ' ? edge - wallCoord : wallCoord - edge
-          if (d < -0.05 || d > WALL_SNAP_TOLERANCE) continue
+          if (d < -0.05 || d > wallTol) continue
           const nx = Math.min(Math.max(x, b.minX + halfX), b.maxX - halfX)
           const nz = wall === 'minZ' ? b.minZ + WALL_GAP + perp : b.maxZ - WALL_GAP - perp
           const dist = Math.hypot(nx - x, nz - z)
@@ -265,7 +329,7 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
           const wallCoord = wall === 'minX' ? b.minX : b.maxX
           const edge = wall === 'minX' ? x - perp : x + perp
           const d = wall === 'minX' ? edge - wallCoord : wallCoord - edge
-          if (d < -0.05 || d > WALL_SNAP_TOLERANCE) continue
+          if (d < -0.05 || d > wallTol) continue
           const nz = Math.min(Math.max(z, b.minZ + halfZ), b.maxZ - halfZ)
           const nx = wall === 'minX' ? b.minX + WALL_GAP + perp : b.maxX - WALL_GAP - perp
           const dist = Math.hypot(nx - x, nz - z)
@@ -275,13 +339,29 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
     }
 
     if (best) {
-      return { x: best.nx, z: best.nz, rotationY: best.rotationY }
+      return clampToFloor(best.nx, best.nz, rotationY, s)
     }
-    return { x: snap(x), z: snap(z), rotationY }
+    return clampToFloor(snap(x), snap(z), rotationY, s)
   }
 
   function catalogDef(type: string): FurnitureDefinition {
     return catalog.value.find((c) => c.type === type) || { type, label: type, category: 'furniture', width: 1, depth: 1 }
+  }
+
+  /** G2 防穿墙外圈：家具矩形钳在地板内（含外墙厚 0.28+余量），任意 15° 角按 AABB 折算 */
+  function clampToFloor(x: number, z: number, rotationY: number, s: { width: number; depth: number }): { x: number; z: number; rotationY: number } {
+    const fl = opts.config().floor
+    const fx = (fl?.width ?? 24) / 2 - 0.2
+    const fz = (fl?.depth ?? 16) / 2 - 0.2
+    const c = Math.abs(Math.cos(rotationY))
+    const sn = Math.abs(Math.sin(rotationY))
+    const hx = (c * s.width + sn * s.depth) / 2
+    const hz = (sn * s.width + c * s.depth) / 2
+    return {
+      x: Math.min(fx - hx, Math.max(-fx + hx, x)),
+      z: Math.min(fz - hz, Math.max(-fz + hz, z)),
+      rotationY,
+    }
   }
 
   function ensureCamera(w: number, h: number) {
@@ -522,7 +602,9 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
 
   function addRoomHandle(handle: RoomHandle, x: number, z: number, color: string) {
     if (!planGroup) return
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.05, 0.35), planMaterial(color, 0.95))
+    // 把手按屏幕像素恒定（16px，夹在 0.12~0.5m）：缩小视图不缩成针尖，放大视图不变成大板
+    const hs = Math.min(0.5, Math.max(0.12, pxToWorld(16)))
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(hs, 0.05, hs), planMaterial(color, 0.95))
     mesh.position.set(x, PLAN_Y + 0.1, z)
     mesh.userData.edit = { kind: 'roomHandle', zone: selected.value?.zone, handle, id: handle }
     planGroup.add(mesh)
@@ -609,7 +691,7 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
     }
     tc = new TransformControls(editCamera.value, el)
     tc.translationSnap = GRID_STEP
-    tc.rotationSnap = Math.PI / 2
+    tc.rotationSnap = Math.PI / 12
     tc.size = 0.5
     tc.addEventListener('objectChange', () => {})
     tc.addEventListener('dragging-changed', (e) => {
@@ -663,7 +745,16 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
     const cfg = opts.config()
     const sel = selected.value
     if (sel.kind === 'furniture' && sel.item) {
+      const oldX = sel.item.position.x
+      const oldZ = sel.item.position.z
       const constrained = constrainFurniture(sel.item, mesh.position.x, mesh.position.z, mesh.rotation.y)
+      // 防穿墙：gizmo 拖出的落点穿墙则弹回拖前位置（旧布局本身压线则放行落点）
+      const sz = furnitureSizeOf(sel.item)
+      const startBad = crossesRoomWall(oldX, oldZ, oldX, oldZ, constrained.rotationY, sz)
+      if (!startBad && crossesRoomWall(oldX, oldZ, constrained.x, constrained.z, constrained.rotationY, sz)) {
+        constrained.x = oldX
+        constrained.z = oldZ
+      }
       sel.item.position = { x: constrained.x, z: constrained.z }
       sel.item.rotation_y = constrained.rotationY
     }
@@ -683,8 +774,9 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
     pointerV.x = ((clientX - rect.left) / rect.width) * 2 - 1
     pointerV.y = -((clientY - rect.top) / rect.height) * 2 + 1
     raycaster.setFromCamera(pointerV, cam)
-    const targets: THREE.Object3D[] = [...env.children]
-    if (planGroup) targets.push(...planGroup.children)
+    // 拾取分级：只打家具/房间根节点与选中把手。墙体/地板/绿植/网格线都不该被选中，
+    // 而悬停探测逐 mousemove 走这里，全环境递归射线是编辑态最大的固定开销
+    const targets: THREE.Object3D[] = [...furnitureMeshes.values(), ...roomMeshes.values(), ...roomHandleMeshes]
     const hits = raycaster.intersectObjects(targets, true)
     for (const h of hits) {
       let o: THREE.Object3D | null = h.object
@@ -758,6 +850,12 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
       const constrained = item
         ? constrainFurniture(item, rawX, rawZ, ds.mesh.rotation.y)
         : { x: snap(rawX), z: snap(rawZ), rotationY: ds.mesh.rotation.y }
+      // 防穿墙：候选位穿墙则保持上一帧合法位置（起点本身压线的旧布局不拦截，避免卡死）
+      if (item) {
+        const sz = furnitureSizeOf(item)
+        const startBad = crossesRoomWall(ds.meshStart.x, ds.meshStart.z, ds.meshStart.x, ds.meshStart.z, ds.mesh.rotation.y, sz)
+        if (!startBad && crossesRoomWall(ds.meshStart.x, ds.meshStart.z, constrained.x, constrained.z, constrained.rotationY, sz)) return
+      }
       ds.mesh.position.x = constrained.x
       ds.mesh.position.z = constrained.z
       ds.mesh.rotation.y = constrained.rotationY
@@ -852,7 +950,8 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
     if (!dragState) {
       const dx = Math.abs(ev.clientX - downPt.x)
       const dy = Math.abs(ev.clientY - downPt.y)
-      if (dx < 5 && dy < 5) {
+      const th = tapThreshold(ev)
+      if (dx < th && dy < th) {
         setGhostFromEvent(ev)
         return
       }
@@ -882,7 +981,7 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
       commitDrag()
       return
     }
-    if (dx > 5 || dy > 5) return
+    if (dx > tapThreshold(ev) || dy > tapThreshold(ev)) return
     if (panMode.value) return
     if (armedRoom.value) {
       placeRoomAt(ev.clientX, ev.clientY)
@@ -1127,6 +1226,38 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
     zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor)
   }
 
+  /** 方向键微调选中家具（dx/dz 为方向 ±1，实际步长 = 网格 0.25m，仍过吸附约束）。
+   *  与拖拽同款分层：直接动 mesh，不重建环境；连续微调=起点等于上次落点 → 不重复记撤销
+   *  （按时间窗合并会被单次全量重建的耗时冲垮，故按位置比对）。 */
+  function nudgeSelected(dx: number, dz: number): boolean {
+    const sel = selected.value
+    if (!sel || sel.kind !== 'furniture' || !sel.item) return false
+    const item = sel.item
+    const from = { x: item.position.x, z: item.position.z }
+    const continued = lastNudgeFrom && lastNudgeFrom.x === from.x && lastNudgeFrom.z === from.z
+    if (!continued) pushHistory()
+    lastNudgeFrom = null
+    const constrained = constrainFurniture(item, item.position.x + dx * GRID_STEP, item.position.z + dz * GRID_STEP, item.rotation_y ?? 0)
+    // 防穿墙：微调目标位穿墙则不动（起点压线的旧布局放行）
+    const sz = furnitureSizeOf(item)
+    const startBad = crossesRoomWall(from.x, from.z, from.x, from.z, item.rotation_y ?? 0, sz)
+    if (!startBad && crossesRoomWall(from.x, from.z, constrained.x, constrained.z, constrained.rotationY, sz)) return false
+    item.position = { x: constrained.x, z: constrained.z }
+    item.rotation_y = constrained.rotationY
+    lastNudgeFrom = { x: constrained.x, z: constrained.z }
+    syncFurnitureZone(item)
+    const mesh = sel.mesh || findCurrentMesh(sel)
+    if (mesh) {
+      mesh.position.x = constrained.x
+      mesh.position.z = constrained.z
+      mesh.rotation.y = constrained.rotationY
+    }
+    opts.onChanged?.(opts.config())
+    buildSelection()
+    return true
+  }
+  let lastNudgeFrom: { x: number; z: number } | null = null
+
   return {
     editing,
     editCamera,
@@ -1155,8 +1286,11 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
     updateSelected,
     toggleRotate,
     flipSelected,
+    nudgeSelected,
     undo,
     redo,
+    getPlanGroup: () => planGroup,
+    getPlanCenter: () => ({ cx: view.cx, cz: view.cz }),
     canUndo,
     canRedo,
     cancelEdit,

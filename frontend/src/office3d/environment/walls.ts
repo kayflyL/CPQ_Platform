@@ -15,6 +15,7 @@ export function createWindowedBackWall(theme: OfficeEnvironmentTheme, width: num
     color: 0xbfe2f5,
     roughness: 0.1,
     metalness: 0.08,
+    envMapIntensity: 0.5,
     transparent: true,
     opacity: 0.3,
     side: THREE.DoubleSide,
@@ -56,6 +57,7 @@ export function createSideWall(theme: OfficeEnvironmentTheme, width: number, dep
     color: 0xbfe2f5,
     roughness: 0.1,
     metalness: 0.08,
+    envMapIntensity: 0.5,
     transparent: true,
     opacity: 0.3,
     side: THREE.DoubleSide,
@@ -162,37 +164,78 @@ export function buildCeilingEdges(theme: OfficeEnvironmentTheme, width: number, 
   }
 }
 
+/** 玻璃幕墙转角立柱（H 适配）：三面玻璃在四角是对拼裸边，四根方柱收边，
+ *  同时给顶部收边框一个"有东西撑着"的结构感。 */
+export function buildWallColumns(theme: OfficeEnvironmentTheme, width: number, depth: number, height: number, parent: THREE.Group | null) {
+  if (!parent) return
+  const colMat = envMaterial(theme.palette?.wall_lower || '#1a2434', 0.5, 0.2)
+  const s = 0.16
+  for (const [x, z] of [[-width / 2, -depth / 2], [width / 2, -depth / 2], [-width / 2, depth / 2], [width / 2, depth / 2]]) {
+    const col = new THREE.Mesh(new THREE.BoxGeometry(s, height, s), colMat)
+    col.position.set(x, height / 2, z)
+    col.castShadow = true
+    col.receiveShadow = true
+    parent.add(col)
+  }
+}
+
 export function buildLighting(theme: OfficeEnvironmentTheme, width: number, depth: number, _height: number, parent: THREE.Group | null) {
   if (!parent) return
-  const lighting = theme.lighting || {}
   const skyColor = theme.palette?.ceiling || '#d8e4f2'
   const groundColor = theme.palette?.floor || '#111722'
 
-  parent.add(new THREE.HemisphereLight(skyColor, groundColor, 0.42))
-  parent.add(new THREE.AmbientLight(0xffffff, lighting.ambient_intensity ?? 0.62))
+  // 穿窗阳光 rig：环境光砍到主光的零头，方向对比全交给一束从后墙落地窗进来的
+  // 暖阳（低仰角出长影）。theme.lighting 的强度配置（daylight 预设 ambient 0.95
+  // 比主光还高）会把影子冲没，已随三渲二一起退役，不再读取。
+  const hemi = new THREE.HemisphereLight(skyColor, groundColor, 0.22)
+  hemi.name = 'office-hemi'
+  parent.add(hemi)
+  parent.add(new THREE.AmbientLight(0xffffff, 0.10))
 
-  const keyLight = new THREE.DirectionalLight(0xfff3e0, lighting.key_intensity ?? 1.6)
-  keyLight.position.set(5, 7, 4)
-  keyLight.castShadow = true
-  keyLight.shadow.mapSize.set(2048, 2048)
-  keyLight.shadow.camera.near = 1
-  keyLight.shadow.camera.far = 32
-  keyLight.shadow.camera.left = -18
-  keyLight.shadow.camera.right = 18
-  keyLight.shadow.camera.top = 18
-  keyLight.shadow.camera.bottom = -18
-  keyLight.shadow.bias = -0.0002
-  keyLight.shadow.radius = 4
-  parent.add(keyLight)
+  const sun = new THREE.DirectionalLight(0xffe2b8, 3.2)
+  sun.name = 'office-sun'
+  sun.position.set(-7, 10, -13)
+  sun.castShadow = true
+  sun.shadow.mapSize.set(2048, 2048)
+  sun.shadow.camera.near = 1
+  sun.shadow.camera.far = 40
+  sun.shadow.camera.left = -22
+  sun.shadow.camera.right = 22
+  sun.shadow.camera.top = 22
+  sun.shadow.camera.bottom = -22
+  sun.shadow.bias = -0.0002
+  sun.shadow.normalBias = 0.02
+  sun.shadow.radius = 3
+  parent.add(sun)
 
-  const fillLight = new THREE.DirectionalLight(0xbfd4ff, lighting.fill_intensity ?? 0.42)
-  fillLight.position.set(-5, 3, -4)
+  const fillLight = new THREE.DirectionalLight(0xcfe0ff, 0.25)
+  fillLight.position.set(6, 4, 6)
   parent.add(fillLight)
 
   if (theme.props?.windows !== false) {
-    const windowLight = new THREE.PointLight(0x9fd4ff, (lighting.window_glow ?? 0.8) * 2.2, Math.max(width, depth) * 1.2, 2)
+    const windowLight = new THREE.PointLight(0x9fd4ff, 0.8, Math.max(width, depth) * 1.2, 2)
     windowLight.position.set(0, 2.3, -depth / 2 + 0.5)
+    windowLight.name = 'office-window-light'
     parent.add(windowLight)
   }
+}
 
+/** 日照滑块（G4）：按小时(6~20)重摆太阳——方位角随时刻扫过、正午最高、晨昏偏暖压强度。
+ *  参照 floorplan-3d applyLight 移植；宽度参数随办公室尺寸缩放太阳半径。 */
+export function applySunlight(parent: THREE.Group | null, hour: number, width: number, depth: number): void {
+  if (!parent) return
+  const sun = parent.getObjectByName('office-sun') as THREE.DirectionalLight | null
+  if (!sun) return
+  const t = Math.min(1, Math.max(0, (hour - 6) / 14))
+  const az = Math.PI * (0.15 + t * 0.7)
+  const el = Math.sin(Math.PI * t) * 1.05 + 0.15
+  const warm = 1 - Math.sin(Math.PI * t)
+  const r = Math.max(width, depth) * 1.15
+  sun.position.set(Math.cos(az) * r * 0.55, Math.sin(el) * r * 0.72 + 3, -Math.sin(az) * r * 0.42 - r * 0.25)
+  sun.color.setHSL(0.09, 0.5 + warm * 0.4, 0.92 - warm * 0.12)
+  sun.intensity = 1.6 + Math.sin(Math.PI * t) * 1.6
+  const hemi = parent.getObjectByName('office-hemi') as THREE.HemisphereLight | null
+  if (hemi) hemi.intensity = 0.16 + Math.sin(Math.PI * t) * 0.1
+  const win = parent.getObjectByName('office-window-light') as THREE.PointLight | null
+  if (win) win.intensity = 0.45 + Math.sin(Math.PI * t) * 0.5
 }

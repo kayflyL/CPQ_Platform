@@ -7,13 +7,41 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import type { OfficeEnvironmentTheme, OfficeFurnitureItem } from '@/api/office'
 import { envMaterial, applyShadow } from './materials.ts'
+import { chromeMat } from './surfaces.ts'
+import { blob, box, cyl, lathe, rod, rng, tube } from '../kit/parts.ts'
 import { furnitureSize, FALLBACK_FURNITURE_SIZE, type FurnitureCatalog } from './furnitureSize.ts'
 import { DESK_CHAIR_OFFSET } from '../characters/metrics.ts'
 import { buildFurniture } from '../../views/office/furnitureSpec.ts'
 
+/** 黄金角叶序绿植（E3）：逐叶按 2.399rad 真实叶序排列、双叶色交替、越往梢越短，
+ *  取代旧规格件"光杆+双球"。seed 供 F 轮做每盆差异化，默认全部同款。 */
+export function createPlantGroup(theme: OfficeEnvironmentTheme, seed = 1): THREE.Group {
+  const group = new THREE.Group()
+  const potMat = envMaterial('#d9d2c5', 0.6, 0.02)
+  const trunkMat = envMaterial('#6b5540', 0.85, 0)
+  const leafMats = [envMaterial(theme.palette?.foliage || '#2f7d54', 0.9, 0), envMaterial('#79a862', 0.9, 0)]
+  group.add(lathe([[0.001, 0], [0.09, 0], [0.1, 0.02], [0.12, 0.2], [0.135, 0.26], [0.12, 0.26], [0.105, 0.21], [0.001, 0.21]], potMat, 0, 0, 0, 32))
+  group.add(cyl(0.105, 0.105, 0.012, envMaterial('#4a3a2c', 0.9, 0), 0, 0.198, 0, 24))
+  group.add(rod([0, 0.2, 0], [0.02, 0.8, -0.01], 0.02, trunkMat, 0.012))
+  const leafCount = 34
+  for (let k = 0; k < leafCount; k += 1) {
+    const t = k / leafCount
+    const holder = new THREE.Group()
+    holder.position.set(0, 0.36 + 0.52 * t, 0)
+    holder.rotation.order = 'YXZ'
+    holder.rotation.set(0, -(k * 2.399 + seed * 0.7), 0.1 + t * 0.6)
+    const len = 0.18 + 0.06 * Math.sin(k * 2.7 + seed)
+    holder.add(box(0.06, 0.008, 0.008, trunkMat, 0.032, -0.004, 0))
+    const leaf = blob(len / 2, 0.008, len * 0.34, leafMats[k % 2], 0.06 + len / 2, 0, 0, 16)
+    leaf.rotation.z = -0.3
+    holder.add(leaf)
+    group.add(holder)
+  }
+  return group
+}
+
 export function addPlant(x: number, z: number, theme: OfficeEnvironmentTheme, parent: THREE.Group | null) {
-  const group = buildFurniture('plant', theme)
-  if (!group) return group
+  const group = createPlantGroup(theme, Math.round(x * 7 + z * 13) + 1)
   group.position.set(x, 0, z)
   if (parent) parent.add(group)
   return group
@@ -25,7 +53,7 @@ function bookMat(colorHex: number): THREE.MeshStandardMaterial {
   const key = String(colorHex)
   let m = bookMatCache.get(key)
   if (!m) {
-    m = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.72, metalness: 0.02 })
+    m = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.72, metalness: 0.02, envMapIntensity: 0 })
     bookMatCache.set(key, m)
   }
   return m
@@ -41,15 +69,26 @@ export function addBookshelf(x: number, z: number, theme: OfficeEnvironmentTheme
   body.receiveShadow = true
   group.add(body)
 
+  // 摆书随机化（F）：书脊宽窄厚薄错落、随机留空、按位置出种子——同一书架每次构建一致，不同书架各异
+  const R = rng(Math.round(x * 7 + z * 13) + 1)
   for (let row = 0; row < 4; row += 1) {
-    for (let col = 0; col < 7; col += 1) {
-      const height = 0.36 + ((row * 13 + col) % 3) * 0.035
+    const rowY = 0.24 + row * 0.48
+    let bx = -0.52
+    while (bx < 0.52) {
+      if (R() < 0.08) {
+        bx += 0.04 + R() * 0.05
+        continue
+      }
+      const bw = 0.028 + R() * 0.035
+      if (bx + bw > 0.52) break
+      const bh = 0.3 + R() * 0.1
       const book = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, height, 0.28),
-        bookMat(bookColors[(row + col) % bookColors.length]),
+        new THREE.BoxGeometry(bw, bh, 0.2 + R() * 0.1),
+        bookMat(bookColors[Math.floor(R() * bookColors.length)]),
       )
-      book.position.set(-0.52 + col * 0.17, 0.24 + row * 0.48 + height / 2, 0)
+      book.position.set(bx + bw / 2, rowY + bh / 2, (R() - 0.5) * 0.05)
       group.add(book)
+      bx += bw + 0.004
     }
   }
 
@@ -188,8 +227,8 @@ export function addReceptionDesk(x: number, z: number, theme: OfficeEnvironmentT
   const darkMat = deskDarkMat()
   const bodyMat = envMaterial(theme.palette?.furniture || '#3a4763', 0.7, 0.08)
   const logoPlateMat = envMaterial('#eef1f5', 0.55, 0.05)
-  const screenMat = new THREE.MeshStandardMaterial({ color: 0x0a1a2b, roughness: 0.25, metalness: 0.42, emissive: 0x14293f, emissiveIntensity: 0.5 })
-  const logoMat = new THREE.MeshStandardMaterial({ map: makeReceptionLogo('KayFly'), transparent: true, depthWrite: false, roughness: 0.5 })
+  const screenMat = new THREE.MeshStandardMaterial({ color: 0x0a1a2b, roughness: 0.25, metalness: 0.42, emissive: 0x14293f, emissiveIntensity: 0.5, envMapIntensity: 0.5 })
+  const logoMat = new THREE.MeshStandardMaterial({ map: makeReceptionLogo('KayFly'), transparent: true, depthWrite: false, roughness: 0.5, envMapIntensity: 0 })
 
   // 员工侧高台（后侧 -z）：接待员坐后面工作
   const staffBody = new THREE.Mesh(new RoundedBoxGeometry(2.2, 0.94, 0.55, 2, 0.02), bodyMat)
@@ -252,7 +291,7 @@ export function addReceptionDesk(x: number, z: number, theme: OfficeEnvironmentT
   lampArm.rotation.z = -0.5
   lampArm.position.set(-0.92, 1.1, -0.15)
   group.add(lampArm)
-  const lampHead = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.08, 10), new THREE.MeshStandardMaterial({ color: 0xffd166, emissive: 0xffb347, emissiveIntensity: 0.4, roughness: 0.5 }))
+  const lampHead = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.08, 10), new THREE.MeshStandardMaterial({ color: 0xffd166, emissive: 0xffb347, emissiveIntensity: 0.4, roughness: 0.5, envMapIntensity: 0 }))
   lampHead.rotation.z = Math.PI / 2
   lampHead.position.set(-0.87, 1.17, -0.15)
   group.add(lampHead)
@@ -305,7 +344,7 @@ export function addFurnitureItem(item: OfficeFurnitureItem, theme: OfficeEnviron
       group = addMeetingTable(x, z, theme, rotationY, parent)
       break
     case 'plant':
-      group = buildFurniture('plant', theme)
+      group = createPlantGroup(theme, Math.round(x * 7 + z * 13) + 1)
       break
     case 'bookshelf':
       group = addBookshelf(x, z, theme, rotationY, parent)
@@ -462,7 +501,7 @@ export function createDeskWoodTexture(baseColor: string): THREE.CanvasTexture {
 
 export function deskWoodMat(theme: OfficeEnvironmentTheme): THREE.MeshStandardMaterial {
   const base = theme.palette?.floor || '#9a7b56'
-  return deskSharedMat(`wood|${base}`, () => new THREE.MeshStandardMaterial({ color: 0xffffff, map: createDeskWoodTexture(base), roughness: 0.55, metalness: 0.02 }))
+  return deskSharedMat(`wood|${base}`, () => new THREE.MeshStandardMaterial({ color: 0xffffff, map: createDeskWoodTexture(base), roughness: 0.55, metalness: 0.02, envMapIntensity: 0 }))
 }
 
 export function deskMetalMat(theme: OfficeEnvironmentTheme): THREE.MeshStandardMaterial {
@@ -482,7 +521,7 @@ export function createDesk(color: string, theme: OfficeEnvironmentTheme): { grou
   const darkMat = deskDarkMat()
   const accentMat = envMaterial(color, 0.34, 0.2)
   const monitorMat = new THREE.MeshStandardMaterial({
-    color: 0x0a101c, roughness: 0.28, metalness: 0.42,
+    color: 0x0a101c, roughness: 0.28, metalness: 0.42, envMapIntensity: 0.5,
     emissive: 0x05080f, emissiveIntensity: 0.25,
   })
   // 屏幕与面板共面，靠 polygonOffset 让屏幕深度优先，避免 z-fight 黑块/悬空
@@ -535,20 +574,28 @@ export function createDesk(color: string, theme: OfficeEnvironmentTheme): { grou
   monitorScreen.position.set(0, 1.16, -0.253)
   monitorScreen.userData.monitor = true
   group.add(monitorScreen)
+  // 显示器线缆：屏底垂到桌后，桌面"悬空屏幕"的假感全靠这根线打破
+  group.add(tube([[0, 0.94, -0.27], [0, 0.86, -0.34], [0, 0.72, -0.31], [0, 0.62, -0.22]], 0.006, darkMat, 20))
+
+  // 桌垫：键盘鼠标区的薄胶垫，桌面不再"空板一块"
+  const deskPad = new THREE.Mesh(new RoundedBoxGeometry(0.68, 0.006, 0.42, 1, 0.003), darkMat)
+  deskPad.position.set(0.12, 0.737, 0.3)
+  deskPad.receiveShadow = true
+  group.add(deskPad)
 
   const keyboard = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.035, 0.19, 1, 0.01), darkMat)
-  keyboard.position.set(-0.05, 0.75, 0.3)
+  keyboard.position.set(-0.05, 0.755, 0.3)
   keyboard.receiveShadow = true
   group.add(keyboard)
   // 键帽区（用暗色调，不再用亮色贴条）
   const keycapBase = new THREE.Mesh(new RoundedBoxGeometry(0.44, 0.02, 0.15, 1, 0.006), envMaterial('#2a3a4d', 0.6, 0.1))
-  keycapBase.position.set(-0.05, 0.77, 0.3)
+  keycapBase.position.set(-0.05, 0.775, 0.3)
   group.add(keycapBase)
   const spaceBar = new THREE.Mesh(new RoundedBoxGeometry(0.24, 0.018, 0.05, 1, 0.005), envMaterial('#394a5f', 0.55, 0.12))
-  spaceBar.position.set(-0.05, 0.773, 0.34)
+  spaceBar.position.set(-0.05, 0.778, 0.34)
   group.add(spaceBar)
-  const mouse = new THREE.Mesh(new RoundedBoxGeometry(0.07, 0.035, 0.12, 2, 0.015), darkMat)
-  mouse.position.set(0.4, 0.768, 0.32)
+  // 椭球鼠标：圆角方块太"积木"，椭球有握感轮廓
+  const mouse = blob(0.034, 0.02, 0.055, darkMat, 0.4, 0.755, 0.32, 16)
   mouse.rotation.y = -0.2
   group.add(mouse)
 
@@ -563,7 +610,7 @@ export function createDesk(color: string, theme: OfficeEnvironmentTheme): { grou
   lampArm2.rotation.z = 0.9
   lampArm2.position.set(-0.62, 0.98, -0.05)
   group.add(lampArm2)
-  const lampHead = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.09, 12), new THREE.MeshStandardMaterial({ color: 0xffd166, emissive: 0xffb347, emissiveIntensity: 0.45, roughness: 0.5 }))
+  const lampHead = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.09, 12), new THREE.MeshStandardMaterial({ color: 0xffd166, emissive: 0xffb347, emissiveIntensity: 0.45, roughness: 0.5, envMapIntensity: 0 }))
   lampHead.rotation.z = Math.PI / 2
   lampHead.position.set(-0.58, 1.04, -0.05)
   group.add(lampHead)
@@ -579,6 +626,10 @@ export function createDesk(color: string, theme: OfficeEnvironmentTheme): { grou
   const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.034, 0.08, 10), envMaterial('#e5e9f0', 0.5, 0.05))
   mug.position.set(-0.42, 0.775, 0.3)
   group.add(mug)
+  const mugHandle = new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.006, 8, 18, Math.PI), mug.material as THREE.Material)
+  mugHandle.rotation.z = Math.PI / 2
+  mugHandle.position.set(-0.465, 0.778, 0.3)
+  group.add(mugHandle)
 
   const nameplate = new THREE.Mesh(new RoundedBoxGeometry(0.3, 0.06, 0.035, 1, 0.01), accentMat)
   nameplate.position.set(0.28, 0.765, 0.42)
@@ -610,10 +661,15 @@ export function createDesk(color: string, theme: OfficeEnvironmentTheme): { grou
     wheel.position.set(0, 0, 0.4)
     pivot.add(wheel)
   }
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.38, 12), chairDark)
-  pole.position.y = 0.27
-  pole.castShadow = true
-  chair.add(pole)
+  // 气压杆两段式：下段黑壳 + 上段镀铬，金属件吃环境反射
+  const poleLower = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.05, 0.2, 12), chairDark)
+  poleLower.position.y = 0.13
+  poleLower.castShadow = true
+  chair.add(poleLower)
+  const poleUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.22, 12), chromeMat())
+  poleUpper.position.y = 0.34
+  poleUpper.castShadow = true
+  chair.add(poleUpper)
   // 座垫顶面 ~0.53，保持入座高度不变
   const seat = new THREE.Mesh(new RoundedBoxGeometry(0.52, 0.11, 0.5, 2, 0.035), chairFabric)
   seat.position.y = 0.475
@@ -624,6 +680,29 @@ export function createDesk(color: string, theme: OfficeEnvironmentTheme): { grou
   back.rotation.x = -0.1
   back.castShadow = true
   chair.add(back)
+  // 网布：半透明面叠在靠背前，透出后面的东西才是"网布椅"不是"塑料板"
+  const backMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.44, 0.5),
+    envMaterial('#1d2530', 0.85, 0.0),
+  )
+  backMesh.material.transparent = true
+  ;(backMesh.material as THREE.MeshStandardMaterial).opacity = 0.5
+  ;(backMesh.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide
+  backMesh.position.set(0, 0.84, -0.172)
+  backMesh.rotation.x = -0.1
+  chair.add(backMesh)
+  // 头枕：两根小杆 + 软垫
+  for (const sx of [-0.07, 0.07]) {
+    const rodM = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.12, 8), chairDark)
+    rodM.position.set(sx, 1.15, -0.25)
+    rodM.rotation.x = -0.15
+    chair.add(rodM)
+  }
+  const headrest = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.13, 0.07, 2, 0.025), envMaterial('#1a2432', 0.82, 0.04))
+  headrest.position.set(0, 1.22, -0.24)
+  headrest.rotation.x = -0.15
+  headrest.castShadow = true
+  chair.add(headrest)
   for (const sx of [-0.28, 0.28]) {
     const armSupport = new THREE.Mesh(new RoundedBoxGeometry(0.05, 0.16, 0.06, 1, 0.012), chairDark)
     armSupport.position.set(sx, 0.56, 0.02)

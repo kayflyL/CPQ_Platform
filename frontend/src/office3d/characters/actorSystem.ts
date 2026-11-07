@@ -13,7 +13,6 @@ import { hashRoleKey, slotForward, slotPhase, slotPosition, slotRight, slotRotat
 import { DESK_CHAIR_OFFSET, DESK_IDLE_DISTANCE, DESK_WAIT_DISTANCE, DESK_WAIT_SIDE, DESK_WORK_DISTANCE, MEETING_CHAIR_BACK_REACH, MEETING_STAND_GAP, CHAIR_SEAT_HEIGHT, CHAIR_SEAT_BACK_OFFSET, SIT_BACK_LOCAL_Z } from './metrics.ts'
 import { makeBubbleSprite, makeLabelSprite, drawBubble } from './sprites.ts'
 import { createDesk } from '../environment/furniture.ts'
-import { toonStyleEnabled, toonifyStandardMaterials } from '../environment/toonStyle.ts'
 import type { CharacterAsset } from '../assets/gltfCache.ts'
 
 type Actor = {
@@ -205,10 +204,11 @@ function createCharacter(colleague: any, position: THREE.Vector3) {
   const group = new THREE.Group()
   const charColor = new THREE.Color(colleague.color || '#1677ff')
   const skinColor = new THREE.Color('#f0c9a1')
-  const bodyMat = new THREE.MeshStandardMaterial({ color: charColor, roughness: 0.72, metalness: 0.03 })
-  const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.82, metalness: 0.01 })
-  const darkMat = new THREE.MeshStandardMaterial({ color: 0x1d2530, roughness: 0.78, metalness: 0.04 })
-  const shoeMat = new THREE.MeshStandardMaterial({ color: 0x11151c, roughness: 0.86, metalness: 0.04 })
+  // 角色四件套全哑光：不吃 IBL 反射（0.45 全局乘数下 envMapIntensity=1 会发灰）
+  const bodyMat = new THREE.MeshStandardMaterial({ color: charColor, roughness: 0.72, metalness: 0.03, envMapIntensity: 0 })
+  const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.82, metalness: 0.01, envMapIntensity: 0 })
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x1d2530, roughness: 0.78, metalness: 0.04, envMapIntensity: 0 })
+  const shoeMat = new THREE.MeshStandardMaterial({ color: 0x11151c, roughness: 0.86, metalness: 0.04, envMapIntensity: 0 })
 
   // 头：方块脸
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.52, 0.52), skinMat)
@@ -367,9 +367,6 @@ function createCharacterFromTemplate(colleague: any, position: THREE.Vector3, te
       mesh.receiveShadow = true
     }
   })
-  // 三渲二统一：非 MToon 的标准材质换 toon 孪生（模块级按材质缓存，克隆间共享；
-  // VRM 的 MToon 材质本来就是三渲二，不动）。?officeStyle=pbr 时整体关闭。
-  if (toonStyleEnabled()) toonifyStandardMaterials(model)
   group.add(model)
 
   const ring = new THREE.Mesh(
