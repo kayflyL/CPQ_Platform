@@ -145,6 +145,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createCharacterAssetStore, loadCharacterAsset } from '@/office3d/assets/gltfCache'
 import { envMaterial, applyShadow } from '@/office3d/environment/materials'
 import { mergeStaticGroup } from '@/office3d/environment/mergeStatic'
+import { collectDoors, createDoor, stepDoors, sideDoorSpec, DOOR_SWING, type DoorJoint } from '@/office3d/environment/doors'
 import { buildFloor, createRectangularGrid } from '@/office3d/environment/floor'
 import { createWindowedBackWall, createSideWall, buildTerrace, buildCeilingEdges, buildWallColumns, buildLighting, applySunlight } from '@/office3d/environment/walls'
 import { buildProps } from '@/office3d/environment/furniture'
@@ -676,6 +677,7 @@ let resizeObserver: ResizeObserver | null = null
 let environment: THREE.Group | null = null
 /** 生长分组（B2）：arch=墙/房间/露台/收边，furn=家具。scale.y 挂在组上（组原点在地面，缩放向地面收敛） */
 let envGroups: { arch: THREE.Group; furn: THREE.Group } | null = null
+let doorJoints: DoorJoint[] = []
 let grow = 1
 let furnGrow = 1
 /** 2D↔3D 过渡状态机（B1/B2）：null = 空闲。tick() 每帧推进，见 stepViewTween */
@@ -1186,6 +1188,8 @@ function buildEnvironment(mergeStatic = true) {
   }
 
   scene.add(environment)
+  // G3 门动画：重建后重新收集门铰链（旧组已销毁），tick 里 stepDoors 逐帧步进
+  doorJoints = collectDoors(environment)
   // 日照滑块状态重摆（重建后灯组是新的）
   applySunlight(environment, sunHour.value, width, depth)
   // 静态环境合并渲染（性能 R5）：千级小网格 → 按材质并成几十个大网格。
@@ -1371,6 +1375,10 @@ function createMeetingRoomShell(
     parent.add(lintel)
   }
 
+  // 门扇（G3 玻璃铰链门）：会议室玻璃壳配玻璃门，默认关闭、同事走近自开（doors.ts stepDoors）
+  const mSpec = sideDoorSpec(doorSide, doorCenterX, doorCenterZ, minX, maxX, minZ, maxZ, doorWidth)
+  parent.add(createDoor({ ...mSpec, len: Math.max(0.6, doorWidth - 0.1), height: doorHeight - 0.08, color: frameColor, glass: true }))
+
   const addTopRailFrontBack = (fromX: number, toX: number, z: number) => {
     if (toX <= fromX) return
     const rail = new THREE.Mesh(new THREE.BoxGeometry(toX - fromX + 0.1, 0.1, 0.06), frameMat)
@@ -1486,19 +1494,29 @@ function buildMeetingRoom(zone: OfficeZone, parent: THREE.Group | null = environ
     corridor.receiveShadow = true
     roomGroup.add(corridor)
 
-    const doorMat = envMaterial(theme.palette?.wall_lower || '#dce4e9', 0.52, 0.18)
-    const mainDoor = new THREE.Mesh(
-      horizontal
-        ? new THREE.BoxGeometry(0.12, 2.1, corridorWidth)
-        : new THREE.BoxGeometry(corridorWidth, 2.1, 0.12),
-      doorMat,
-    )
-    mainDoor.position.set(
-      horizontal ? mainEdge : doorCenterX,
-      1.05,
-      horizontal ? doorCenterZ : mainEdge,
-    )
-    roomGroup.add(mainDoor)
+    // 大门（G3 铰链门）：原为焊死的静态板；补门框立柱，改铰链门默认关闭、同事走近自开
+    const postMat = envMaterial(theme.palette?.wall_lower || '#dce4e9', 0.5, 0.2)
+    for (const s of [-1, 1]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.09, 2.1, 0.09), postMat)
+      if (horizontal) post.position.set(mainEdge, 1.05, doorCenterZ + s * corridorWidth / 2)
+      else post.position.set(doorCenterX + s * corridorWidth / 2, 1.05, mainEdge)
+      post.castShadow = true
+      roomGroup.add(post)
+    }
+    // 铰链在门洞低侧端：关门门板贴平外墙，开向办公室内侧
+    let ehx = 0, ehz = 0, eclosed = 0, eopen = 0
+    if (horizontal) {
+      ehx = mainEdge
+      ehz = doorCenterZ - corridorWidth / 2 + 0.04
+      eclosed = -Math.PI / 2
+      eopen = mainEdge > 0 ? -Math.PI / 2 - DOOR_SWING : -Math.PI / 2 + DOOR_SWING
+    } else {
+      ehx = doorCenterX - corridorWidth / 2 + 0.04
+      ehz = mainEdge
+      eclosed = 0
+      eopen = mainEdge > 0 ? DOOR_SWING : -DOOR_SWING
+    }
+    roomGroup.add(createDoor({ hx: ehx, hz: ehz, closed: eclosed, open: eopen, cx: horizontal ? mainEdge : doorCenterX, cz: horizontal ? doorCenterZ : mainEdge, len: Math.max(0.6, corridorWidth - 0.1), height: 2.02, color: theme.palette?.furniture_light || '#8a6b4e' }))
   }
 
   createMeetingZone(zone, roomGroup, doorSide)
@@ -1575,8 +1593,8 @@ function createRoomWalls(
   else if (doorSide === 'right') addPosts(maxX, 0, false)
   else addPosts(0, maxZ, true)
 
-  // 门扇（半开、向房间内侧敞开）：办公室墙不参与寻路，纯装饰
-  const openAngle = 1.2
+  // 门扇（G3 铰链门）：默认关闭，同事走近自动开（doors.ts stepDoors），办公室墙不参与寻路
+  const openAngle = DOOR_SWING
   const leafLen = Math.max(0.6, doorWidth - 0.1)
   const leafH = doorH - 0.08
   const doorLeafMat = envMaterial(theme.palette?.furniture_light || '#8a6b4e', 0.5, 0.2)
@@ -1603,6 +1621,9 @@ function createRoomWalls(
     hinge.rotation.y = Math.PI / 2 + openAngle
   }
   group.add(hinge)
+  const spec = sideDoorSpec(doorSide, doorCenterX, doorCenterZ, minX, maxX, minZ, maxZ, doorWidth)
+  hinge.userData.door = { closed: spec.closed, open: spec.open, cx: spec.cx, cz: spec.cz }
+  hinge.userData.noMerge = true
 
   return group
 }
@@ -1886,6 +1907,15 @@ function tick(time: number) {
   controls?.update()
   // 头顶信息:事件气泡淡出、等待输入脉冲、悬停常显
   actors.updateOverheads(performance.now())
+
+  // G3 门动画：同事走近自动开门、离开缓关；编辑/过渡期没人，门自然合拢
+  if (doorJoints.length) {
+    const nearbys: Array<{ x: number; z: number }> = []
+    if (!editing.value && !viewTween) {
+      for (const a of actors.actorMap.values()) nearbys.push(a.character.position)
+    }
+    stepDoors(doorJoints, nearbys, delta)
+  }
 
   for (const actor of actors.actorMap.values()) {
     const phase = actor.phase

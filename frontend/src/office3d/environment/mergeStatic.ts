@@ -38,6 +38,14 @@ interface StaticBucket {
   sourceMeshes: THREE.Mesh[]
 }
 
+/** userData.noMerge 的子树整枝跳过：门扇等动态件烘进合并体就焊死在烘焙角 */
+function mergeSkip(obj: THREE.Object3D): boolean {
+  for (let p: THREE.Object3D | null = obj; p; p = p.parent) {
+    if (p.userData.noMerge === true) return true
+  }
+  return false
+}
+
 export function mergeStaticGroup(root: THREE.Object3D): THREE.Group {
   // 1. 先把整棵子树的 world matrix 刷到最新，后续按 matrixWorld 烘焙才正确
   root.updateMatrixWorld(true)
@@ -51,6 +59,7 @@ export function mergeStaticGroup(root: THREE.Object3D): THREE.Group {
     if ((obj as THREE.Sprite).isSprite) return // Sprite 走独立渲染路径
     const material = mesh.material
     if (Array.isArray(material)) return // 多材质组无法按单一材质分桶
+    if (mergeSkip(obj)) return // 动态件（门扇等 userData.noMerge）不烘进合并体，否则焊死
     if (mesh.userData.monitor === true) return // 显示器屏幕保持可被单独射线拾取，不合并
     collected.push(mesh)
   })
