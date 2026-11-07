@@ -57,7 +57,7 @@ def get_knowledge_bindings():
                        for g in KNOWLEDGE_GROUPS]}
 
 
-@router.put("/knowledge/bindings", dependencies=[Depends(require_perms("page.strategies"))])
+@router.put("/knowledge/bindings", dependencies=[Depends(require_perms("page.engine"))])
 def put_knowledge_bindings(data: dict):
     """写单节点绑定：{node_key, groups, rule_ids}（组绑定 ∪ 单条勾选）；
     两者皆空 = 该节点解绑。其他节点绑定不动。"""
@@ -84,7 +84,7 @@ def get_rule(rule_id: int):
         repo.close()
 
 
-@router.post("/", dependencies=[Depends(require_perms("page.strategies"))])
+@router.post("/", dependencies=[Depends(require_perms("page.engine"))])
 def create_rule(data: dict):
     for k in ("type", "name"):
         if not data.get(k):
@@ -98,7 +98,7 @@ def create_rule(data: dict):
         repo.close()
 
 
-@router.put("/{rule_id}", dependencies=[Depends(require_perms("page.strategies"))])
+@router.put("/{rule_id}", dependencies=[Depends(require_perms("page.engine"))])
 def update_rule(rule_id: int, data: dict):
     repo = CompatibilityRuleRepository()
     try:
@@ -110,7 +110,7 @@ def update_rule(rule_id: int, data: dict):
         repo.close()
 
 
-@router.post("/{rule_id}/status", dependencies=[Depends(require_perms("page.strategies"))])
+@router.post("/{rule_id}/status", dependencies=[Depends(require_perms("page.engine"))])
 def set_status(rule_id: int, data: dict):
     status = data.get("status")
     if status not in _VALID_STATUS:
@@ -125,7 +125,7 @@ def set_status(rule_id: int, data: dict):
         repo.close()
 
 
-@router.delete("/{rule_id}", dependencies=[Depends(require_perms("page.strategies"))])
+@router.delete("/{rule_id}", dependencies=[Depends(require_perms("page.engine"))])
 def delete_rule(rule_id: int):
     repo = CompatibilityRuleRepository()
     try:

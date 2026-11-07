@@ -2,7 +2,7 @@
 defineOptions({ name: 'StrategyPortal' })
 /** 解决方案门户(/strategies)——全宽横幅布局。
  *  顶部:吸顶工具行(场景胶囊过滤 + 搜索/新建方案);
- *  横幅:全宽 hero(左=场景介绍 + 方案助手咨询 CTA,右肩=工作流三入口);
+ *  横幅:全宽 hero(左=场景介绍 + 方案助手咨询 CTA);
  *  下方:固定 3 列方案卡网格(封面 + 场景铭牌 + 标题 + 一句话摘要)。 */
 import { ref, computed, onMounted, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
@@ -15,12 +15,7 @@ const auth = useAuthStore()
 const { show: showAssistant } = useAssistantShell()
 
 /* ── 工作流入口（横幅右肩） ── */
-interface ModuleCard { key: string; title: string; desc: string; to: string }
-const MODULES: ModuleCard[] = [
-  { key: 'requirement', title: '需求分析', desc: '该配什么、配多少', to: '/strategies/requirement' },
-  { key: 'selection', title: '选型配置', desc: '兼容规则 + BOM 案例库', to: '/strategies/selection' },
-  { key: 'pricing', title: '报价策略', desc: '加法定价引擎', to: '/strategies/pricing' },
-]
+
 
 /* ── 场景色编码（全页唯一的色彩预算） ── */
 const SCENE_HUES: Record<string, string> = {
@@ -107,7 +102,6 @@ onActivated(() => {
 function setScene(k: string) { activeScene.value = k }
 function open(sol: Solution) { router.push(`/strategies/solutions/${sol.key}`) }
 function create() { router.push('/strategies/solutions/new') }
-function enter(to: string) { router.push(to) }
 
 /* ── 杂志卡辅助：摘要 / 阅读时长 / 日期 ── */
 // 摘要：intro 去 Markdown 标记 → 纯文本；无 intro 回落 sub
@@ -139,7 +133,7 @@ function coverSeedOf(key: string): number {
 <template>
   <div class="portal">
     <main class="main">
-      <!-- 全宽横幅：左=场景介绍 + 方案助手咨询，右肩=工作流三入口 -->
+      <!-- 全宽横幅：左=场景介绍 + 方案助手咨询 -->
       <div class="hero" :style="{ '--h': heroHue }">
         <div class="hero-main">
           <div class="hero-kicker">{{ hero.kick }}</div>
@@ -151,17 +145,6 @@ function coverSeedOf(key: string): number {
             </button>
             <span class="hero-note">说出客户需求，AI 推荐匹配的场景方案</span>
           </div>
-        </div>
-        <div class="hero-wf">
-          <div class="wf-cap">工作流</div>
-          <button v-for="m in MODULES" :key="m.key" class="wf-link" @click="enter(m.to)">
-            <span class="ic">{{ String(MODULES.indexOf(m) + 1).padStart(2, '0') }}</span>
-            <span class="wf-txt">
-              <span class="wf-t">{{ m.title }}</span>
-              <span class="wf-d">{{ m.desc }}</span>
-            </span>
-            <span class="ar">→</span>
-          </button>
         </div>
       </div>
 
@@ -293,28 +276,6 @@ function coverSeedOf(key: string): number {
 .hero-cta .sp { font-size: 15px; }
 .hero-note { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 
-/* 右肩工作流：编号 + 标题 + 一句话说明，hover 提亮 */
-.hero-wf {
-  flex-shrink: 0; width: 236px;
-  border-left: 1px solid color-mix(in srgb, var(--h) 22%, var(--cpq-glass-border));
-  padding-left: var(--cpq-space-5);
-  display: flex; flex-direction: column; gap: var(--cpq-space-1);
-}
-.wf-cap { font-size: var(--cpq-font-size-xs); letter-spacing: .1em; color: var(--cpq-text-muted); padding: 0 var(--cpq-space-3); margin: var(--cpq-space-1) 0 var(--cpq-space-2); }
-.wf-link {
-  display: flex; align-items: flex-start; gap: var(--cpq-space-2); width: 100%;
-  padding: var(--cpq-space-2) var(--cpq-space-3); border: none; border-radius: var(--cpq-radius-lg);
-  background: none; color: var(--cpq-text-secondary); text-align: left; cursor: pointer;
-  transition: background .15s;
-}
-.wf-link:hover { background: var(--cpq-overlay-w6); }
-.wf-link:hover .ar { color: var(--h); transform: translateX(2px); }
-.wf-link .ic { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); padding-top: 2px; }
-.wf-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.wf-t { font-size: var(--cpq-font-size-sm); font-weight: 600; color: var(--cpq-text-primary); }
-.wf-d { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; transition: color .15s; }
-.wf-link:hover .wf-d { color: var(--cpq-text-secondary); }
-.wf-link .ar { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); padding-top: 3px; transition: color .15s, transform .15s; }
 
 /* 方案卡：杂志式（封面 + 元信息 + 标题 + 摘要 + 阅读全文）；hover 走 Vercel 口径（100ms 颜色状态） */
 .sol-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--cpq-space-4); }
@@ -393,7 +354,7 @@ function coverSeedOf(key: string): number {
   .sol-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
-/* 窄屏：工具行换行，横幅改纵向堆叠（工作流收进横幅底部横排），卡两列 */
+/* 窄屏：工具行换行，横幅改纵向堆叠，卡两列 */
 @media (max-width: 920px) {
   .portal { height: auto; padding-bottom: var(--cpq-space-6); }
   .main { height: auto; overflow: visible; padding: 0 var(--cpq-space-4) 0; }
@@ -404,11 +365,6 @@ function coverSeedOf(key: string): number {
   .btn-new { flex-shrink: 0; }
   .sol-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hero { flex-direction: column; gap: 0; padding: var(--cpq-space-5) var(--cpq-space-4); }
-  .hero-wf { width: auto; border-left: none; border-top: 1px solid color-mix(in srgb, var(--h) 22%, var(--cpq-glass-border)); padding-left: 0; padding-top: var(--cpq-space-3); margin-top: var(--cpq-space-4); flex-direction: row; gap: var(--cpq-space-2); overflow-x: auto; }
-  .wf-cap { display: none; }
-  .wf-link { width: auto; flex-shrink: 0; }
-  .wf-txt { gap: 0; }
-  .wf-d, .wf-link .ar { display: none; }
 }
 
 /* 手机：卡单列，横幅边距再收一档 */

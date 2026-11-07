@@ -239,24 +239,17 @@ const routes = [
         component: () => import('@/views/admin/StrategyPortal.vue'),
         meta: { title: '解决方案', perm: 'page.strategies' }
       },
+      { path: '/strategies/pricing', redirect: { path: '/settings/engine', query: { tab: 'pricing' } } },
+      // 配置引擎(设置 · 独立权限 page.engine,2026-11-07 自策略中心·工作流域整体迁入)
       {
-        path: '/strategies/pricing',
-        name: 'StrategyPricing',
-        component: () => import('@/views/admin/pricing/PricingWorkspace.vue'),
-        meta: { title: '报价策略', perm: 'page.strategies' }
+        path: '/settings/engine',
+        name: 'ConfigEngine',
+        component: () => import('@/views/admin/engine/ConfigEngine.vue'),
+        meta: { title: '配置引擎', perm: 'page.engine' }
       },
-      {
-        path: '/strategies/selection',
-        name: 'StrategySelection',
-        component: () => import('@/views/admin/selection/SelectionWorkspace.vue'),
-        meta: { title: '选型配置', perm: 'page.strategies' }
-      },
-      {
-        path: '/strategies/requirement',
-        name: 'StrategyRequirement',
-        component: () => import('@/views/admin/requirement/RequirementRules.vue'),
-        meta: { title: '需求分析规则', perm: 'page.strategies' }
-      },
+      // 旧工作流域路径 → 配置引擎(书签与跨页链接保活)
+      { path: '/strategies/selection', redirect: { path: '/settings/engine', query: { tab: 'selection' } } },
+      { path: '/strategies/requirement', redirect: { path: '/settings/engine', query: { tab: 'requirement' } } },
       {
         path: '/strategies/solutions/:key',
         name: 'SolutionDetail',

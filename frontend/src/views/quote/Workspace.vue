@@ -512,28 +512,11 @@
               </div>
             </div>
 
-            <!-- 装配账本：功耗/槽位实时（数据来自基准配置，引擎 resolve.budget） -->
-            <div class="glass fin-card assembly-ledger" v-if="gate.budget.value">
-              <div class="selection-advice-head">
-                <span class="selection-advice-title">装配账本</span>
-                <span v-if="gate.gateDegraded.value" class="ledger-degraded">引擎降级 · 暂不校验</span>
-              </div>
-              <div class="ledger-power">
-                <div class="led-row"><span>装机功耗</span><b>{{ fmtW(ledgerPower.load) }}</b></div>
-                <div class="led-gauge"><i :class="ledgerPower.cls" :style="{ width: ledgerPower.pct + '%' }"></i></div>
-                <div class="led-row"><span>PSU 容量</span><b>{{ fmtW(ledgerPower.cap) }}</b></div>
-              </div>
-              <div class="ledger-slots">
-                <div v-for="s in ledgerSlots" :key="s.key" class="led-row">
-                  <span>{{ s.label }}</span><b>{{ s.used }}<span class="led-sep">/</span>{{ s.max ?? '—' }}</b>
-                </div>
-              </div>
-            </div>
-
             <!-- 选型建议：规则命中的 require/exclude/derive/recommend 提醒，统一收纳到右栏 -->
             <div class="glass fin-card selection-advice-card">
               <div class="selection-advice-head">
                 <span class="selection-advice-title">选型建议</span>
+                <span v-if="gate.gateDegraded.value" class="gate-degraded-note">引擎降级 · 暂不校验</span>
                 <span v-if="selectionAlerts.length" class="selection-advice-count">{{ selectionAlerts.length }}</span>
               </div>
               <div v-if="selectionAlerts.length" class="selection-alerts">
@@ -2271,31 +2254,6 @@ function gateFilterNote(cat: string): string {
   const n = gate.filteredCount.value[cat] || 0
   return n > 0 ? `已按机型过滤 ${n} 件不兼容` : ''
 }
-// 装配账本:功耗条 + 槽位占用(数据来自基准配置,引擎 budget)
-const LEDGER_LABELS: Record<string, string> = {
-  max_cpu: 'CPU', max_dimm: '内存', bays: '盘位', gpu_slots: 'GPU', psu: '电源',
-}
-const ledgerSlots = computed(() => {
-  const slots = gate.budget.value?.slots || {}
-  return Object.entries(slots).map(([key, s]) => ({
-    key, label: LEDGER_LABELS[key] || key, used: s.used, max: s.max,
-  }))
-})
-const ledgerPower = computed(() => {
-  const b = gate.budget.value
-  const load = b?.psu_load_w ?? null
-  const cap = b?.psu_capacity_w ?? null
-  const ratio = load != null && cap ? load / cap : null
-  return {
-    load, cap,
-    pct: ratio != null ? Math.min(100, Math.round(ratio * 100)) : 0,
-    cls: ratio == null ? '' : ratio > 1 ? 'over' : ratio > 0.83 ? 'hot' : '',
-  }
-})
-function fmtW(v: number | null | undefined): string {
-  return v == null ? '—' : `${Math.round(v)}W`
-}
-
 // 利润率告警：读策略中心 margin_alert 策略（开关 + 门槛 + 文案）；只在保存商机时检查全部配置，不锁、不自动改价。
 function warnLowMarginIfNeeded() {
   const alert = pricingRulesStore.getMarginAlert()
@@ -2777,18 +2735,7 @@ onMounted(async () => {
 .selection-alert.require { color: #c8861a; background: var(--cpq-overlay-warn30, rgba(244,210,138,0.18)); border-color: var(--cpq-accent-warning, #F4D28A); }
 .selection-alert.warning { color: var(--cpq-accent-warning, #F4D28A); background: rgba(244,210,138,0.14); border-color: rgba(244,210,138,0.32); }
 .selection-advice-card { margin-top: 12px; }
-/* 装配账本:功耗条 + 槽位占用(引擎 resolve.budget;视觉值全走 --cpq-* token) */
-.assembly-ledger { margin-top: 12px; }
-.ledger-degraded { color: var(--cpq-accent-warning,#F4D28A); font-size: var(--cpq-font-size-sm); }
-.ledger-power { margin-bottom: 10px; }
-.led-row { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
-.led-row b { color: var(--cpq-text-primary); font-variant-numeric: tabular-nums; }
-.led-row .led-sep { color: var(--cpq-text-disabled,#9BA1AA); margin: 0 3px; }
-.led-gauge { height: 8px; border-radius: 999px; background: var(--cpq-overlay-fill,rgba(0,0,0,.06)); overflow: hidden; margin: 6px 0; }
-.led-gauge i { display: block; height: 100%; border-radius: 999px; background: var(--cpq-accent-primary); transition: width .25s var(--cpq-ease-smooth,ease); }
-.led-gauge i.hot { background: var(--cpq-accent-warning,#F4D28A); }
-.led-gauge i.over { background: var(--cpq-accent-danger,#FF6B6B); }
-.ledger-slots { border-top: 1px solid var(--cpq-glass-border); padding-top: 8px; }
+.gate-degraded-note { color: var(--cpq-accent-warning,#F4D28A); font-size: var(--cpq-font-size-sm); }
 .selection-advice-card .selection-alerts { margin: 0; padding: 0 14px 14px; }
 .selection-advice-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px; }
 .selection-advice-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); }

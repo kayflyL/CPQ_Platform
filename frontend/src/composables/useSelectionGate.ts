@@ -112,15 +112,20 @@ export function useSelectionGate(opts: UseSelectionGateOptions) {
 
   const refresh = useDebounceFn(run, 500)
 
+  // 监听轻量签名(类目:PN:数量 拼接串),禁用 deep——deep 会把每次构造的 kpRows 数组
+  // (含 200+ 件 specs 对象)整棵深遍历并逐属性注册依赖,组件多的页面每次响应式更新都被
+  // 重扫一遍,表现为页面卡顿。签名串足以覆盖判定输入的变化。
   watch(
-    () => [
-      opts.baseConfigId(),
-      opts.serverModel(),
-      opts.series(),
-      opts.kpRows(),
-    ],
+    () => {
+      const rows = opts.kpRows() || []
+      return [
+        opts.baseConfigId() ?? '',
+        opts.serverModel() || '',
+        opts.series() || '',
+        rows.map(r => `${r.category}:${r.pn || r.name || ''}:${r.qty ?? 0}`).join('|'),
+      ]
+    },
     () => refresh(),
-    { deep: true },
   )
 
   onUnmounted(() => {

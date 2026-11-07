@@ -724,7 +724,9 @@ _DEFAULT_PERMISSIONS = [
     {"key": "page.parts", "name": "配件", "group": "page", "module": "配件"},
     {"key": "field.parts.price", "name": "配件价格可见（库价/价格历史）", "group": "field", "module": "配件"},
     {"key": "action.parts.price.manage", "name": "配件价格维护（录价/改价/价格导入导出）", "group": "action", "module": "配件"},
-    {"key": "page.strategies", "name": "解决方案（策略中心全部子页）", "group": "page", "module": "解决方案"},
+    {"key": "page.strategies", "name": "解决方案（策略中心门户与解决方案库）", "group": "page", "module": "解决方案"},
+    # 配置引擎(2026-11-07 自策略中心·工作流域整体迁入设置,独立权限,不再挂解决方案)
+    {"key": "page.engine", "name": "配置引擎（兼容规则 / BOM案例库 / 需求分析规则 / 报价策略）", "group": "page", "module": "配置引擎"},
     {"key": "page.settings.users", "name": "用户与权限", "group": "page", "module": "设置"},
     {"key": "page.settings.excel", "name": "解析规则", "group": "page", "module": "设置"},
     {"key": "page.settings.templates", "name": "导出模板", "group": "page", "module": "设置"},

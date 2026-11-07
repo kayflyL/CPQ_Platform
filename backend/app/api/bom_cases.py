@@ -72,7 +72,7 @@ def get_case(case_key: str, user: dict = Depends(get_current_user)):
         repo.close()
 
 
-@router.post("/", dependencies=[Depends(require_perms("page.strategies"))])
+@router.post("/", dependencies=[Depends(require_perms("page.engine"))])
 def create_case(data: dict):
     repo = BomCaseRepository()
     try:
@@ -86,7 +86,7 @@ def create_case(data: dict):
         repo.close()
 
 
-@router.put("/{case_key}", dependencies=[Depends(require_perms("page.strategies"))])
+@router.put("/{case_key}", dependencies=[Depends(require_perms("page.engine"))])
 def update_case(case_key: str, data: dict):
     repo = BomCaseRepository()
     try:
@@ -101,7 +101,7 @@ def update_case(case_key: str, data: dict):
         repo.close()
 
 
-@router.delete("/{case_key}", dependencies=[Depends(require_perms("page.strategies"))])
+@router.delete("/{case_key}", dependencies=[Depends(require_perms("page.engine"))])
 def delete_case(case_key: str):
     repo = BomCaseRepository()
     try:

@@ -240,6 +240,7 @@ const topItems = computed<NavItem[]>(() => {
 const settingsItems = computed<NavItem[]>(() => {
   const items: NavItem[] = [
     { key: '/settings/users', label: '用户与权限', perm: 'page.settings.users' },
+    { key: '/settings/engine', label: '配置引擎', perm: 'page.engine' },
     { key: '/excel-parser', label: '解析规则', perm: 'page.settings.excel' },
     { key: '/export-templates', label: '导出模板', perm: 'page.settings.templates' },
     { key: '/servers/admin', label: '服务器管理', perm: 'page.settings.admin' },
